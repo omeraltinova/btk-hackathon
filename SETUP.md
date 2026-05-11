@@ -216,4 +216,4 @@ git reset --hard HEAD
 
 ## 9. What changes day-by-day
 
-See [`WORKDIVISION.md`](WORKDIVISION.md) for the day-by-day file map and handoffs. As features land, this SETUP.md should stay accurate — if a step here breaks, fix it in the same PR that introduced the regression.
+See [`TEAM_PROTOCOL.md`](TEAM_PROTOCOL.md) for the numbered task list and owners, and [`WORKDIVISION.md`](WORKDIVISION.md) for the collaboration rules around dependencies, review, and handoff. As features land, this SETUP.md should stay accurate — if a step here breaks, fix it in the same PR that introduced the regression.

@@ -671,19 +671,29 @@ HAVING COUNT(*) >= 2 AND STDDEV(amount) < amount * 0.05
 
 ## 18. 8 günlük plan
 
-| Gün | Tarih | Kişi A | Kişi B |
+Bu plan iki full-stack kişi arasında **task bazlı** paylaşılır:
+
+- Her task tek kişiye aittir; aynı task iki kişiye yazılmaz.
+- Bir task frontend + backend + test + deploy işlerini birlikte içerebilir.
+- Bağımlılık varsa bu, tek yönlü teslimdir; ortak sahiplik değildir.
+
+| Gün | Tarih | Person A | Person B |
 |---|---|---|---|
 | 1 | 11 May Pzt | Repo + FastAPI + Postgres + Docker Compose + Alembic + auth iskelet | Next.js init + Tailwind + shadcn + layout + route plan + chat UI mockup |
-| 2 | 12 May Sal | Transaction CRUD + Gemini API test + LangGraph hello-world | Auth pages + dashboard mock + transaction list + chat streaming iskelet |
-| 3 | 13 May Çar | `get_spending` + `get_subscriptions` + `get_user_memory` + agent çalışır | Dashboard → API + Recharts + chat ↔ backend |
-| 4 | 14 May Per | `analyze_receipt` (Vision) + structured output + DB yazımı | Fiş drag-drop + preview + onay akışı |
-| 5 | 15 May Cum | `explain_concept` + `simulate_scenario` + aile modu filter | Aile yönetim UI + family switch + demo seeder |
-| 6 | 16 May Cmt | Proaktif worker + 4 kural + Coolify deploy | UI cilası + dark + mobile + InsightBanner + senkron |
-| 7 | 17 May Paz | Demo video çekim + README + GitHub temizliği + test | Form içerik + video düzenleme + son UI fix |
+| 2 | 12 May Sal | Task 1: Auth akışı uçtan uca | Task 2: Transaction akışı + chat mock uçtan uca |
+| 3 | 13 May Çar | Task 3: Agent harcama sorgusu + stream backend | Task 4: Dashboard analytics + stream chat UI |
+| 4 | 14 May Per | Task 5: Receipt ingestion backend slice | Task 6: Receipt confirmation + history UI |
+| 5 | 15 May Cum | Task 7: Family management uçtan uca | Task 8: Child coach experience uçtan uca |
+| 6 | 16 May Cmt | Task 9: Proactive insights + deploy | Task 10: Insight UI + mobile/dark polish |
+| 7 | 17 May Paz | Task 11: Smoke test + mimari diyagram + demo script | Task 12: README + demo assets + form copy |
 | 8 | 18 May Pzt | Buffer + bug fix + form hazırlığı | Buffer + form hazırlığı |
 | 9 | 19 May Pzt | Form gönder (öğleden önce) + son test | Form gönder + son test |
 
 **Her gün 21:00 senkron — 30 dk Discord, ne yapıldı / yarın ne / blocker.**
+
+**Günlük task listesi, owner'lar ve detaylar için:** `TEAM_PROTOCOL.md`
+
+**Task bağımlılığı, branch ve review kuralları için:** `WORKDIVISION.md`
 
 ---
 
@@ -797,7 +807,7 @@ cuzdan-kocu/
 | Agentic Yapılar | 10 | State machine + 6 tool + memory + canlı trace |
 | Yenilikçilik | 10 | Proaktif insight + aile/çocuk modu + Türkçe koç |
 | Kullanıcı Dostu | 10 | Canlı URL + mobile + dark + zero onboarding |
-| Takım Çalışması | 10 | Dengeli commit + net rol |
+| Takım Çalışması | 10 | Dengeli task paylaşımı + tek sahipli görevler + temiz handoff |
 | Sunum | 10 | (Sadece ilk 10'a kalırsak) — şu an için README + demo video kalitesi |
 
 ---
@@ -850,14 +860,14 @@ GitHub README'de jüri görür:
 
 ## 25. Sunum yapısı (sadece ilk 10'a kalırsak — 7 dk)
 
-| Sn | Bölüm | Kim | İçerik |
+| Sn | Bölüm | Sahip | İçerik |
 |---|---|---|---|
-| 0–30 | Problem | B | 3 stat: aileler + okuryazarlık + çocuk |
-| 30–90 | Çözüm | B | 1 cümle tanım + 3 ekran |
-| 90–270 | Canlı demo | B | 3 senaryo: fiş → abonelik → çocuğa koç |
-| 270–360 | Mimari | A | Diyagram + LangGraph state machine |
-| 360–390 | Agentic vurgu | A | Canlı agent trace |
-| 390–420 | Yenilikçilik + kapanış | B | Proaktif + aile + Türkçe + canlı URL |
+| 0–30 | Problem | Person B | 3 stat: aileler + okuryazarlık + çocuk |
+| 30–90 | Çözüm | Person B | 1 cümle tanım + 3 ekran |
+| 90–270 | Canlı demo | Person B | 3 senaryo: fiş → abonelik → çocuğa koç |
+| 270–360 | Mimari | Person A | Diyagram + LangGraph state machine |
+| 360–390 | Agentic vurgu | Person A | Canlı agent trace |
+| 390–420 | Yenilikçilik + kapanış | Person B | Proaktif + aile + Türkçe + canlı URL |
 
 İlk 10 açıklandıktan sonra detayları yazılacak.
 
@@ -896,7 +906,7 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.3
+**Doküman versiyonu:** 0.6
 **Son güncelleme:** 11 Mayıs 2026
-**v0.3 değişiklikleri:** Day 1 kararları doğrultusunda — magic link auth → email + password (Bölüm 12.1, 12.3, 13, 26); `users.password_hash` kolonu eklendi; tüm tablolara `updated_at` standart kolon eklendi (Bölüm 15); pnpm + uv package manager kararı (Bölüm 13); `categories.user_id` NULL = sistem default kategorisi açıklığa kavuşturuldu (Bölüm 15); coding agent kuralı 11 eklendi (Bölüm 27).
-**Sonraki güncelleme:** Day 2 öncesi (auth UI somutlaşınca) ya da yeni varsayım onayı geldiğinde.
+**v0.6 değişiklikleri:** Çalışma planı lane/seat mantığından çıkarılıp iki full-stack kişi arasında numaralı task listesine çevrildi; §18 kişi bazlı task dağılımı olarak sadeleştirildi; `TEAM_PROTOCOL.md` aktif task listesi, `WORKDIVISION.md` ise işbirliği kuralları olarak yeniden tanımlandı; §21 ve §25 buna göre güncellendi.
+**Sonraki güncelleme:** Handoff/ownership planı değişirse ya da yeni varsayım onayı geldiğinde.
