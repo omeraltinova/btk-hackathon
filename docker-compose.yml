@@ -17,15 +17,15 @@ services:
     container_name: cuzdan-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-cuzdan}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cuzdan}
-      POSTGRES_DB: ${POSTGRES_DB:-cuzdan}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required. Copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required. Copy .env.example to .env}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required. Copy .env.example to .env}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cuzdan} -d ${POSTGRES_DB:-cuzdan}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -36,8 +36,8 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required. Copy .env.example to .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required. Copy .env.example to .env}
     ports:
       - "9000:9000"  # S3 API
       - "9001:9001"  # Web console
@@ -67,16 +67,16 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
       APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://localhost:3000}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cuzdan}:${POSTGRES_PASSWORD:-cuzdan}@postgres:5432/${POSTGRES_DB:-cuzdan}
-      JWT_SECRET: ${JWT_SECRET:-change-me-please-use-openssl-rand-hex-32}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required. Copy .env.example to .env}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_EXPIRE_DAYS: ${JWT_EXPIRE_DAYS:-7}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       MINIO_ENDPOINT: minio:9000
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
       MINIO_BUCKET_RECEIPTS: ${MINIO_BUCKET_RECEIPTS:-receipts}
     ports:
       - "8000:8000"
