@@ -1,0 +1,27 @@
+# Enforce LF line endings for all text files (cross-platform team)
+* text=auto eol=lf
+
+# Explicit text formats
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.sql   text eol=lf
+*.sh    text eol=lf
+Makefile text eol=lf
+
+# Binaries (no transformation, no diff)
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
