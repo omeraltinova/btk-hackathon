@@ -41,3 +41,17 @@ updated_at: Mapped[datetime] = mapped_column(
 - **Frontend:** Next.js 15 App Router, TypeScript `strict: true`, `pnpm` for dependency management, `eslint` clean, no `any` without an inline justification.
 - **Code comments and commit messages in English.** All user-visible strings (UI, errors, agent output) in **Turkish**.
 - Every router today (Day 1) is a stub — **no business logic** until the relevant day's task in `docs/master_plan.md` §18 begins.
+
+## Commit rules
+
+When creating commits in this repository:
+
+- Use **Conventional Commits**: `<type>(optional-scope): <short summary>`.
+- Keep the commit subject in **English**, imperative or concise present tense, and under ~72 characters when practical.
+- Use lowercase English types such as `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `build`, `ci`, or `perf`.
+- Use a clear English scope when it helps reviewers: `feat(backend)`, `feat(frontend)`, `fix(auth)`, `docs`, `chore(deps)`.
+- Split unrelated work into separate commits. Do not mix backend, frontend, docs, and infrastructure changes unless the change is intentionally atomic.
+- The commit body should explain **what changed**, **why it changed**, and **how it was verified**. Turkish detail is acceptable in the body when it helps the local team, but the type/scope/subject must stay English.
+- Mention relevant verification commands in the body, for example `uv run pytest -q`, `corepack pnpm lint`, `make type-check`, or explain why a check could not be run.
+- Do not commit secrets, real API keys, `.env`, local databases, build outputs, caches, `node_modules`, `.venv`, or generated artifacts ignored by `.gitignore`.
+- Before committing, run `git status --short` and ensure the staged file list matches the intended commit scope.

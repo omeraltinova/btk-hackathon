@@ -18,10 +18,10 @@ const HARDCODED_DEMO_USER = {
 };
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Panel", icon: LayoutDashboard },
-  { href: "/chat", label: "Sohbet", icon: MessageSquare },
-  { href: "/receipts", label: "Fişler", icon: Receipt },
-  { href: "/family", label: "Aile", icon: Users },
+  { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
+  { href: "/chat", label: "Sohbet", section: "02", icon: MessageSquare },
+  { href: "/receipts", label: "Fişler", section: "03", icon: Receipt },
+  { href: "/family", label: "Aile", section: "04", icon: Users },
 ] as const;
 
 function initials(name: string): string {
@@ -38,15 +38,25 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col border-r bg-card">
+    <aside className="sticky top-0 z-40 flex w-full shrink-0 flex-col border-b border-border/80 bg-card/95 backdrop-blur-xl lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:bg-card">
       {/* Brand */}
-      <div className="flex items-center gap-2 px-6 py-6">
-        <Wallet className="h-6 w-6 text-primary" />
-        <span className="text-lg font-semibold tracking-tight">Cüzdan Koçu</span>
+      <div className="binder-holes relative flex items-center justify-between gap-4 px-4 py-4 lg:block lg:px-8 lg:py-7">
+        <div className="flex items-center gap-3">
+          <div className="hard-shadow-accent grid h-11 w-11 place-items-center rounded-[1rem_1rem_0.55rem_1rem] border border-primary/30 bg-primary text-primary-foreground">
+            <Wallet className="h-5 w-5" />
+          </div>
+          <div>
+            <span className="font-display text-xl font-bold tracking-tight">Cüzdan Koçu</span>
+            <p className="text-xs text-muted-foreground">Ev bütçesi defteri</p>
+          </div>
+        </div>
+        <span className="stamp-label bg-background/65 text-primary lg:mt-6 lg:inline-flex">
+          Demo
+        </span>
       </div>
 
       {/* User chip (Day 1: hard-coded demo user) */}
-      <div className="mx-3 flex items-center gap-3 rounded-lg bg-muted px-3 py-3">
+      <div className="mx-4 hidden rotate-[-1deg] items-center gap-3 rounded-[1.4rem_1.4rem_0.8rem_1.4rem] border border-border/80 bg-muted/70 px-3 py-3 lg:flex">
         <Avatar className="h-9 w-9">
           <AvatarFallback>{initials(HARDCODED_DEMO_USER.name)}</AvatarFallback>
         </Avatar>
@@ -59,7 +69,7 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="mt-4 flex-1 space-y-1 px-3">
+      <nav className="flex gap-2 overflow-x-auto px-3 pb-3 lg:mt-6 lg:flex-1 lg:flex-col lg:gap-2 lg:overflow-visible lg:px-4 lg:pb-0">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
@@ -67,25 +77,27 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={isActive ? "page" : undefined}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "tab-chip flex shrink-0 items-center gap-3 px-4 py-2.5 pr-6 text-sm font-bold transition-all duration-200 ease-quint lg:w-full",
                 isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  ? "hard-shadow-accent bg-primary text-primary-foreground"
+                  : "bg-muted/45 text-muted-foreground hover:bg-accent/45 hover:text-accent-foreground motion-safe:hover:-translate-y-0.5",
               )}
             >
+              <span className="font-display text-xs opacity-70">{item.section}</span>
               <Icon className="h-4 w-4" />
-              {item.label}
+              <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
       {/* Logout (Day 1: stub — wired Day 2) */}
-      <div className="border-t p-3">
+      <div className="hidden border-t border-border/70 p-4 lg:block">
         <Button
           variant="ghost"
-          className="w-full justify-start text-muted-foreground"
+          className="w-full justify-start rounded-[1.1rem] text-muted-foreground"
           // TODO Day 2: clear JWT + redirect to /login.
           disabled
         >

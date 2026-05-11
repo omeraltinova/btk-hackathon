@@ -38,18 +38,21 @@ Files touched:
 
 ### Person B — auth UX + transaction list UI + chat skeleton
 
-**Goal:** Working login flow, dashboard reads transactions, chat sends a hard-coded mock reply.
+**Goal:** Working login flow via NextAuth session carrier, dashboard reads transactions, chat sends a hard-coded mock reply.
 
 Files touched:
-- `frontend/app/(auth)/login/page.tsx` — convert to client component, wire submit to `/api/auth/login`
+- `frontend/app/(auth)/login/page.tsx` — convert to client component, wire submit to `signIn("credentials")`
 - `frontend/app/(auth)/register/page.tsx` (new)
-- `frontend/components/auth-context.tsx` (new) — React context wrapping `lib/api.ts` token helpers
-- `frontend/app/(app)/layout.tsx` — add server-side redirect to `/login` when no token
+- `frontend/app/api/auth/[...nextauth]/route.ts` (new) — NextAuth Credentials provider; calls FastAPI `/api/auth/login`
+- `frontend/lib/auth.ts` (new) — NextAuth config, JWT/session callbacks, backend token passthrough
+- `frontend/app/(app)/layout.tsx` — add server-side redirect to `/login` when no NextAuth session
 - `frontend/app/(app)/dashboard/page.tsx` — render transactions list (calls `GET /api/transactions`)
 - `frontend/app/(app)/chat/page.tsx` — split into `<ChatStream/>` client component scaffold (no real streaming yet)
 - `frontend/components/ChatStream.tsx` (new) — input + message list, calls placeholder `/api/chat/stream` (returns mock JSON)
+- `frontend/lib/api.ts` — accept/use backend JWT from NextAuth session instead of the Day 1 localStorage-only path
 - `frontend/lib/types.ts` (new) — TS types mirroring backend Pydantic schemas
 - `frontend/components/ui/textarea.tsx` (new shadcn) — for chat input
+- `frontend/package.json` — add `next-auth`
 
 **Handoff from PA by 17:00:**
 - PB starts on UI shells with mock data at 09:00; switches to live API at 17:00 once PA's PR merges.

@@ -78,11 +78,11 @@ def upgrade() -> None:
         sa.UniqueConstraint("email", name="uq_users_email"),
         sa.CheckConstraint(
             "role IN ('parent','child','individual')",
-            name="ck_users_role_valid",
+            name="role_valid",
         ),
         sa.CheckConstraint(
             "finance_level IN ('beginner','intermediate','advanced','child')",
-            name="ck_users_finance_level_valid",
+            name="finance_level_valid",
         ),
     )
 
@@ -172,11 +172,11 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "type IN ('income','expense')",
-            name="ck_transactions_type_valid",
+            name="type_valid",
         ),
         sa.CheckConstraint(
             "source IN ('manual','receipt_ocr','recurring')",
-            name="ck_transactions_source_valid",
+            name="source_valid",
         ),
     )
     op.create_index(
@@ -242,7 +242,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "billing_cycle IN ('weekly','monthly','yearly')",
-            name="ck_subscriptions_billing_cycle_valid",
+            name="billing_cycle_valid",
         ),
     )
 
@@ -318,7 +318,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "role IN ('user','assistant','tool')",
-            name="ck_messages_role_valid",
+            name="role_valid",
         ),
     )
     op.create_index("idx_msg_conv", "messages", ["conversation_id", "created_at"])
@@ -402,7 +402,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "severity IN ('info','warning','critical')",
-            name="ck_proactive_insights_severity_valid",
+            name="severity_valid",
         ),
     )
     # Partial index — matches master_plan §15 exactly.
