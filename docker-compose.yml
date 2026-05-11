@@ -1,0 +1,114 @@
+# Cüzdan Koçu — local development stack.
+# All four services live here even on Day 1; backend doesn't talk to MinIO yet
+# but having the service up keeps Day 4 deploy parity painless.
+#
+# Usage:
+#   cp .env.example .env
+#   docker compose up --build
+#
+# After startup:
+#   backend  http://localhost:8000/health
+#   frontend http://localhost:3000
+#   minio    http://localhost:9001  (console; user/pass from .env)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cuzdan-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cuzdan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cuzdan}
+      POSTGRES_DB: ${POSTGRES_DB:-cuzdan}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cuzdan} -d ${POSTGRES_DB:-cuzdan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: cuzdan-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cuzdan-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      # Pulls everything from the root .env; overrides go here as needed.
+      APP_ENV: ${APP_ENV:-development}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://localhost:3000}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cuzdan}:${POSTGRES_PASSWORD:-cuzdan}@postgres:5432/${POSTGRES_DB:-cuzdan}
+      JWT_SECRET: ${JWT_SECRET:-change-me-please-use-openssl-rand-hex-32}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_DAYS: ${JWT_EXPIRE_DAYS:-7}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET_RECEIPTS: ${MINIO_BUCKET_RECEIPTS:-receipts}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # WHY this command override: enables --reload during dev so code edits in
+    # the mounted volume hot-reload without rebuilding the image.
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cuzdan-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Cüzdan Koçu}
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  minio-data:
