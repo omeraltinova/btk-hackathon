@@ -18,8 +18,8 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 
 | Task | Day | Owner | Title | Depends on | Status |
 |---|---|---|---|---|---|
-| 1 | 2 | Person A | Auth flow end-to-end | None | TODO |
-| 2 | 2 | Person B | Transactions feature slice + chat mock | Task 1 auth contract | TODO |
+| 1 | 2 | Person A | Auth flow end-to-end | None | DONE |
+| 2 | 2 | Person B | Transactions feature slice + chat mock | Task 1 auth contract | DONE |
 | 3 | 3 | Person A | Agent spending query + streaming backend | Task 2 transaction data | TODO |
 | 4 | 3 | Person B | Dashboard analytics + streaming chat UI | Task 3 SSE contract | TODO |
 | 5 | 4 | Person A | Receipt ingestion backend slice | None | TODO |
@@ -55,10 +55,10 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `frontend/app/(app)/layout.tsx`
 - Depends on: `None`
 - Done when:
-  - [ ] Register and login return JWT/session data
-  - [ ] `GET /api/auth/me` works with bearer token
-  - [ ] Login redirects to `/dashboard`
-  - [ ] Auth tests are green
+  - [x] Register and login return JWT/session data
+  - [x] `GET /api/auth/me` works with bearer token
+  - [x] Login redirects to `/dashboard`
+  - [x] Auth tests are green
 
 ## Task 2 -- Transactions feature slice + chat mock
 
@@ -81,10 +81,10 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `frontend/lib/types.ts`
 - Depends on: `Task 1 auth contract by 17:00`
 - Done when:
-  - [ ] Authenticated `GET /api/transactions` returns user-scoped data
-  - [ ] Dashboard renders transaction list from real API data
-  - [ ] Chat mock UI is visible and usable
-  - [ ] Transaction tests are green
+  - [x] Authenticated `GET /api/transactions` returns user-scoped data
+  - [x] Dashboard renders transaction list from real API data
+  - [x] Chat mock UI is visible and usable
+  - [x] Transaction tests are green
 
 ## Task 3 -- Agent spending query + streaming backend
 

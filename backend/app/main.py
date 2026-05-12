@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.config import get_settings
@@ -31,7 +33,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Routers (Day 1: stub'lar, route içermez)
+    @app.exception_handler(RequestValidationError)
+    def validation_error_handler(
+        _request: object,
+        _exc: RequestValidationError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Gönderilen bilgileri kontrol eder misin?"},
+        )
+
+    # Routers
     app.include_router(auth.router)
     app.include_router(transactions.router)
     app.include_router(receipts.router)

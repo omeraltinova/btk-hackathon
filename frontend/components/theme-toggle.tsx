@@ -7,24 +7,18 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 
 /**
- * Single-button theme toggle. Cycles light → dark → system.
- * WHY a 3-state cycle (not just light/dark): respects users who prefer to
- * inherit from the OS, which is the master_plan default.
+ * Single-button theme toggle.
  */
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
 
   // Avoid hydration mismatch — `theme` is undefined on the server.
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
 
-  const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
-  const label =
-    theme === "light"
-      ? "Tema: açık (karanlığa geç)"
-      : theme === "dark"
-        ? "Tema: koyu (sisteme geç)"
-        : "Tema: sistem (açığa geç)";
+  const isDark = resolvedTheme === "dark";
+  const next = isDark ? "light" : "dark";
+  const label = isDark ? "Tema: koyu (açığa geç)" : "Tema: açık (karanlığa geç)";
 
   return (
     <Button
@@ -33,10 +27,11 @@ export function ThemeToggle() {
       aria-label={label}
       title={label}
       onClick={() => setTheme(next)}
+      disabled={!mounted}
     >
       {/* Icons only render after mount to avoid mismatched SSR markup. */}
       {mounted ? (
-        theme === "dark" ? (
+        isDark ? (
           <Moon className="h-4 w-4" />
         ) : (
           <Sun className="h-4 w-4" />

@@ -72,18 +72,20 @@ export default function ReceiptsPage() {
                 OCR önizleme
               </p>
               <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
-                Migros fişi örneği
+                OCR sonucu bekleniyor
               </h2>
             </div>
             <ReceiptText className="h-6 w-6 text-primary" />
           </div>
 
-          <div className="mt-5 flex items-center justify-between gap-4">
+          <div className="mt-5 rounded-[1.25rem] border border-dashed border-border/80 p-5">
             <div>
-              <p className="font-display text-2xl font-black">Migros</p>
-              <p className="text-sm text-muted-foreground">Kategori: Market</p>
+              <p className="font-display text-2xl font-black">Henüz fiş yüklenmedi</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Fiş yükleme bağlandığında bu alan veritabanına yazılmadan önce gerçek OCR sonucunu
+                gösterecek.
+              </p>
             </div>
-            <p className="font-display text-2xl font-black tabular-nums">247,50 ₺</p>
           </div>
 
           <div className="mt-6 space-y-3">

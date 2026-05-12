@@ -1,14 +1,8 @@
-import { Baby, GraduationCap, ShieldCheck, UserRound, Users } from "lucide-react";
+import { GraduationCap, ShieldCheck, Users } from "lucide-react";
 
 export const metadata = {
   title: "Aile — Cüzdan Koçu",
 };
-
-const familyMembers = [
-  { name: "Ayşe Yılmaz", role: "Ebeveyn", detail: "Aile bütçesini yönetir", icon: UserRound },
-  { name: "Mehmet Yılmaz", role: "Ebeveyn", detail: "Abonelikleri takip eder", icon: Users },
-  { name: "Elif Yılmaz", role: "Çocuk", detail: "Harçlık koçu modu", icon: Baby },
-] as const;
 
 export default function FamilyPage() {
   return (
@@ -40,31 +34,22 @@ export default function FamilyPage() {
         </aside>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        {familyMembers.map((member, index) => {
-          const Icon = member.icon;
-          return (
-            <article key={member.name} className="cash-envelope min-h-52 p-5">
-              <div className="relative z-10 flex h-full flex-col justify-between gap-5">
-                <div className="flex items-start justify-between gap-4">
-                  <Icon className="h-6 w-6 text-primary" />
-                  <span className="stamp-label bg-background/70 text-accent-foreground">
-                    {member.role}
-                  </span>
-                </div>
-                <div>
-                  <p className="font-display text-3xl font-black tracking-[-0.04em]">
-                    {member.name}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{member.detail}</p>
-                </div>
-                <p className="font-display text-xs font-bold text-primary/70">
-                  AİLE KAYDI {index + 1}
-                </p>
-              </div>
-            </article>
-          );
-        })}
+      <section className="cash-envelope p-6">
+        <div className="relative z-10 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <span className="stamp-label bg-background/70 text-accent-foreground">
+              Aile kayıtları
+            </span>
+            <h2 className="mt-4 font-display text-3xl font-black tracking-[-0.04em]">
+              Henüz aile üyesi yok
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              Bu bölüm Day 5 aile API'si bağlandığında veritabanındaki gerçek aile üyelerini
+              gösterecek.
+            </p>
+          </div>
+          <Users className="h-10 w-10 text-primary" />
+        </div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
@@ -72,10 +57,12 @@ export default function FamilyPage() {
           <div className="relative z-10 space-y-5">
             <span className="stamp-label bg-background/70">Çocuk modu</span>
             <div>
-              <p className="font-display text-3xl font-black tracking-[-0.04em]">Faiz nedir?</p>
+              <p className="font-display text-3xl font-black tracking-[-0.04em]">
+                Koç cevabı bekleniyor
+              </p>
               <p className="mt-4 max-w-[58ch] text-base leading-8 text-muted-foreground">
-                Diyelim kumbarana 100 ₺ koydun. Banka, paran orada durduğu için her ay küçük bir
-                teşekkür parası ekler. Bu ekstra paraya faiz denir.
+                Çocuk dostu açıklamalar, aile geçişi ve gerçek koç akışı bağlandığında bu alanda
+                görünecek.
               </p>
             </div>
           </div>
@@ -89,7 +76,7 @@ export default function FamilyPage() {
             </h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            {["Ebeveyn giriş yapar", "Elif profiline geçer", "Yeni oturum çocuk rolünü taşır"].map(
+            {["Ebeveyn giriş yapar", "Çocuk profiline geçer", "Yeni oturum çocuk rolünü taşır"].map(
               (item, index) => (
                 <div key={item} className="receipt-tape px-5 py-7">
                   <span className="font-display text-3xl font-black text-primary">{index + 1}</span>
