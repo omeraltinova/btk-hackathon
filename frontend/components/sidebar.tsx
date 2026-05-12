@@ -57,17 +57,19 @@ export function Sidebar({ user }: SidebarProps) {
   return (
     <aside className="sticky top-0 z-40 flex w-full shrink-0 flex-col border-b border-border/80 bg-card/95 backdrop-blur-xl lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:bg-card">
       {/* Brand */}
-      <div className="binder-holes relative flex items-center justify-between gap-4 px-4 py-4 lg:block lg:px-8 lg:py-7">
-        <div className="flex items-center gap-3">
+      <div className="binder-holes relative flex items-center justify-between gap-3 px-3 py-3 sm:px-4 sm:py-4 lg:block lg:px-8 lg:py-7">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="hard-shadow-accent grid h-11 w-11 place-items-center rounded-[1rem_1rem_0.55rem_1rem] border border-primary/30 bg-primary text-primary-foreground">
             <Wallet className="h-5 w-5" />
           </div>
-          <div>
-            <span className="font-display text-xl font-bold tracking-tight">Cüzdan Koçu</span>
+          <div className="min-w-0">
+            <span className="block truncate font-display text-xl font-bold tracking-tight">
+              Cüzdan Koçu
+            </span>
             <p className="text-xs text-muted-foreground">Ev bütçesi defteri</p>
           </div>
         </div>
-        <span className="stamp-label bg-background/65 text-primary lg:mt-6 lg:inline-flex">
+        <span className="stamp-label shrink-0 bg-background/65 text-primary lg:mt-6 lg:inline-flex">
           {user.isDemo ? "Demo" : ROLE_LABELS[user.role]}
         </span>
       </div>
@@ -83,7 +85,10 @@ export function Sidebar({ user }: SidebarProps) {
       </div>
 
       {/* Nav */}
-      <nav className="flex gap-2 overflow-x-auto px-3 pb-3 lg:mt-6 lg:flex-1 lg:flex-col lg:gap-2 lg:overflow-visible lg:px-4 lg:pb-0">
+      <nav
+        aria-label="Ana menü"
+        className="flex gap-2 overflow-x-auto px-3 pb-3 [scrollbar-width:none] lg:mt-6 lg:flex-1 lg:flex-col lg:gap-2 lg:overflow-visible lg:px-4 lg:pb-0 [&::-webkit-scrollbar]:hidden"
+      >
         {navItems.map((item) => {
           const isActive =
             item.href === "/dashboard"
@@ -96,7 +101,7 @@ export function Sidebar({ user }: SidebarProps) {
               href={item.href}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "tab-chip flex shrink-0 items-center gap-3 px-4 py-2.5 pr-6 text-sm font-bold transition-all duration-200 ease-quint lg:w-full",
+                "tab-chip flex min-h-11 shrink-0 items-center gap-2 px-3 py-2.5 pr-5 text-sm font-bold transition-all duration-200 ease-quint sm:gap-3 sm:px-4 sm:pr-6 lg:w-full",
                 isActive
                   ? "hard-shadow-accent bg-primary text-primary-foreground"
                   : "bg-muted/45 text-muted-foreground hover:bg-accent/45 hover:text-accent-foreground motion-safe:hover:-translate-y-0.5",
@@ -108,6 +113,14 @@ export function Sidebar({ user }: SidebarProps) {
             </Link>
           );
         })}
+        <button
+          type="button"
+          className="tab-chip flex min-h-11 shrink-0 items-center gap-2 bg-muted/45 px-3 py-2.5 pr-5 text-sm font-bold text-muted-foreground transition-all duration-200 ease-quint hover:bg-accent/45 hover:text-accent-foreground sm:gap-3 sm:px-4 sm:pr-6 lg:hidden"
+          onClick={() => void signOut({ callbackUrl: "/login" })}
+        >
+          <LogOut className="h-4 w-4" />
+          Çıkış
+        </button>
       </nav>
 
       <div className="hidden border-t border-border/70 p-4 lg:block">

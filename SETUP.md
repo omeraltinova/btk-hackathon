@@ -143,10 +143,10 @@ cd backend
 uv run python ../seeds/demo_family.py
 ```
 
-The script creates/updates an `is_demo=true` parent account plus Mehmet and Elif child profiles, sample scoped transactions, and one upcoming recurring payment.
+The script creates/updates `is_demo=true` Ayşe and Mehmet parent demo accounts plus Elif as Ayşe's child profile, sample scoped transactions, and upcoming recurring payments.
 
 ```text
-demo.aile@cuzdan-kocu.local / demo-sifre-123
+ayse@demo.cuzdan-kocu.app / demo123
 ```
 
 To refresh proactive insights manually for all non-child users:

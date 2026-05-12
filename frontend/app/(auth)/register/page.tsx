@@ -10,6 +10,12 @@ export default function RegisterPage() {
   return (
     <div className="relative grid min-h-screen place-items-center overflow-hidden p-4 sm:p-6">
       <div className="page-enter grid w-full max-w-6xl gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+        <div className="flex justify-center lg:hidden">
+          <span className="stamp-label bg-background/70 text-primary">
+            <Wallet className="h-3.5 w-3.5" />
+            Cüzdan Koçu
+          </span>
+        </div>
         <section className="ledger-sheet binder-holes hidden min-h-[640px] p-8 pl-20 lg:block">
           <div className="relative z-10 flex min-h-[570px] flex-col justify-between">
             <div>
@@ -24,7 +30,7 @@ export default function RegisterPage() {
               <h1 className="font-display text-[clamp(3.2rem,6vw,6.25rem)] font-black leading-[0.88] tracking-[-0.06em]">
                 İlk sayfayı güvenli bir hesapla aç.
               </h1>
-              <p className="text-lg leading-8 text-muted-foreground">
+              <p className="text-foreground/78 text-lg leading-8">
                 Bireysel başlayabilir ya da ebeveyn hesabıyla aile akışına hazırlanabilirsin. Çocuk
                 profilleri davetsiz, ebeveyn kontrolünde eklenecek.
               </p>
@@ -47,7 +53,7 @@ export default function RegisterPage() {
           </div>
         </section>
 
-        <section className="receipt-tape w-full p-6 pt-10 sm:p-8 sm:pt-12">
+        <section className="receipt-tape w-full p-5 pt-9 sm:p-8 sm:pt-12">
           <div className="space-y-7">
             <div className="space-y-3 text-center">
               <span className="stamp-label mx-auto bg-background/70 text-primary">

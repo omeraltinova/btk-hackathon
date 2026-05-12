@@ -8,18 +8,18 @@ export const metadata = {
 
 export default function ChatPage() {
   return (
-    <div className="page-enter grid gap-6 lg:grid-cols-[0.7fr_1.3fr]">
-      <section className="ledger-sheet binder-holes p-6 pl-8 sm:p-8 sm:pl-16">
+    <div className="page-enter grid min-w-0 gap-6 lg:grid-cols-[0.7fr_1.3fr]">
+      <section className="ledger-sheet binder-holes p-5 pl-8 sm:p-8 sm:pl-16">
         <div className="relative z-10 space-y-7">
           <span className="stamp-label bg-background/70">
             <MessageSquareText className="h-3.5 w-3.5" />
             Koç modu
           </span>
           <div className="space-y-3">
-            <h1 className="font-display text-5xl font-black leading-[0.95] tracking-[-0.05em]">
+            <h1 className="font-display text-[2.75rem] font-black leading-[0.95] tracking-[-0.05em] sm:text-5xl">
               Sohbet sayfası, cevap kadar kanıt da gösterir.
             </h1>
-            <p className="max-w-[58ch] text-base leading-7 text-muted-foreground">
+            <p className="text-foreground/78 max-w-[58ch] text-base leading-7">
               Akışlı cevaplar araç çağrılarıyla birlikte görünür; kullanıcı hangi veriye dayanarak
               cevap aldığını anlayabilir.
             </p>
@@ -45,7 +45,7 @@ export default function ChatPage() {
                 Cüzdan Koçu ile konuşma alanı
               </h2>
             </div>
-            <span className="stamp-label bg-accent/25 text-accent-foreground">Akış bağlı</span>
+            <span className="stamp-label bg-accent/28 text-foreground">Akış bağlı</span>
           </div>
 
           <ChatStream />

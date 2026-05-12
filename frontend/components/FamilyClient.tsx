@@ -22,6 +22,14 @@ function friendlyError(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
 
+function ErrorNote({ children }: { children: string }) {
+  return (
+    <p className="bg-destructive/14 rounded-2xl border border-destructive/35 px-4 py-3 text-sm font-semibold text-foreground shadow-sm">
+      {children}
+    </p>
+  );
+}
+
 export function FamilyClient() {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [activeProfile, setLocalActiveProfile] = useState<ActiveProfile | null>(null);
@@ -133,14 +141,14 @@ export function FamilyClient() {
 
   return (
     <div className="space-y-8">
-      <section className="grid gap-5 lg:grid-cols-[1fr_0.55fr] lg:items-stretch">
-        <div className="ledger-sheet binder-holes p-6 pl-8 sm:p-9 sm:pl-20">
+      <section className="grid min-w-0 gap-5 lg:grid-cols-[1fr_0.55fr] lg:items-stretch">
+        <div className="ledger-sheet binder-holes p-5 pl-8 sm:p-9 sm:pl-20">
           <div className="relative z-10 max-w-3xl space-y-5">
             <span className="stamp-label bg-background/70">Aile modu</span>
-            <h1 className="font-display text-[clamp(2.4rem,5.6vw,5.3rem)] font-black leading-[0.94] tracking-[-0.05em]">
+            <h1 className="font-display text-[2.65rem] font-black leading-[0.94] sm:text-5xl lg:text-6xl">
               Aynı evde farklı finans dili.
             </h1>
-            <p className="max-w-[62ch] text-lg leading-8 text-muted-foreground">
+            <p className="text-foreground/78 max-w-[62ch] text-base leading-7 sm:text-lg sm:leading-8">
               Ebeveyn çocuk profillerini yönetir; çocuk moduna geçince panel ve sohbet o profilin
               güvenli veri kapsamıyla çalışır.
             </p>
@@ -160,18 +168,14 @@ export function FamilyClient() {
         </aside>
       </section>
 
-      {error ? (
-        <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
-          {error}
-        </p>
-      ) : null}
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
 
-      <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-        <div className="ledger-sheet p-6 sm:p-8">
+      <section className="grid min-w-0 gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="ledger-sheet p-5 sm:p-8">
           <div className="relative z-10 space-y-5">
             <div>
               <p className="eyebrow">Çocuk profili</p>
-              <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+              <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
                 Yeni profil ekle
               </h2>
             </div>
@@ -220,7 +224,7 @@ export function FamilyClient() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="eyebrow">Aile kayıtları</p>
-              <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+              <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
                 Profiller
               </h2>
             </div>
@@ -236,14 +240,19 @@ export function FamilyClient() {
             <div className="space-y-3">
               {parent ? (
                 <div className="cash-envelope p-5">
-                  <div className="relative z-10 flex items-start justify-between gap-4">
-                    <div>
+                  <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
                       <span className="stamp-label bg-background/70">Ebeveyn</span>
-                      <p className="mt-3 font-display text-xl font-black">{parent.name}</p>
+                      <p className="mt-3 truncate font-display text-xl font-black">{parent.name}</p>
                       <p className="text-sm text-muted-foreground">Aile yöneticisi</p>
                     </div>
                     {activeProfile ? (
-                      <Button type="button" variant="secondary" onClick={handleReturnParent}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-full sm:w-auto"
+                        onClick={handleReturnParent}
+                      >
                         Ebeveyne dön
                       </Button>
                     ) : null}
@@ -266,9 +275,11 @@ export function FamilyClient() {
                   return (
                     <div key={child.id} className="receipt-tape px-5 py-6">
                       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <div>
+                        <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-display text-xl font-black">{child.name}</p>
+                            <p className="min-w-0 truncate font-display text-xl font-black">
+                              {child.name}
+                            </p>
                             {isActive ? (
                               <span className="stamp-label bg-primary text-primary-foreground">
                                 Aktif çocuk modu
@@ -279,11 +290,12 @@ export function FamilyClient() {
                             {child.age ?? 12} yaş / çocuk koç dili
                           </p>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
+                            className="min-h-11"
                             disabled={isUpdating}
                             onClick={() => void handleAgeStep(child, -1)}
                           >
@@ -294,6 +306,7 @@ export function FamilyClient() {
                             type="button"
                             variant="outline"
                             size="sm"
+                            className="min-h-11"
                             disabled={isUpdating}
                             onClick={() => void handleAgeStep(child, 1)}
                           >
@@ -303,6 +316,7 @@ export function FamilyClient() {
                           <Button
                             type="button"
                             size="sm"
+                            className="col-span-2 min-h-11 sm:col-span-1"
                             disabled={isUpdating || isActive}
                             onClick={() => void handleSwitch(child)}
                           >

@@ -161,7 +161,7 @@ function TrendBadge({
   const numeric = percentValue(value);
   if (numeric === null) {
     return (
-      <span className="inline-flex rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+      <span className="inline-flex rounded-full bg-muted px-3 py-1 text-xs font-bold text-foreground/80">
         Geçen ay verisi yok
       </span>
     );
@@ -177,10 +177,18 @@ function TrendBadge({
 
   const Icon = numeric > 0 ? ArrowUpRight : ArrowDownRight;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-background/80 px-3 py-1 text-xs font-bold text-foreground">
+    <span className="inline-flex items-center gap-1 rounded-full bg-background/85 px-3 py-1 text-xs font-bold text-foreground">
       <Icon className="h-3.5 w-3.5" />
       {formatPercentTR(value)} · {numeric > 0 ? increaseLabel : decreaseLabel}
     </span>
+  );
+}
+
+function ErrorNote({ children }: { children: string }) {
+  return (
+    <p className="bg-destructive/14 rounded-2xl border border-destructive/35 px-4 py-3 text-sm font-semibold text-foreground shadow-sm">
+      {children}
+    </p>
   );
 }
 
@@ -198,12 +206,12 @@ function SummaryStatus({ summary }: { summary: TransactionSummary | null }) {
   ] as const;
 
   return (
-    <section className="ledger-sheet binder-holes p-6 pl-8 sm:p-8 sm:pl-16">
+    <section className="ledger-sheet binder-holes p-5 pl-8 sm:p-8 sm:pl-16">
       <div className="relative z-10 space-y-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="eyebrow">Aylık durum penceresi</p>
-            <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+            <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
               Gelir ve gider akışı
             </h2>
           </div>
@@ -211,9 +219,9 @@ function SummaryStatus({ summary }: { summary: TransactionSummary | null }) {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-[1.75rem] bg-background/70 p-5">
+          <div className="bg-background/78 rounded-[1.75rem] p-4 sm:p-5">
             <p className="text-sm font-bold text-muted-foreground">Gider eğilimi</p>
-            <p className="mt-3 font-display text-3xl font-black tabular-nums">
+            <p className="mt-3 break-words font-display text-[2rem] font-black tabular-nums leading-none sm:text-3xl">
               {formatKurus(currentExpense)}
             </p>
             <div className="mt-4">
@@ -224,9 +232,9 @@ function SummaryStatus({ summary }: { summary: TransactionSummary | null }) {
               />
             </div>
           </div>
-          <div className="rounded-[1.75rem] bg-background/70 p-5">
+          <div className="bg-background/78 rounded-[1.75rem] p-4 sm:p-5">
             <p className="text-sm font-bold text-muted-foreground">Gelir eğilimi</p>
-            <p className="mt-3 font-display text-3xl font-black tabular-nums">
+            <p className="mt-3 break-words font-display text-[2rem] font-black tabular-nums leading-none sm:text-3xl">
               {formatKurus(currentIncome)}
             </p>
             <div className="mt-4">
@@ -269,7 +277,7 @@ function RecurringBars({ subscriptions }: { subscriptions: Subscription[] }) {
 
   if (active.length === 0) {
     return (
-      <div className="rounded-[1.75rem] border border-dashed border-primary/30 bg-background/60 p-5">
+      <div className="bg-background/72 rounded-[1.75rem] border border-dashed border-primary/30 p-5">
         <p className="font-display text-xl font-black">Tekrarlayan ödeme grafiği boş</p>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
           Aktif abonelik veya fatura eklediğinde aylık etkileri çubuk grafik olarak görünecek.
@@ -305,7 +313,7 @@ function DashboardTabs({ activeView }: { activeView: DashboardView }) {
   return (
     <nav
       aria-label="Panel bölümleri"
-      className="bg-card/72 grid gap-2 rounded-[2rem] border border-border/70 p-2 shadow-sm sm:grid-cols-3"
+      className="bg-card/82 grid gap-2 overflow-hidden rounded-[1.5rem] border border-border/70 p-2 shadow-sm sm:grid-cols-3 sm:rounded-[2rem]"
     >
       {DASHBOARD_TABS.map((tab) => {
         const isActive = tab.view === activeView;
@@ -315,7 +323,7 @@ function DashboardTabs({ activeView }: { activeView: DashboardView }) {
             href={tab.href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "rounded-[1.5rem] px-4 py-3 transition-all duration-200 ease-quint",
+              "rounded-[1.2rem] px-3 py-3 transition-all duration-200 ease-quint sm:rounded-[1.5rem] sm:px-4",
               isActive
                 ? "bg-primary text-primary-foreground shadow-lg shadow-primary/10"
                 : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
@@ -644,15 +652,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
 
       {view === "overview" ? (
         <>
-          <section className="grid gap-5 2xl:grid-cols-[1.15fr_0.85fr] 2xl:items-stretch">
-            <div className="ledger-sheet binder-holes p-6 pl-8 sm:p-9 sm:pl-20">
+          <section className="grid min-w-0 gap-5 2xl:grid-cols-[1.15fr_0.85fr] 2xl:items-stretch">
+            <div className="ledger-sheet binder-holes p-5 pl-8 sm:p-9 sm:pl-20">
               <div className="relative z-10 max-w-4xl space-y-6">
                 <span className="stamp-label bg-background/70">Gerçek veri defteri</span>
                 <div className="space-y-4">
-                  <h1 className="font-display text-[clamp(2.7rem,5.7vw,6.6rem)] font-black leading-[0.92] tracking-[-0.05em]">
+                  <h1 className="font-display text-[2.7rem] font-black leading-[0.92] sm:text-5xl lg:text-6xl 2xl:text-7xl">
                     Bütçe sayfası artık kategorili.
                   </h1>
-                  <p className="max-w-[62ch] text-lg leading-8 text-muted-foreground">
+                  <p className="text-foreground/78 max-w-[62ch] text-base leading-7 sm:text-lg sm:leading-8">
                     Özet burada kalır; işlem girişi ve tekrarlayan ödemeler ayrı sayfalara ayrıldı.
                     Böylece defter geniş ekranda yayılır, veri girişi de daha sakin yapılır.
                   </p>
@@ -746,18 +754,18 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
             </InsightBanner>
           </section>
 
-          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+          <div className="grid min-w-0 gap-4 md:grid-cols-2 2xl:grid-cols-4">
             {[
               ["Bu ay gider", formatKurus(monthlyExpense), "Kategorili gider toplamı"],
               ["Bu ay gelir", formatKurus(monthlyIncome), "Veritabanındaki gelir toplamı"],
               ["Net durum", formatKurus(balance), "Gelir eksi gider"],
               ["Aylık tekrar", formatKurus(recurringMonthlyTotal), "Aktif abonelik ve faturalar"],
             ].map(([label, value, detail], index) => (
-              <div key={label} className="cash-envelope min-h-44 p-5">
+              <div key={label} className="cash-envelope min-h-40 p-4 sm:min-h-44 sm:p-5">
                 <div className="relative z-10 flex h-full flex-col justify-between gap-6">
                   <p className="text-sm font-bold text-secondary-foreground/80">{label}</p>
                   <div>
-                    <p className="font-display text-4xl font-black tabular-nums tracking-[-0.04em]">
+                    <p className="break-words font-display text-[2.15rem] font-black tabular-nums leading-none sm:text-4xl">
                       {value}
                     </p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p>
@@ -770,7 +778,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
             ))}
           </div>
 
-          <div className="grid gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
             <SummaryStatus summary={summary} />
             <SpendingChart summary={summary} />
           </div>
@@ -778,12 +786,12 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       ) : null}
 
       {view === "transactions" ? (
-        <div className="grid gap-6 2xl:grid-cols-[minmax(26rem,0.78fr)_minmax(36rem,1.22fr)]">
-          <section className="ledger-sheet p-6 sm:p-8">
+        <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(26rem,0.78fr)_minmax(36rem,1.22fr)]">
+          <section className="ledger-sheet p-5 sm:p-8">
             <div className="relative z-10 space-y-6">
               <div>
                 <p className="eyebrow">Manuel giriş</p>
-                <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+                <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
                   Yeni işlem ekle
                 </h2>
               </div>
@@ -852,11 +860,11 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   </div>
                 </div>
 
-                <div className="rounded-[1.5rem] border border-dashed border-primary/30 bg-background/60 p-3">
+                <div className="bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-3">
                   <label htmlFor="new-category-name" className="text-sm font-medium">
                     Yeni kategori
                   </label>
-                  <div className="mt-2 flex gap-2">
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
                     <Input
                       id="new-category-name"
                       value={newCategoryName}
@@ -872,6 +880,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     <Button
                       type="button"
                       variant="secondary"
+                      className="min-h-11"
                       disabled={isCreatingCategory}
                       onClick={() => void handleCreateCategory()}
                     >
@@ -914,18 +923,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="eyebrow">Veritabanı kayıtları</p>
-                <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+                <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
                   Son işlemler
                 </h2>
               </div>
               <ReceiptText className="h-6 w-6 text-primary" />
             </div>
 
-            {error ? (
-              <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
-                {error}
-              </p>
-            ) : null}
+            {error ? <ErrorNote>{error}</ErrorNote> : null}
 
             {isLoading ? (
               <div className="receipt-tape flex items-center gap-3 px-5 py-6 text-muted-foreground">
@@ -949,9 +954,9 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   return (
                     <div
                       key={item.id}
-                      className="receipt-tape flex items-center justify-between gap-4 px-5 py-6 transition-transform duration-300 ease-quint motion-safe:hover:-rotate-1"
+                      className="receipt-tape flex flex-col gap-4 px-5 py-6 transition-transform duration-300 ease-quint motion-safe:hover:-rotate-1 sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-display text-lg font-black">
                           {item.merchant ?? item.description ?? "İsimsiz işlem"}
                         </p>
@@ -963,9 +968,9 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                           <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
                         ) : null}
                       </div>
-                      <div className="flex items-center gap-3 text-right">
+                      <div className="flex w-full shrink-0 items-center justify-between gap-3 sm:w-auto sm:text-right">
                         <div>
-                          <p className="font-display text-xl font-black tabular-nums">
+                          <p className="break-words font-display text-xl font-black tabular-nums">
                             {formatTransactionAmount(item.amount, item.type)}
                           </p>
                           <p className="text-xs font-bold text-muted-foreground">
@@ -992,13 +997,13 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       ) : null}
 
       {view === "recurring" ? (
-        <section className="grid gap-6 2xl:grid-cols-[minmax(28rem,0.9fr)_minmax(34rem,1.1fr)]">
-          <div className="ledger-sheet p-6 sm:p-8">
+        <section className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(28rem,0.9fr)_minmax(34rem,1.1fr)]">
+          <div className="ledger-sheet p-5 sm:p-8">
             <div className="relative z-10 space-y-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="eyebrow">Tekrarlayan ödemeler</p>
-                  <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+                  <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
                     Abonelik ve faturalar
                   </h2>
                 </div>
@@ -1109,7 +1114,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="eyebrow">Aylık etki</p>
-                  <h3 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+                  <h3 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
                     {formatKurus(recurringMonthlyTotal)}
                   </h3>
                 </div>
@@ -1137,8 +1142,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   const isUpdating = updatingSubscriptionId === subscription.id;
                   return (
                     <div key={subscription.id} className="receipt-tape px-5 py-6">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
                           <p className="font-display text-lg font-black">{subscription.name}</p>
                           <p className="text-sm text-muted-foreground">
                             {billingCycleLabels[subscription.billing_cycle]} / {categoryName}
@@ -1152,8 +1157,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                             </p>
                           ) : null}
                         </div>
-                        <div className="text-right">
-                          <p className="font-display text-xl font-black tabular-nums">
+                        <div className="shrink-0 sm:text-right">
+                          <p className="break-words font-display text-xl font-black tabular-nums">
                             {formatKurus(amountToKurus(subscription.amount))}
                           </p>
                           <p className="text-xs font-bold text-muted-foreground">
@@ -1161,11 +1166,12 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                           </p>
                         </div>
                       </div>
-                      <div className="mt-4 flex flex-wrap gap-2">
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                         <Button
                           type="button"
                           variant={subscription.is_active ? "secondary" : "outline"}
                           size="sm"
+                          className="min-h-11"
                           disabled={isUpdating}
                           onClick={() => void handleToggleSubscription(subscription)}
                         >
@@ -1175,6 +1181,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                           type="button"
                           variant="ghost"
                           size="sm"
+                          className="min-h-11"
                           disabled={isUpdating}
                           onClick={() => void handleDeleteSubscription(subscription.id)}
                         >

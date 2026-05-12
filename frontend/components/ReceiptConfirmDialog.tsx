@@ -110,11 +110,9 @@ export function ReceiptConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto rounded-[1.5rem] sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] w-[calc(100vw-1.5rem)] overflow-y-auto rounded-[1.5rem] p-4 sm:max-w-3xl sm:p-6">
         <DialogHeader>
-          <DialogTitle className="font-display text-3xl font-black tracking-[-0.04em]">
-            Fişi onayla
-          </DialogTitle>
+          <DialogTitle className="font-display text-3xl font-black">Fişi onayla</DialogTitle>
           <DialogDescription>
             İşleme yazılmadan önce tutarı, tarihi ve kategoriyi kontrol et.
           </DialogDescription>
@@ -235,13 +233,13 @@ export function ReceiptConfirmDialog({
               />
             </div>
 
-            <div className="rounded-[1.25rem] bg-primary/10 p-4 text-sm font-semibold text-primary">
+            <div className="bg-primary/14 rounded-[1.25rem] p-4 text-sm font-semibold text-foreground">
               <CheckCircle2 className="mr-2 inline h-4 w-4" />
               Önerilen kayıt: {candidate.merchant ?? "Fiş"} / {formatDateTR(candidate.occurred_at)}
             </div>
 
             {formError ? (
-              <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
+              <p className="bg-destructive/14 rounded-2xl border border-destructive/35 px-4 py-3 text-sm font-semibold text-foreground shadow-sm">
                 {formError}
               </p>
             ) : null}

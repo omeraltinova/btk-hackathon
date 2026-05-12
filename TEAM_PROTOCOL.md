@@ -26,8 +26,8 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 | 6 | 4 | Person B | Receipt confirmation + receipt history UI | Task 5 upload schema/API | DONE |
 | 7 | 5 | Person A | Family management flow end-to-end | Task 1 auth flow | DONE |
 | 8 | 5 | Person B | Child coach experience end-to-end | Task 7 family switch | DONE |
-| 9 | 6 | Person A | Proactive insights + deploy | Tasks 5 and 7 data flow | DOING |
-| 10 | 6 | Person B | Insight UI + mobile/dark polish | Task 9 insights API + prod URL | DOING |
+| 9 | 6 | Person A | Proactive insights + deploy | Tasks 5 and 7 data flow | BLOCKED |
+| 10 | 6 | Person B | Insight UI + mobile/dark polish | Task 9 insights API + prod URL | DONE |
 | 11 | 7 | Person A | Final verification + architecture assets | Tasks 1-10 complete | TODO |
 | 12 | 7 | Person B | README, demo assets, submission package | Task 11 outputs | TODO |
 
@@ -254,6 +254,7 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - [x] Core proactive rules work
   - [x] Insights API is stable
   - [ ] Live production URL responds with valid HTTPS
+  - [x] Demo seed command exists and creates `is_demo=true` demo accounts
   - [ ] Demo family exists on prod with `is_demo=true`
 
 ## Task 10 -- Insight UI + mobile/dark polish
@@ -275,8 +276,8 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 - Depends on: `Task 9 insights API + production URL`
 - Done when:
   - [x] Insights render from live API data
-  - [ ] iPhone-width layout is usable on all main pages
-  - [ ] Dark mode looks intentional everywhere
+  - [x] iPhone-width layout is usable on all main pages
+  - [x] Dark mode looks intentional everywhere
 
 ## Task 11 -- Final verification + architecture assets
 
@@ -327,6 +328,6 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 ## End-of-day note
 
 - Current day: `Day 6 integration pass`
-- Tasks in progress: `Task 9 deploy/prod seed`, `Task 10 mobile/dark polish`
-- New blocker: `production deployment not started in this repo state`
-- What shipped today: `LangGraph chat activation with fallback, chat receipt analysis, family switch, child coach tools, API-backed insights, scheduler-ready proactive worker`
+- Tasks in progress: `Task 9 production URL verification only`
+- New blocker: `production deployment not started from this repo state; HTTPS URL and prod DB seed must be verified on the platform`
+- What shipped today: `LangGraph chat activation with fallback, chat receipt analysis, family switch, child coach tools, API-backed insights, scheduler-ready proactive worker, production compose/runbook, demo seed worker, mobile/dark polish`

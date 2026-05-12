@@ -105,7 +105,7 @@ export function RegisterForm() {
         </label>
         <select
           id="role"
-          className="flex h-10 w-full rounded-full border border-input bg-background/70 px-4 py-2 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="flex h-11 w-full rounded-2xl border border-input bg-background/80 px-4 py-2 text-sm ring-offset-background transition-all duration-200 ease-quint focus-visible:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={role}
           onChange={(event) => setRole(event.target.value as RegisterRole)}
         >
@@ -115,7 +115,7 @@ export function RegisterForm() {
       </div>
 
       {error ? (
-        <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
+        <p className="bg-destructive/14 rounded-2xl border border-destructive/35 px-4 py-3 text-sm font-semibold text-foreground shadow-sm">
           {error}
         </p>
       ) : null}

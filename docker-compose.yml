@@ -71,13 +71,25 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required. Copy .env.example to .env}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_EXPIRE_DAYS: ${JWT_EXPIRE_DAYS:-7}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemini-2.5-flash}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-http://localhost:3000}
+      OPENROUTER_APP_TITLE: ${OPENROUTER_APP_TITLE:-Cüzdan Koçu}
       MINIO_ENDPOINT: minio:9000
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
       MINIO_BUCKET_RECEIPTS: ${MINIO_BUCKET_RECEIPTS:-receipts}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      DEMO_PARENT_EMAIL: ${DEMO_PARENT_EMAIL:-ayse@demo.cuzdan-kocu.app}
+      DEMO_PARENT_PASSWORD: ${DEMO_PARENT_PASSWORD:-demo123}
+      DEMO_MEHMET_EMAIL: ${DEMO_MEHMET_EMAIL:-mehmet@demo.cuzdan-kocu.app}
+      DEMO_ELIF_EMAIL: ${DEMO_ELIF_EMAIL:-elif@demo.cuzdan-kocu.app}
     ports:
       - "8000:8000"
     healthcheck:

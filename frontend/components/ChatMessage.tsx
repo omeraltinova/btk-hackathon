@@ -24,7 +24,7 @@ export function ChatMessage({ role, content, isStreaming = false }: ChatMessageP
       ) : null}
       <div
         className={cn(
-          "max-w-[82%] break-words px-4 py-3 text-sm leading-6",
+          "max-w-[88%] break-words px-4 py-3 text-sm leading-6 sm:max-w-[82%]",
           isAssistant
             ? "receipt-tape rotate-[-0.5deg] text-foreground"
             : "hard-shadow-accent rounded-[1.4rem_1.4rem_0.65rem_1.4rem] bg-primary text-primary-foreground",

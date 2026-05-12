@@ -1,0 +1,40 @@
+# Cüzdan Koçu Coolify deployment runbook.
+#
+# Coolify should deploy this repository with:
+#   docker-compose.yml
+#   docker-compose.prod.yml
+#
+# Required public routes:
+#   frontend -> port 3000, HTTPS, NEXTAUTH_URL=https://<frontend-domain>
+#   backend  -> port 8000, HTTPS, health path /health
+#   minio    -> S3 API internal/private unless receipt URLs are intentionally public
+#
+# Post-deploy one-off commands:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm demo-seed
+#
+# Scheduler:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm proactive-worker
+#   cadence: daily, 04:00 UTC
+
+project: cuzdan-kocu
+compose:
+  files:
+    - docker-compose.yml
+    - docker-compose.prod.yml
+healthchecks:
+  backend:
+    path: /health
+    expected_status: 200
+  frontend:
+    path: /
+    expected_status: 200
+operations:
+  migrate:
+    command: docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate
+  seed_demo_family:
+    command: docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm demo-seed
+    expected_demo_user: ayse@demo.cuzdan-kocu.app
+  refresh_proactive_insights:
+    command: docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm proactive-worker
+    schedule: daily at 04:00 UTC

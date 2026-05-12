@@ -263,10 +263,12 @@ export function ChatStream() {
             {toolTrace.slice(0, 4).map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between gap-3 rounded-2xl bg-background/65 px-3 py-2 text-xs"
+                className="flex flex-col gap-1 rounded-2xl bg-background/65 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
               >
                 <span className="font-bold">{item.name}</span>
-                <span className="text-right text-muted-foreground">{item.detail}</span>
+                <span className="break-words text-muted-foreground sm:text-right">
+                  {item.detail}
+                </span>
               </div>
             ))}
           </div>
@@ -274,15 +276,17 @@ export function ChatStream() {
       </div>
 
       <form
-        className="space-y-2 rounded-[1.75rem] border border-border/70 bg-muted/50 p-2"
+        className="bg-muted/62 space-y-2 rounded-[1.75rem] border border-border/70 p-2"
         onSubmit={handleSubmit}
       >
         {attachment || fileError ? (
           <div className="flex flex-wrap items-center gap-2 px-2">
             {attachment ? (
-              <span className="stamp-label bg-background/70 text-muted-foreground">
+              <span className="stamp-label max-w-full bg-background/70 text-muted-foreground">
                 <ImagePlus className="h-3.5 w-3.5" />
-                {attachment.filename}
+                <span className="max-w-[12rem] truncate sm:max-w-[20rem]">
+                  {attachment.filename}
+                </span>
                 <button
                   type="button"
                   aria-label="Fişi kaldır"
@@ -294,11 +298,13 @@ export function ChatStream() {
               </span>
             ) : null}
             {fileError ? (
-              <span className="text-xs font-medium text-destructive">{fileError}</span>
+              <span className="bg-destructive/14 rounded-full px-3 py-1 text-xs font-semibold text-foreground">
+                {fileError}
+              </span>
             ) : null}
           </div>
         ) : null}
-        <div className="flex gap-2">
+        <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] gap-2">
           <label className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border bg-background/70 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground">
             <input
               type="file"
@@ -316,7 +322,12 @@ export function ChatStream() {
             onChange={(event) => setDraft(event.target.value)}
             disabled={isStreaming}
           />
-          <Button type="submit" aria-label="Mesaj gönder" disabled={isStreaming || !draft.trim()}>
+          <Button
+            type="submit"
+            className="min-h-11"
+            aria-label="Mesaj gönder"
+            disabled={isStreaming || !draft.trim()}
+          >
             {isStreaming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (

@@ -33,6 +33,15 @@ function friendlyError(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
 
+function ErrorNote({ children }: { children: string }) {
+  return (
+    <p className="bg-destructive/14 flex items-center gap-2 rounded-2xl border border-destructive/35 px-4 py-3 text-sm font-semibold text-foreground shadow-sm">
+      <AlertCircle className="h-4 w-4 text-destructive" />
+      {children}
+    </p>
+  );
+}
+
 export function ReceiptUploader() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -148,8 +157,8 @@ export function ReceiptUploader() {
 
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <section className="ledger-sheet p-5 sm:p-6">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+        <section className="ledger-sheet p-4 sm:p-6">
           <div className="relative z-10 space-y-5">
             <label
               htmlFor="receipt-file"
@@ -160,7 +169,7 @@ export function ReceiptUploader() {
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
               className={cn(
-                "grid min-h-96 cursor-pointer place-items-center rounded-[1.5rem] border border-dashed border-primary/55 bg-secondary/45 p-6 text-center transition-colors",
+                "grid min-h-80 cursor-pointer place-items-center rounded-[1.5rem] border border-dashed border-primary/55 bg-secondary/45 p-5 text-center transition-colors sm:min-h-96 sm:p-6",
                 isDragging ? "bg-primary/15" : "hover:bg-secondary/60",
               )}
             >
@@ -181,7 +190,7 @@ export function ReceiptUploader() {
                   )}
                 </span>
                 <div>
-                  <h2 className="font-display text-3xl font-black tracking-[-0.04em]">
+                  <h2 className="font-display text-[2rem] font-black leading-none sm:text-3xl">
                     Fişi masaya bırak
                   </h2>
                   <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
@@ -195,12 +204,7 @@ export function ReceiptUploader() {
               </div>
             </label>
 
-            {error ? (
-              <p className="flex items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
-                <AlertCircle className="h-4 w-4" />
-                {error}
-              </p>
-            ) : null}
+            {error ? <ErrorNote>{error}</ErrorNote> : null}
           </div>
         </section>
 
@@ -210,7 +214,7 @@ export function ReceiptUploader() {
               <p className="font-display text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
                 OCR önizleme
               </p>
-              <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+              <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
                 {candidate ? "Fiş adayı hazır" : "OCR sonucu bekleniyor"}
               </h2>
             </div>
@@ -223,7 +227,7 @@ export function ReceiptUploader() {
                 <p className="font-display text-2xl font-black">
                   {candidate.merchant ?? "Fişten aktarılan gider"}
                 </p>
-                <p className="mt-2 font-display text-4xl font-black tabular-nums text-primary">
+                <p className="mt-2 break-words font-display text-[2.25rem] font-black tabular-nums leading-none text-primary sm:text-4xl">
                   {formatKurus(amountToKurus(candidate.amount))}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -244,7 +248,7 @@ export function ReceiptUploader() {
             </div>
           )}
 
-          <div className="mt-7 flex items-center gap-2 rounded-[1rem] bg-primary/10 p-4 text-sm font-semibold text-primary">
+          <div className="bg-primary/14 mt-7 flex items-center gap-2 rounded-[1rem] p-4 text-sm font-semibold text-foreground">
             <CheckCircle2 className="h-4 w-4" />
             Kullanıcı onayı olmadan işlem yazılmaz.
           </div>
@@ -255,7 +259,7 @@ export function ReceiptUploader() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="eyebrow">Fiş geçmişi</p>
-            <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
+            <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
               Onaylanan fişler
             </h2>
           </div>
@@ -283,7 +287,7 @@ export function ReceiptUploader() {
                 : "Kategorisiz";
               return (
                 <div key={item.id} className="receipt-tape px-5 py-6">
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="font-display text-lg font-black">
                         {item.merchant ?? item.description ?? "Fiş kaydı"}
@@ -295,7 +299,7 @@ export function ReceiptUploader() {
                         <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
                       ) : null}
                     </div>
-                    <div className="text-right">
+                    <div className="sm:text-right">
                       <p className="font-display text-xl font-black tabular-nums">
                         {formatKurus(amountToKurus(item.amount))}
                       </p>

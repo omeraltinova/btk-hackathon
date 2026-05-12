@@ -34,6 +34,8 @@ docker compose up --build
 # frontend → http://localhost:3000
 ```
 
+Demo seed sonrası giriş: `ayse@demo.cuzdan-kocu.app` / `demo123`.
+
 ## Lisans
 
 MIT (Day 7'de `LICENSE` dosyası eklenecek).
