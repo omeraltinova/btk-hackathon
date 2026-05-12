@@ -10,7 +10,7 @@ You need:
 |------|---------|-------------|
 | **Docker Desktop** | 4.30+ (or Docker Engine 27+) | `docker --version` |
 | **Docker Compose** | v2 (bundled with modern Docker) | `docker compose version` |
-| **Node.js** | 20 LTS or 22 LTS | `node --version` |
+| **Node.js** | 22.13+ | `node --version` |
 | **pnpm** | 11+ | `pnpm --version` |
 | **Python** | 3.12.x exactly (not 3.13) | `python --version` |
 | **uv** | 0.5+ | `uv --version` |
@@ -19,7 +19,7 @@ You need:
 
 If you don't have a tool yet:
 
-- **pnpm:** `npm i -g pnpm` or `corepack enable pnpm`.
+- **pnpm:** `npm i -g pnpm` or `corepack enable pnpm`. pnpm 11 requires Node 22.13+.
 - **uv:** `pip install uv` or follow the [official installer](https://docs.astral.sh/uv/getting-started/installation/).
 - **make on Windows:** Comes with Git Bash. If missing, install via `choco install make` (chocolatey) or use the equivalent commands from the Makefile.
 
@@ -34,6 +34,7 @@ cp .env.example .env
 Open `.env` and:
 
 - Set `JWT_SECRET` to a strong value: `openssl rand -hex 32`. (The placeholder works for first boot but you must change it before pushing anything to a real environment.)
+- Set `NEXTAUTH_SECRET` to a strong value too; it can use the same generation command as `JWT_SECRET` but should be a separate value outside local demos.
 - `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). You can leave it empty until Day 2; the backend boots without it.
 - Leave the `POSTGRES_*`, `MINIO_*`, and `NEXT_PUBLIC_*` defaults as-is for local dev.
 
@@ -110,7 +111,7 @@ pnpm install                          # one-time
 pnpm dev
 ```
 
-Frontend dev server reloads on save and uses the same backend at `NEXT_PUBLIC_API_URL` from `.env`.
+Frontend dev server reloads on save and uses `NEXT_PUBLIC_API_URL` for browser calls. NextAuth credential login runs server-side; on the host it falls back to `http://localhost:8000`, while Docker Compose passes `NEXT_PRIVATE_API_URL=http://backend:8000`.
 
 ## 5. Convenience commands (Makefile)
 

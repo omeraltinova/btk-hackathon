@@ -16,8 +16,9 @@ WORKDIR /app
 COPY pyproject.toml ./
 # uv.lock is created on first `uv sync`; copy only if present so initial builds work.
 COPY uv.loc[k] ./
+RUN printf '# Cüzdan Koçu Backend\n' > /README.md
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev || uv sync --no-dev
+    uv sync --frozen --no-dev --no-install-project || uv sync --no-dev --no-install-project
 
 # 2) App source.
 COPY app ./app
@@ -27,4 +28,4 @@ COPY alembic.ini ./alembic.ini
 EXPOSE 8000
 
 # Reload only useful in dev; docker-compose overrides the command for dev hot-reload.
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
