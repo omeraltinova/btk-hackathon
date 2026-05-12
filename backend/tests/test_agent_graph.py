@@ -22,7 +22,7 @@ def test_openrouter_chat_model_uses_openai_compatible_endpoint_and_headers() -> 
     assert str(model.openai_api_base) == "https://openrouter.ai/api/v1"
     assert model.default_headers == {
         "HTTP-Referer": "http://localhost:3000",
-        "X-OpenRouter-Title": "Cüzdan Koçu",
+        "X-Title": "Cuzdan Kocu",
     }
 
 

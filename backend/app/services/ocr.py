@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import unicodedata
 from collections.abc import Iterable
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -23,6 +24,22 @@ from app.schemas.receipt import ReceiptCandidateRead, ReceiptItemRead
 
 ISTANBUL = ZoneInfo("Europe/Istanbul")
 MONEY_QUANT = Decimal("0.01")
+TURKISH_ASCII_TRANSLATION = str.maketrans(
+    {
+        "ç": "c",
+        "Ç": "C",
+        "ğ": "g",
+        "Ğ": "G",
+        "ı": "i",
+        "İ": "I",
+        "ö": "o",
+        "Ö": "O",
+        "ş": "s",
+        "Ş": "S",
+        "ü": "u",
+        "Ü": "U",
+    },
+)
 
 
 class ReceiptOcrError(RuntimeError):
@@ -137,7 +154,7 @@ class ReceiptOcrService:
                 api_key=self._settings.openrouter_api_key,
                 base_url=self._settings.openrouter_base_url,
                 temperature=0,
-                default_headers=_openrouter_headers(self._settings),
+                default_headers=openrouter_headers(self._settings),
             )
         else:
             if not self._settings.gemini_api_key:
@@ -152,13 +169,20 @@ class ReceiptOcrService:
         )
 
 
-def _openrouter_headers(settings: Settings) -> dict[str, str] | None:
+def openrouter_headers(settings: Settings) -> dict[str, str] | None:
     headers: dict[str, str] = {}
     if settings.openrouter_http_referer:
-        headers["HTTP-Referer"] = settings.openrouter_http_referer
+        headers["HTTP-Referer"] = ascii_header(settings.openrouter_http_referer)
     if settings.openrouter_app_title:
-        headers["X-OpenRouter-Title"] = settings.openrouter_app_title
+        headers["X-Title"] = ascii_header(settings.openrouter_app_title)
     return headers or None
+
+
+def ascii_header(value: str) -> str:
+    translated = value.translate(TURKISH_ASCII_TRANSLATION)
+    normalized = unicodedata.normalize("NFKD", translated)
+    header_value = normalized.encode("ascii", "ignore").decode("ascii")
+    return " ".join(header_value.split()) or "Cuzdan Kocu"
 
 
 def _invoke_vision_model(
@@ -176,19 +200,22 @@ def _invoke_vision_model(
         "items array of {name, quantity, amount}, confidence decimal 0..1. "
         f"Filename: {filename}."
     )
-    response = model.invoke(
-        [
-            HumanMessage(
-                content=[
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{content_type};base64,{encoded}"},
-                    },
-                ],
-            ),
-        ],
-    )
+    try:
+        response = model.invoke(
+            [
+                HumanMessage(
+                    content=[
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{content_type};base64,{encoded}"},
+                        },
+                    ],
+                ),
+            ],
+        )
+    except Exception as exc:
+        raise ReceiptOcrUnavailableError("Receipt OCR provider request failed.") from exc
     try:
         parsed = json.loads(_extract_json_object(_message_content_text(response.content)))
         return LlmReceiptPayload.model_validate(parsed)

@@ -16,7 +16,12 @@ from app.models.category import Category
 from app.models.user import User
 from app.routers.receipts import upload_receipt
 from app.services.minio import StoredReceipt
-from app.services.ocr import ReceiptOcrService
+from app.services.ocr import (
+    ReceiptOcrService,
+    ReceiptOcrUnavailableError,
+    _invoke_vision_model,
+    openrouter_headers,
+)
 
 
 class FakeScalars:
@@ -113,6 +118,39 @@ def test_text_receipt_parser_returns_stable_migros_candidate() -> None:
     assert result.occurred_at == datetime.fromisoformat("2026-05-12T14:32:00+03:00")
     assert result.raw_ocr_data["provider"] == "local_text"
     assert len(result.items) == 4
+
+
+def test_openrouter_ocr_headers_are_ascii_safe() -> None:
+    settings = Settings(
+        app_env="test",
+        jwt_secret="test-secret-test-secret",
+        openrouter_http_referer="http://localhost:3000",
+        openrouter_app_title="Cüzdan Koçu",
+    )
+
+    headers = openrouter_headers(settings)
+
+    assert headers == {
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "Cuzdan Kocu",
+    }
+    for value in headers.values():
+        value.encode("ascii")
+
+
+class FailingVisionModel:
+    def invoke(self, _messages: object) -> object:
+        raise UnicodeEncodeError("ascii", "ü", 0, 1, "ordinal not in range")
+
+
+def test_vision_provider_errors_become_ocr_unavailable() -> None:
+    with pytest.raises(ReceiptOcrUnavailableError):
+        _invoke_vision_model(
+            FailingVisionModel(),  # type: ignore[arg-type]
+            content=b"fake-image",
+            content_type="image/png",
+            filename="fis.png",
+        )
 
 
 @pytest.mark.asyncio

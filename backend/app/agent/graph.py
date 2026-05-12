@@ -16,6 +16,7 @@ from langgraph.prebuilt import ToolNode
 from app.agent.prompts import build_system_prompt
 from app.agent.tools import TOOLS
 from app.config import Settings, get_settings
+from app.services.ocr import ascii_header
 
 
 class AgentState(TypedDict):
@@ -47,9 +48,9 @@ def build_chat_model(
 
     default_headers: dict[str, str] = {}
     if openrouter_http_referer:
-        default_headers["HTTP-Referer"] = openrouter_http_referer
+        default_headers["HTTP-Referer"] = ascii_header(openrouter_http_referer)
     if openrouter_app_title:
-        default_headers["X-OpenRouter-Title"] = openrouter_app_title
+        default_headers["X-Title"] = ascii_header(openrouter_app_title)
 
     return ChatOpenAI(
         model=model,
