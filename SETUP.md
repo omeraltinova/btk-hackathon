@@ -38,6 +38,7 @@ Open `.env` and:
 - `LLM_PROVIDER` — keep `gemini` for direct Google AI Studio, or set `openrouter` to route chat models through OpenRouter.
 - `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Required when `LLM_PROVIDER=gemini`.
 - `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required when `LLM_PROVIDER=openrouter`; default model is `google/gemini-2.5-flash`.
+- Real image OCR on `/receipts` uses the same provider choice. Without a configured Gemini/OpenRouter key, the receipt UI can load but image OCR returns a Turkish "service not ready" error.
 - Leave the `POSTGRES_*`, `MINIO_*`, and `NEXT_PUBLIC_*` defaults as-is for local dev.
 
 ## 3. The "everything in Docker" path (recommended for first run)
@@ -60,7 +61,7 @@ curl http://localhost:8000/health
 # → {"status":"ok","version":"0.1.0"}
 ```
 
-**Verify frontend:** open <http://localhost:3000> — the root URL redirects to `/dashboard`. You'll see the sidebar (with the hard-coded demo user "Ayşe Yılmaz" — Day 1 only; replaced by real auth on Day 2) and a "Yakında" placeholder card.
+**Verify frontend:** open <http://localhost:3000> — unauthenticated users are redirected to `/login`. Register or log in, then `/dashboard`, `/chat`, `/receipts`, and `/family` render inside the authenticated app shell.
 
 **Verify dark mode:** click the sun/moon icon top-right in the dashboard.
 
@@ -149,10 +150,11 @@ All three must pass. If `make lint` finds drift, run `make format` first.
 3. `curl http://localhost:8000/health` → 200 OK with JSON
 4. Open <http://localhost:8000/docs> → FastAPI Swagger UI shows the (currently empty) routers
 5. Open <http://localhost:3000> → redirects to `/dashboard`
-6. Click through `/chat`, `/receipts`, `/family` — each shows its placeholder card
-7. Open <http://localhost:9001> → MinIO console (login: `minioadmin` / `minioadmin` unless you changed `.env`)
-8. Toggle dark mode — body color flips
-9. `make test` from repo root → 1 test passes
+6. Click through `/chat`, `/receipts`, `/family`; `/receipts` shows the drag-drop uploader, OCR preview flow, and receipt history.
+7. With `GEMINI_API_KEY` or `OPENROUTER_API_KEY` configured, upload a receipt image on `/receipts`, confirm the candidate, and verify a `receipt_ocr` transaction appears in receipt history and dashboard transactions.
+8. Open <http://localhost:9001> → MinIO console (login: `minioadmin` / `minioadmin` unless you changed `.env`)
+9. Toggle dark mode — body color flips
+10. `make test` from repo root → backend pytest suite passes
 
 ## 8. Troubleshooting
 

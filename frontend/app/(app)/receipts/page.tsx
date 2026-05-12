@@ -1,15 +1,10 @@
-import { CheckCircle2, ImagePlus, ReceiptText, ScanLine, UploadCloud } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
+
+import { ReceiptUploader } from "@/components/ReceiptUploader";
 
 export const metadata = {
   title: "Fişler — Cüzdan Koçu",
 };
-
-const receiptSteps = [
-  "Fişi yükle",
-  "Gemini Vision satırları okur",
-  "Kategori önerisi gelir",
-  "Onayınla işleme dönüşür",
-] as const;
 
 export default function ReceiptsPage() {
   return (
@@ -22,8 +17,8 @@ export default function ReceiptsPage() {
               Fotoğrafı bütçeye çeviren onay masası.
             </h1>
             <p className="max-w-[64ch] text-lg leading-8 text-muted-foreground">
-              4. günde burada gerçek sürükle-bırak, önizleme ve OCR sonucu olacak. Şimdilik ekran,
-              fişin güvenli biçimde işleme dönüşeceği yolu gösteriyor.
+              Fişi yükle, OCR sonucunu düzenle ve yalnızca onayladığında gider olarak kaydet. Geçmiş
+              listesi doğrudan veritabanındaki fiş kaynaklı işlemlerden gelir.
             </p>
           </div>
         </div>
@@ -38,80 +33,12 @@ export default function ReceiptsPage() {
               Fiş görseli ve ham OCR verisi hassastır. Sistem yalnızca olay tipini ve güvenli
               kullanıcı kaydını loglar.
             </p>
+            <ShieldCheck className="h-6 w-6 text-primary" />
           </div>
         </aside>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <section className="ledger-sheet p-5 sm:p-6">
-          <div className="relative z-10 grid min-h-96 place-items-center rounded-[1.5rem] border border-dashed border-primary/55 bg-secondary/45 p-6 text-center transition-colors hover:bg-secondary/60">
-            <div className="space-y-5">
-              <span className="float-gentle hard-shadow-accent mx-auto grid h-20 w-20 place-items-center rounded-[1.5rem_1.5rem_0.8rem_1.5rem] bg-primary text-primary-foreground">
-                <UploadCloud className="h-8 w-8" />
-              </span>
-              <div>
-                <h2 className="font-display text-3xl font-black tracking-[-0.04em]">
-                  Fişi masaya bırak
-                </h2>
-                <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-                  Maks 5 MB. 4. günde görsel seçimi, yükleme durumu ve OCR önizlemesi bağlanır.
-                </p>
-              </div>
-              <span className="stamp-label mx-auto bg-background/70 text-muted-foreground">
-                <ImagePlus className="h-3.5 w-3.5" />
-                JPG veya PNG
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="receipt-tape rotate-[-0.75deg] p-6 pt-9">
-          <div className="flex items-start justify-between gap-4 border-b border-dashed border-border pb-5">
-            <div>
-              <p className="font-display text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
-                OCR önizleme
-              </p>
-              <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
-                OCR sonucu bekleniyor
-              </h2>
-            </div>
-            <ReceiptText className="h-6 w-6 text-primary" />
-          </div>
-
-          <div className="mt-5 rounded-[1.25rem] border border-dashed border-border/80 p-5">
-            <div>
-              <p className="font-display text-2xl font-black">Henüz fiş yüklenmedi</p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Fiş yükleme bağlandığında bu alan veritabanına yazılmadan önce gerçek OCR sonucunu
-                gösterecek.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 space-y-3">
-            {receiptSteps.map((step, index) => (
-              <div key={step} className="grid grid-cols-[2rem_1fr] items-center gap-3">
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                  {index + 1}
-                </span>
-                <p className="font-semibold">{step}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-7 flex items-center gap-2 rounded-[1rem] bg-primary/10 p-4 text-sm font-semibold text-primary">
-            <CheckCircle2 className="h-4 w-4" />
-            Kullanıcı onayı olmadan işlem yazılmaz.
-          </div>
-        </section>
-      </div>
-
-      <div className="tab-chip hard-shadow-primary bg-card/90 p-5 pr-8">
-        <div className="flex items-center gap-3">
-          <ScanLine className="h-5 w-5 text-primary" />
-          <p className="font-semibold">Yükleme yolu: /api/receipts/upload</p>
-        </div>
-      </div>
+      <ReceiptUploader />
     </div>
   );
 }

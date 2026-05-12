@@ -106,7 +106,9 @@ def create_transaction(
         description=payload.description,
         merchant=payload.merchant,
         occurred_at=payload.occurred_at,
-        source="manual",
+        source=payload.source,
+        receipt_image_url=payload.receipt_image_url,
+        raw_ocr_data=payload.raw_ocr_data,
     )
     db.add(transaction)
     db.commit()

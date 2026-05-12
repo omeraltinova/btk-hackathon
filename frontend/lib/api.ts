@@ -13,6 +13,10 @@
  *     method: "POST",
  *     body: { amount: "1250.50", type: "expense" },
  *   });
+ *   const receipt = await api<ReceiptCandidate>("/api/receipts/upload", {
+ *     method: "POST",
+ *     body: formData,
+ *   });
  */
 
 import { getSession } from "next-auth/react";
@@ -22,7 +26,7 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export type ApiOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
-  /** JSON-serialisable body. We `JSON.stringify` it for you. */
+  /** JSON-serialisable body or FormData. JSON bodies are stringified for you. */
   body?: unknown;
   /** Extra headers; merged with defaults. */
   headers?: Record<string, string>;
@@ -70,12 +74,13 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   const { method = "GET", body, headers = {}, signal, silent = false } = options;
 
   const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
 
   const finalHeaders: Record<string, string> = {
     Accept: "application/json",
     ...headers,
   };
-  if (body !== undefined) finalHeaders["Content-Type"] = "application/json";
+  if (body !== undefined && !isFormData) finalHeaders["Content-Type"] = "application/json";
 
   const token = await getToken();
   if (token) finalHeaders.Authorization = `Bearer ${token}`;
@@ -85,7 +90,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     response = await fetch(url, {
       method,
       headers: finalHeaders,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
       signal,
       credentials: "include",
     });

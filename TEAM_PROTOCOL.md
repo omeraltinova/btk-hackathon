@@ -22,8 +22,8 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 | 2 | 2 | Person B | Transactions feature slice + chat mock | Task 1 auth contract | DONE |
 | 3 | 3 | Person A | Agent spending query + streaming backend | Task 2 transaction data | DONE |
 | 4 | 3 | Person B | Dashboard analytics + streaming chat UI | Task 3 SSE contract | DONE |
-| 5 | 4 | Person A | Receipt ingestion backend slice | None | TODO |
-| 6 | 4 | Person B | Receipt confirmation + receipt history UI | Task 5 upload schema/API | TODO |
+| 5 | 4 | Person A | Receipt ingestion backend slice | None | DONE |
+| 6 | 4 | Person B | Receipt confirmation + receipt history UI | Task 5 upload schema/API | DONE |
 | 7 | 5 | Person A | Family management flow end-to-end | Task 1 auth flow | TODO |
 | 8 | 5 | Person B | Child coach experience end-to-end | Task 7 family switch | TODO |
 | 9 | 6 | Person A | Proactive insights + deploy | Tasks 5 and 7 data flow | TODO |
@@ -158,13 +158,13 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `backend/app/routers/receipts.py`
   - `backend/app/schemas/receipt.py`
   - `backend/tests/test_ocr.py`
-  - `seeds/sample_receipts/migros_*.jpg`
+  - `seeds/sample_receipts/migros_demo.txt`
 - Depends on: `None`
 - Done when:
-  - [ ] Upload endpoint returns parsed receipt candidate
-  - [ ] At least one Turkish receipt works end-to-end
-  - [ ] OCR tests pass
-  - [ ] Upload response schema is stable by 11:00
+  - [x] Upload endpoint returns parsed receipt candidate
+  - [x] At least one Turkish receipt works end-to-end
+  - [x] OCR tests pass
+  - [x] Upload response schema is stable by 11:00
 
 ## Task 6 -- Receipt confirmation + receipt history UI
 
@@ -182,9 +182,9 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `frontend/app/(app)/receipts/page.tsx`
 - Depends on: `Task 5 upload schema/API`
 - Done when:
-  - [ ] Drag-drop upload reaches OCR and returns preview data
-  - [ ] Confirming a receipt creates a transaction
-  - [ ] Receipt history is visible in the receipts page
+  - [x] Drag-drop upload reaches OCR and returns preview data
+  - [x] Confirming a receipt creates a transaction
+  - [x] Receipt history is visible in the receipts page
 
 ## Task 7 -- Family management flow end-to-end
 

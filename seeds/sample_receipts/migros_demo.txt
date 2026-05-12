@@ -1,0 +1,7 @@
+MIGROS TICARET A.S.
+TARIH: 12.05.2026 14:32
+EKMEK            15,00
+SUT              42,50
+MEYVE            90,00
+TEMIZLIK         100,00
+GENEL TOPLAM     247,50 TL

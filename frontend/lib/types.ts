@@ -41,6 +41,28 @@ export type TransactionCreateInput = {
   description?: string | null;
   merchant?: string | null;
   occurred_at: string;
+  source?: TransactionSource;
+  receipt_image_url?: string | null;
+  raw_ocr_data?: Record<string, unknown> | null;
+};
+
+export type ReceiptItem = {
+  name: string;
+  quantity: string | null;
+  amount: string | null;
+};
+
+export type ReceiptCandidate = {
+  merchant: string | null;
+  amount: string;
+  occurred_at: string;
+  category_id: string | null;
+  category_name: string | null;
+  description: string;
+  receipt_image_url: string;
+  raw_ocr_data: Record<string, unknown>;
+  items: ReceiptItem[];
+  confidence: string;
 };
 
 export type TransactionCategoryTotal = {

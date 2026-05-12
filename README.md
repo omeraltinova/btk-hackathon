@@ -2,7 +2,7 @@
 
 > Türk aileleri için proaktif AI finans koçu. BTK Hackathon 2026 projesi.
 
-> ⚠️ **Status:** Bootstrap (Day 1). Bu README iskelet hâldedir; nihai içerik Day 7'de eklenecek (banner, GIF demo, canlı URL, demo hesabı, mimari diyagramı, ekran görüntüleri).
+> ⚠️ **Status:** Aktif MVP geliştirmesi. Auth, işlem paneli, streaming chat ve fiş yükleme/onay akışı çalışıyor; nihai demo içerikleri Day 7'de eklenecek.
 
 ## Hızlı bakış
 

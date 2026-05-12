@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
@@ -19,6 +21,7 @@ from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
+from app.services.ocr import ReceiptOcrError, ReceiptOcrService, ReceiptOcrUnavailableError
 from app.utils.date_format import format_tr_date
 from app.utils.tl_format import format_tl
 
@@ -246,6 +249,36 @@ def build_user_memory(
     }
 
 
+def build_receipt_candidate(
+    db: Session,
+    current_user: User,
+    *,
+    image_base64: str,
+    filename: str = "receipt.jpg",
+    content_type: str = "image/jpeg",
+) -> dict[str, object]:
+    """Analyze a receipt image from trusted agent state scope."""
+    try:
+        content = base64.b64decode(image_base64, validate=True)
+    except binascii.Error:
+        return {"error": "Fiş görseli çözümlenemedi."}
+    if len(content) > 5 * 1024 * 1024:
+        return {"error": "Fiş dosyası en fazla 5 MB olmalı."}
+    try:
+        candidate = ReceiptOcrService().analyze(
+            content=content,
+            content_type=content_type,
+            filename=filename,
+            receipt_image_url="agent://receipt-preview",
+            categories=visible_categories(db, current_user),
+        )
+    except ReceiptOcrUnavailableError:
+        return {"error": "OCR servisi hazır değil."}
+    except ReceiptOcrError:
+        return {"error": "Fiş okunamadı."}
+    return candidate.model_dump(mode="json")
+
+
 @tool("get_spending")
 def get_spending_tool(
     category: str | None = None,
@@ -286,4 +319,22 @@ def get_user_memory_tool(
         return build_user_memory(db, _load_current_user(db, user_id), key=key)
 
 
-TOOLS = [get_spending_tool, get_subscriptions_tool, get_user_memory_tool]
+@tool("analyze_receipt")
+def analyze_receipt_tool(
+    image_base64: str,
+    filename: str = "receipt.jpg",
+    content_type: str = "image/jpeg",
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Fiş görselini OCR ile okur. `user_id` sistem durumundan gelir."""
+    with SessionLocal() as db:
+        return build_receipt_candidate(
+            db,
+            _load_current_user(db, user_id),
+            image_base64=image_base64,
+            filename=filename,
+            content_type=content_type,
+        )
+
+
+TOOLS = [get_spending_tool, get_subscriptions_tool, get_user_memory_tool, analyze_receipt_tool]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -18,6 +18,9 @@ class TransactionCreate(BaseModel):
     description: str | None = Field(default=None, max_length=240)
     merchant: str | None = Field(default=None, max_length=120)
     occurred_at: datetime
+    source: TransactionSource = "manual"
+    receipt_image_url: str | None = Field(default=None, max_length=500)
+    raw_ocr_data: dict[str, Any] | None = None
 
     @field_validator("occurred_at")
     @classmethod
