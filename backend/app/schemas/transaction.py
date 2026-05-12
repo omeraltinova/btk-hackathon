@@ -72,3 +72,23 @@ class TransactionRead(BaseModel):
     occurred_at: datetime
     source: TransactionSource
     receipt_image_url: str | None
+
+
+class TransactionCategoryTotal(BaseModel):
+    category_id: UUID | None
+    category_name: str
+    amount: Decimal
+    percentage: Decimal
+
+
+class TransactionSummaryRead(BaseModel):
+    period_start: datetime
+    period_end: datetime
+    income: Decimal
+    expense: Decimal
+    balance: Decimal
+    previous_income: Decimal
+    previous_expense: Decimal
+    income_change_percent: Decimal | None
+    expense_change_percent: Decimal | None
+    category_totals: list[TransactionCategoryTotal]

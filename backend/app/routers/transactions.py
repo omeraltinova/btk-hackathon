@@ -1,8 +1,11 @@
 """Transactions router: authenticated manual income/expense CRUD."""
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_, select
@@ -13,16 +16,20 @@ from app.db import get_db
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.user import User
-from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
+from app.routers._scoping import visible_user_ids
+from app.schemas.transaction import (
+    TransactionCategoryTotal,
+    TransactionCreate,
+    TransactionRead,
+    TransactionSummaryRead,
+    TransactionUpdate,
+)
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
-
-def _visible_user_ids(current_user: User) -> list[UUID]:
-    ids = [current_user.id]
-    if current_user.role == "parent":
-        ids.extend(child.id for child in current_user.children)
-    return ids
+ISTANBUL = ZoneInfo("Europe/Istanbul")
+MONEY_QUANT = Decimal("0.01")
+PERCENT_QUANT = Decimal("0.1")
 
 
 def _get_scoped_transaction(
@@ -33,7 +40,7 @@ def _get_scoped_transaction(
     transaction = db.execute(
         select(Transaction).where(
             Transaction.id == transaction_id,
-            Transaction.user_id.in_(_visible_user_ids(current_user)),
+            Transaction.user_id.in_(visible_user_ids(current_user)),
         ),
     ).scalar_one_or_none()
     if transaction is None:
@@ -54,7 +61,7 @@ def _ensure_category_access(
     category = db.execute(
         select(Category).where(
             Category.id == category_id,
-            or_(Category.user_id == current_user.id, Category.user_id.is_(None)),
+            or_(Category.user_id.in_(visible_user_ids(current_user)), Category.user_id.is_(None)),
         ),
     ).scalar_one_or_none()
     if category is None:
@@ -74,7 +81,7 @@ def list_transactions(
     return (
         db.execute(
             select(Transaction)
-            .where(Transaction.user_id.in_(_visible_user_ids(current_user)))
+            .where(Transaction.user_id.in_(visible_user_ids(current_user)))
             .order_by(Transaction.occurred_at.desc(), Transaction.created_at.desc())
             .offset(offset)
             .limit(limit),
@@ -105,6 +112,126 @@ def create_transaction(
     db.commit()
     db.refresh(transaction)
     return transaction
+
+
+def _month_start(value: datetime) -> datetime:
+    return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _previous_month_start(value: datetime) -> datetime:
+    if value.month == 1:
+        return value.replace(year=value.year - 1, month=12)
+    return value.replace(month=value.month - 1)
+
+
+def _as_aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _change_percent(current: Decimal, previous: Decimal) -> Decimal | None:
+    if previous == 0:
+        return None
+    return (((current - previous) / previous) * Decimal("100")).quantize(
+        PERCENT_QUANT,
+        rounding=ROUND_HALF_UP,
+    )
+
+
+@router.get("/summary", response_model=TransactionSummaryRead)
+def get_transaction_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TransactionSummaryRead:
+    now = datetime.now(ISTANBUL)
+    current_start = _month_start(now)
+    previous_start = _previous_month_start(current_start)
+    user_ids = visible_user_ids(current_user)
+
+    categories = (
+        db.execute(
+            select(Category).where(or_(Category.user_id.in_(user_ids), Category.user_id.is_(None))),
+        )
+        .scalars()
+        .all()
+    )
+    category_names = {category.id: category.name for category in categories}
+
+    transactions = (
+        db.execute(
+            select(Transaction).where(
+                Transaction.user_id.in_(user_ids),
+                Transaction.occurred_at >= previous_start.astimezone(UTC),
+            ),
+        )
+        .scalars()
+        .all()
+    )
+
+    income = Decimal("0")
+    expense = Decimal("0")
+    previous_income = Decimal("0")
+    previous_expense = Decimal("0")
+    category_totals: dict[UUID | None, Decimal] = {}
+
+    for transaction in transactions:
+        occurred_at = _as_aware_utc(transaction.occurred_at).astimezone(ISTANBUL)
+        amount = Decimal(transaction.amount)
+        if occurred_at >= current_start:
+            if transaction.type == "income":
+                income += amount
+            else:
+                expense += amount
+                category_totals[transaction.category_id] = (
+                    category_totals.get(transaction.category_id, Decimal("0")) + amount
+                )
+        elif occurred_at >= previous_start:
+            if transaction.type == "income":
+                previous_income += amount
+            else:
+                previous_expense += amount
+
+    category_total_sum = sum(category_totals.values(), Decimal("0"))
+    category_rows = [
+        TransactionCategoryTotal(
+            category_id=category_id,
+            category_name=category_names.get(category_id, "Kategorisiz")
+            if category_id is not None
+            else "Kategorisiz",
+            amount=_money(amount),
+            percentage=(
+                Decimal("0")
+                if category_total_sum == 0
+                else ((amount / category_total_sum) * Decimal("100")).quantize(
+                    PERCENT_QUANT,
+                    rounding=ROUND_HALF_UP,
+                )
+            ),
+        )
+        for category_id, amount in sorted(
+            category_totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    ]
+
+    return TransactionSummaryRead(
+        period_start=current_start,
+        period_end=now,
+        income=_money(income),
+        expense=_money(expense),
+        balance=_money(income - expense),
+        previous_income=_money(previous_income),
+        previous_expense=_money(previous_expense),
+        income_change_percent=_change_percent(income, previous_income),
+        expense_change_percent=_change_percent(expense, previous_expense),
+        category_totals=category_rows,
+    )
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)

@@ -9,7 +9,16 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.config import get_settings
-from app.routers import auth, chat, family, insights, receipts, transactions
+from app.routers import (
+    auth,
+    categories,
+    chat,
+    family,
+    insights,
+    receipts,
+    subscriptions,
+    transactions,
+)
 
 
 def create_app() -> FastAPI:
@@ -45,7 +54,9 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(auth.router)
+    app.include_router(categories.router)
     app.include_router(transactions.router)
+    app.include_router(subscriptions.router)
     app.include_router(receipts.router)
     app.include_router(chat.router)
     app.include_router(insights.router)
