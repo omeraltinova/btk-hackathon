@@ -1,6 +1,8 @@
 "use client";
 
 import { LayoutDashboard, LogOut, MessageSquare, Receipt, Users, Wallet } from "lucide-react";
+import type { Session } from "next-auth";
+import { signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -8,21 +10,18 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// HARDCODED_DEMO_USER — Day 1 stand-in until auth context lands Day 2.
-// TODO Day 2: replace with auth context (NextAuth session → user object).
-const HARDCODED_DEMO_USER = {
-  name: "Ayşe Yılmaz",
-  family: "Yılmaz",
-  role: "parent" as const,
-  email: "ayse@demo.cuzdan-kocu.app",
-};
-
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
   { href: "/chat", label: "Sohbet", section: "02", icon: MessageSquare },
   { href: "/receipts", label: "Fişler", section: "03", icon: Receipt },
   { href: "/family", label: "Aile", section: "04", icon: Users },
 ] as const;
+
+const ROLE_LABELS = {
+  parent: "Ebeveyn",
+  child: "Çocuk",
+  individual: "Bireysel",
+} as const;
 
 function initials(name: string): string {
   return name
@@ -34,8 +33,15 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-export function Sidebar() {
+type SidebarProps = {
+  user: Session["user"];
+};
+
+export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
+  const navItems =
+    user.role === "individual" ? NAV_ITEMS.filter((item) => item.href !== "/family") : NAV_ITEMS;
+  const displayName = user.name ?? "Cüzdan Koçu";
 
   return (
     <aside className="sticky top-0 z-40 flex w-full shrink-0 flex-col border-b border-border/80 bg-card/95 backdrop-blur-xl lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:bg-card">
@@ -51,26 +57,23 @@ export function Sidebar() {
           </div>
         </div>
         <span className="stamp-label bg-background/65 text-primary lg:mt-6 lg:inline-flex">
-          Demo
+          {user.isDemo ? "Demo" : ROLE_LABELS[user.role]}
         </span>
       </div>
 
-      {/* User chip (Day 1: hard-coded demo user) */}
       <div className="mx-4 hidden rotate-[-1deg] items-center gap-3 rounded-[1.4rem_1.4rem_0.8rem_1.4rem] border border-border/80 bg-muted/70 px-3 py-3 lg:flex">
         <Avatar className="h-9 w-9">
-          <AvatarFallback>{initials(HARDCODED_DEMO_USER.name)}</AvatarFallback>
+          <AvatarFallback>{initials(displayName)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{HARDCODED_DEMO_USER.name}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            Aile: {HARDCODED_DEMO_USER.family}
-          </div>
+          <div className="truncate text-sm font-medium">{displayName}</div>
+          <div className="truncate text-xs text-muted-foreground">{ROLE_LABELS[user.role]}</div>
         </div>
       </div>
 
       {/* Nav */}
       <nav className="flex gap-2 overflow-x-auto px-3 pb-3 lg:mt-6 lg:flex-1 lg:flex-col lg:gap-2 lg:overflow-visible lg:px-4 lg:pb-0">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
@@ -93,13 +96,11 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Logout (Day 1: stub — wired Day 2) */}
       <div className="hidden border-t border-border/70 p-4 lg:block">
         <Button
           variant="ghost"
           className="w-full justify-start rounded-[1.1rem] text-muted-foreground"
-          // TODO Day 2: clear JWT + redirect to /login.
-          disabled
+          onClick={() => void signOut({ callbackUrl: "/login" })}
         >
           <LogOut className="h-4 w-4" />
           Çıkış

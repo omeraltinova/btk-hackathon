@@ -1,5 +1,9 @@
+import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
+
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Sidebar } from "@/components/sidebar";
+import { authOptions } from "@/lib/auth";
 
 /**
  * Shell layout for authenticated app pages.
@@ -8,24 +12,25 @@ import { Sidebar } from "@/components/sidebar";
  * NOT render the sidebar. Route groups let us share a layout for all
  * dashboard-like routes without leaking it into `/login`.
  *
- * Day 1: no auth gate. Day 2 will add a server-side auth check here that
- * redirects unauthenticated visitors to `/login`.
  */
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const session = await getServerSession(authOptions);
+  if (!session?.backendToken) redirect("/login");
+
   return (
     <div className="min-h-screen lg:flex">
-      <Sidebar />
+      <Sidebar user={session.user} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="bg-background/82 flex min-h-16 items-center justify-between gap-4 border-b border-border/70 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
           <div className="hidden min-w-0 sm:block">
-            <p className="eyebrow">11.05.2026 / defter açık</p>
+            <p className="eyebrow">Defter açık</p>
             <p className="truncate text-sm text-muted-foreground">
-              Proaktif uyarılar, aile görünümü ve fiş akışı hazırlandığında burada birleşecek.
+              Proaktif uyarılar, aile görünümü ve fiş akışı burada birleşecek.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground sm:ml-auto">
             <span className="stamp-label hidden bg-card/70 text-muted-foreground sm:inline-flex">
-              1. gün tasarım modu
+              2. gün giriş modu
             </span>
           </div>
           <ThemeToggle />

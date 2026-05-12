@@ -3,7 +3,7 @@
  *
  * Why a thin wrapper (and not a heavyweight client like axios or tRPC):
  * - Reads `NEXT_PUBLIC_API_URL` once.
- * - Attaches the JWT from localStorage (Day 2 will plug in NextAuth session).
+ * - Attaches the FastAPI JWT carried by the NextAuth session.
  * - Surfaces Turkish error messages via `sonner` toasts so every router gets
  *   a consistent UX without repeating boilerplate.
  *
@@ -15,11 +15,10 @@
  *   });
  */
 
+import { getSession } from "next-auth/react";
 import { toast } from "sonner";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
-const TOKEN_STORAGE_KEY = "cuzdan_kocu_token";
 
 export type ApiOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
@@ -46,19 +45,10 @@ export class ApiError extends Error {
   }
 }
 
-function getToken(): string | null {
+async function getToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY);
-}
-
-export function setToken(token: string): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-}
-
-export function clearToken(): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  const session = await getSession();
+  return session?.backendToken ?? null;
 }
 
 /**
@@ -87,7 +77,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   };
   if (body !== undefined) finalHeaders["Content-Type"] = "application/json";
 
-  const token = getToken();
+  const token = await getToken();
   if (token) finalHeaders.Authorization = `Bearer ${token}`;
 
   let response: Response;
