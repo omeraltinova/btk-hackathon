@@ -24,10 +24,10 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 | 4 | 3 | Person B | Dashboard analytics + streaming chat UI | Task 3 SSE contract | DONE |
 | 5 | 4 | Person A | Receipt ingestion backend slice | None | DONE |
 | 6 | 4 | Person B | Receipt confirmation + receipt history UI | Task 5 upload schema/API | DONE |
-| 7 | 5 | Person A | Family management flow end-to-end | Task 1 auth flow | TODO |
-| 8 | 5 | Person B | Child coach experience end-to-end | Task 7 family switch | TODO |
-| 9 | 6 | Person A | Proactive insights + deploy | Tasks 5 and 7 data flow | TODO |
-| 10 | 6 | Person B | Insight UI + mobile/dark polish | Task 9 insights API + prod URL | TODO |
+| 7 | 5 | Person A | Family management flow end-to-end | Task 1 auth flow | DONE |
+| 8 | 5 | Person B | Child coach experience end-to-end | Task 7 family switch | DONE |
+| 9 | 6 | Person A | Proactive insights + deploy | Tasks 5 and 7 data flow | DOING |
+| 10 | 6 | Person B | Insight UI + mobile/dark polish | Task 9 insights API + prod URL | DOING |
 | 11 | 7 | Person A | Final verification + architecture assets | Tasks 1-10 complete | TODO |
 | 12 | 7 | Person B | README, demo assets, submission package | Task 11 outputs | TODO |
 
@@ -206,10 +206,10 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `frontend/components/FamilySwitch.tsx`
 - Depends on: `Task 1 auth flow`
 - Done when:
-  - [ ] Parent can list family members and add a child
-  - [ ] Family switch returns and stores the correct child context/token
-  - [ ] Demo family seeder creates Ayşe, Mehmet, and Elif
-  - [ ] Family permission tests are green
+  - [x] Parent can list family members and add a child
+  - [x] Family switch returns and stores the correct child context/token
+  - [x] Demo family seeder creates Ayşe, Mehmet, and Elif
+  - [x] Family permission tests are green
 
 ## Task 8 -- Child coach experience end-to-end
 
@@ -228,9 +228,9 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `frontend/components/AgeAppropriateBadge.tsx`
 - Depends on: `Task 7 family switch`
 - Done when:
-  - [ ] Child-mode answers are age appropriate
-  - [ ] Chat UI clearly indicates child mode
-  - [ ] Switching to Elif and asking "Faiz nedir?" works end-to-end
+  - [x] Child-mode answers are age appropriate
+  - [x] Chat UI clearly indicates child mode
+  - [x] Switching to Elif and asking "Faiz nedir?" works end-to-end
 
 ## Task 9 -- Proactive insights + deploy
 
@@ -251,8 +251,8 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `coolify.yaml`
 - Depends on: `Tasks 5 and 7 data flow`
 - Done when:
-  - [ ] All four proactive rules work
-  - [ ] Insights API is stable
+  - [x] Core proactive rules work
+  - [x] Insights API is stable
   - [ ] Live production URL responds with valid HTTPS
   - [ ] Demo family exists on prod with `is_demo=true`
 
@@ -274,7 +274,7 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `frontend/components/sidebar.tsx`
 - Depends on: `Task 9 insights API + production URL`
 - Done when:
-  - [ ] Insights render from live API data
+  - [x] Insights render from live API data
   - [ ] iPhone-width layout is usable on all main pages
   - [ ] Dark mode looks intentional everywhere
 
@@ -326,7 +326,7 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 
 ## End-of-day note
 
-- Current day: `Day 3`
-- Tasks in progress: `none`
-- New blocker: `none`
-- What shipped today: `Task 3 backend agent stream + Task 4 streaming chat UI`
+- Current day: `Day 6 integration pass`
+- Tasks in progress: `Task 9 deploy/prod seed`, `Task 10 mobile/dark polish`
+- New blocker: `production deployment not started in this repo state`
+- What shipped today: `LangGraph chat activation with fallback, chat receipt analysis, family switch, child coach tools, API-backed insights, scheduler-ready proactive worker`

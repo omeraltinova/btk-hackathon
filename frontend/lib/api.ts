@@ -19,8 +19,9 @@
  *   });
  */
 
-import { getSession } from "next-auth/react";
 import { toast } from "sonner";
+
+import { getBackendToken } from "@/lib/active-profile";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -35,6 +36,8 @@ export type ApiOptions = {
   /** When true, skip toasts on error and rethrow only — for components that
    *  want to render their own error UI. Defaults to false. */
   silent?: boolean;
+  /** Use the active child profile token when one is selected. Defaults to true. */
+  useActiveProfile?: boolean;
 };
 
 export class ApiError extends Error {
@@ -47,12 +50,6 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
   }
-}
-
-async function getToken(): Promise<string | null> {
-  if (typeof window === "undefined") return null;
-  const session = await getSession();
-  return session?.backendToken ?? null;
 }
 
 /**
@@ -71,7 +68,14 @@ function describeError(status: number, raw: string | undefined): string {
 }
 
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const { method = "GET", body, headers = {}, signal, silent = false } = options;
+  const {
+    method = "GET",
+    body,
+    headers = {},
+    signal,
+    silent = false,
+    useActiveProfile = true,
+  } = options;
 
   const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
   const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
@@ -82,7 +86,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   };
   if (body !== undefined && !isFormData) finalHeaders["Content-Type"] = "application/json";
 
-  const token = await getToken();
+  const token = await getBackendToken(useActiveProfile);
   if (token) finalHeaders.Authorization = `Bearer ${token}`;
 
   let response: Response;

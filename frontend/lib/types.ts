@@ -6,6 +6,24 @@ export type TransactionType = "income" | "expense";
 
 export type TransactionSource = "manual" | "receipt_ocr" | "recurring";
 
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  parent_id: string | null;
+  age: number | null;
+  finance_level: FinanceLevel;
+  is_demo: boolean;
+};
+
+export type TokenResponse = {
+  access_token: string;
+  token_type: "bearer";
+  expires_in_days: number;
+  user: AuthUser;
+};
+
 export type Category = {
   id: string;
   user_id: string | null;
@@ -115,6 +133,9 @@ export type SubscriptionCreateInput = {
 export type ChatStreamRequest = {
   message: string;
   conversation_id?: string | null;
+  receipt_image_base64?: string | null;
+  receipt_filename?: string | null;
+  receipt_content_type?: string | null;
 };
 
 export type ChatToolPayload = Record<string, unknown>;
@@ -146,3 +167,31 @@ export type ChatStreamEvent =
       type: "done";
       conversation_id: string;
     };
+
+export type FamilyMember = AuthUser & {
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChildCreateInput = {
+  name: string;
+  age: number;
+  finance_level: "child" | "beginner";
+};
+
+export type ChildUpdateInput = Partial<ChildCreateInput>;
+
+export type InsightSeverity = "info" | "warning" | "critical";
+
+export type ProactiveInsight = {
+  id: string;
+  user_id: string;
+  insight_type: string;
+  title: string;
+  content: string;
+  severity: InsightSeverity;
+  action_label: string | null;
+  is_dismissed: boolean;
+  created_at: string;
+  updated_at: string;
+};

@@ -1,14 +1,17 @@
 "use client";
 
 import {
+  ArrowRight,
   ArrowDownRight,
   ArrowUpRight,
   CalendarDays,
   Loader2,
   Plus,
   ReceiptText,
+  RefreshCw,
   Repeat2,
   Trash2,
+  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -17,6 +20,7 @@ import { InsightBanner } from "@/components/InsightBanner";
 import { SpendingChart } from "@/components/SpendingChart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
 import { api, ApiError } from "@/lib/api";
 import {
   amountToKurus,
@@ -31,6 +35,7 @@ import type {
   BillingCycle,
   Category,
   CategoryCreateInput,
+  ProactiveInsight,
   Subscription,
   SubscriptionCreateInput,
   Transaction,
@@ -79,6 +84,28 @@ const billingCycleLabels: Record<BillingCycle, string> = {
   monthly: "Aylık",
   yearly: "Yıllık",
 };
+
+const insightSeverityLabels: Record<ProactiveInsight["severity"], string> = {
+  info: "Proaktif koç",
+  warning: "Dikkat",
+  critical: "Öncelikli uyarı",
+};
+
+function insightHref(insight: ProactiveInsight): string {
+  if (insight.insight_type === "upcoming_recurring" || insight.action_label?.includes("Tekrar")) {
+    return "/dashboard/recurring";
+  }
+  if (
+    insight.insight_type === "receipt_activity" ||
+    insight.action_label?.toLocaleLowerCase("tr-TR").includes("fiş")
+  ) {
+    return "/receipts";
+  }
+  if (insight.action_label?.includes("İşlem")) {
+    return "/dashboard/transactions";
+  }
+  return "/dashboard";
+}
 
 function defaultDateTimeLocal(): string {
   const now = new Date();
@@ -308,11 +335,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [insights, setInsights] = useState<ProactiveInsight[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [isAddingSubscription, setIsAddingSubscription] = useState(false);
+  const [isRefreshingInsights, setIsRefreshingInsights] = useState(false);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
+  const [dismissingInsightId, setDismissingInsightId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [type, setType] = useState<TransactionType>("expense");
   const [amount, setAmount] = useState("");
@@ -331,16 +361,19 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const loadDashboardData = useCallback(async () => {
     setError(null);
     try {
-      const [transactionData, categoryData, summaryData, subscriptionData] = await Promise.all([
-        api<Transaction[]>("/api/transactions", { silent: true }),
-        api<Category[]>("/api/categories", { silent: true }),
-        api<TransactionSummary>("/api/transactions/summary", { silent: true }),
-        api<Subscription[]>("/api/subscriptions", { silent: true }),
-      ]);
+      const [transactionData, categoryData, summaryData, subscriptionData, insightData] =
+        await Promise.all([
+          api<Transaction[]>("/api/transactions", { silent: true }),
+          api<Category[]>("/api/categories", { silent: true }),
+          api<TransactionSummary>("/api/transactions/summary", { silent: true }),
+          api<Subscription[]>("/api/subscriptions", { silent: true }),
+          api<ProactiveInsight[]>("/api/insights", { silent: true }),
+        ]);
       setTransactions(transactionData);
       setCategories(sortCategories(categoryData));
       setSummary(summaryData);
       setSubscriptions(subscriptionData);
+      setInsights(insightData);
     } catch (err) {
       setError(friendlyError(err, "Bütçe verileri yüklenemedi, biraz sonra tekrar dener misin?"));
     } finally {
@@ -352,11 +385,33 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     void loadDashboardData();
   }, [loadDashboardData]);
 
+  useEffect(() => {
+    function handleActiveProfileChange() {
+      setIsLoading(true);
+      void loadDashboardData();
+    }
+
+    window.addEventListener(ACTIVE_PROFILE_EVENT, handleActiveProfileChange);
+    window.addEventListener("storage", handleActiveProfileChange);
+    return () => {
+      window.removeEventListener(ACTIVE_PROFILE_EVENT, handleActiveProfileChange);
+      window.removeEventListener("storage", handleActiveProfileChange);
+    };
+  }, [loadDashboardData]);
+
   const refreshSummary = useCallback(async () => {
     const nextSummary = await api<TransactionSummary>("/api/transactions/summary", {
       silent: true,
     });
     setSummary(nextSummary);
+  }, []);
+
+  const refreshInsights = useCallback(async () => {
+    const nextInsights = await api<ProactiveInsight[]>("/api/insights/refresh", {
+      method: "POST",
+      silent: true,
+    });
+    setInsights(nextInsights);
   }, []);
 
   const categoryNameById = useMemo(
@@ -384,6 +439,36 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const recurringMonthlyTotal = subscriptions
     .filter((subscription) => subscription.is_active)
     .reduce((total, subscription) => total + amountToKurus(subscription.monthly_equivalent), 0);
+  const primaryInsight = insights[0] ?? null;
+  const visibleInsightCount = insights.length;
+
+  async function handleRefreshInsights() {
+    setIsRefreshingInsights(true);
+    setError(null);
+    try {
+      await refreshInsights();
+    } catch (err) {
+      setError(friendlyError(err, "Koç notları yenilenemedi, tekrar dener misin?"));
+    } finally {
+      setIsRefreshingInsights(false);
+    }
+  }
+
+  async function handleDismissInsight(insightId: string) {
+    setDismissingInsightId(insightId);
+    setError(null);
+    try {
+      await api<ProactiveInsight>(`/api/insights/${insightId}/dismiss`, {
+        method: "PATCH",
+        silent: true,
+      });
+      setInsights((current) => current.filter((insight) => insight.id !== insightId));
+    } catch (err) {
+      setError(friendlyError(err, "Koç notu kapatılamadı, tekrar dener misin?"));
+    } finally {
+      setDismissingInsightId(null);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -416,6 +501,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setDescription("");
       setOccurredAt(defaultDateTimeLocal());
       await refreshSummary();
+      void refreshInsights().catch(() => undefined);
     } catch (err) {
       setError(friendlyError(err, "İşlem kaydedilemedi, tekrar dener misin?"));
     } finally {
@@ -469,6 +555,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       await api<void>(`/api/transactions/${transactionId}`, { method: "DELETE", silent: true });
       setTransactions((current) => current.filter((tx) => tx.id !== transactionId));
       await refreshSummary();
+      void refreshInsights().catch(() => undefined);
     } catch (err) {
       setError(friendlyError(err, "İşlem silinemedi, tekrar dener misin?"));
     }
@@ -506,6 +593,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setSubscriptionAmount("");
       setSubscriptionCycle("monthly");
       setSubscriptionNextDate("");
+      void refreshInsights().catch(() => undefined);
     } catch (err) {
       setError(friendlyError(err, "Tekrarlayan ödeme kaydedilemedi, tekrar dener misin?"));
     } finally {
@@ -525,6 +613,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setSubscriptions((current) =>
         current.map((item) => (item.id === subscription.id ? updated : item)),
       );
+      void refreshInsights().catch(() => undefined);
     } catch (err) {
       setError(friendlyError(err, "Durum güncellenemedi, tekrar dener misin?"));
     } finally {
@@ -541,6 +630,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
         silent: true,
       });
       setSubscriptions((current) => current.filter((item) => item.id !== subscriptionId));
+      void refreshInsights().catch(() => undefined);
     } catch (err) {
       setError(friendlyError(err, "Tekrarlayan ödeme silinemedi, tekrar dener misin?"));
     } finally {
@@ -570,11 +660,89 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
               </div>
             </div>
 
-            <InsightBanner title="Önce gerçek kayıt">
-              <p>
-                Grafikler ve eğilimler yalnızca veritabanındaki işlemlerden hesaplanır; boş
-                alanlarda örnek harcama gösterilmez.
-              </p>
+            <InsightBanner
+              title={
+                primaryInsight
+                  ? primaryInsight.title
+                  : isLoading
+                    ? "Koç notu hazırlanıyor"
+                    : "Şu an yeni uyarı yok"
+              }
+              label={
+                primaryInsight ? insightSeverityLabels[primaryInsight.severity] : "Proaktif koç"
+              }
+            >
+              {isLoading ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Güncel hareketler okunuyor.</span>
+                </div>
+              ) : primaryInsight ? (
+                <div className="space-y-4">
+                  <p>{primaryInsight.content}</p>
+                  {visibleInsightCount > 1 ? (
+                    <p className="text-xs font-bold text-foreground">
+                      {visibleInsightCount - 1} ek koç notu hazır.
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    {primaryInsight.action_label ? (
+                      <Button asChild size="sm">
+                        <Link href={insightHref(primaryInsight)}>
+                          {primaryInsight.action_label}
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRefreshInsights}
+                      disabled={isRefreshingInsights}
+                    >
+                      {isRefreshingInsights ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      Yenile
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void handleDismissInsight(primaryInsight.id)}
+                      disabled={dismissingInsightId === primaryInsight.id}
+                    >
+                      {dismissingInsightId === primaryInsight.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <XCircle className="h-4 w-4" />
+                      )}
+                      Kapat
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p>Yeni işlem, fiş veya tekrarlayan ödeme geldikçe koç buraya uyarı çıkarır.</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRefreshInsights}
+                    disabled={isRefreshingInsights}
+                  >
+                    {isRefreshingInsights ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    Yeniden tara
+                  </Button>
+                </div>
+              )}
             </InsightBanner>
           </section>
 

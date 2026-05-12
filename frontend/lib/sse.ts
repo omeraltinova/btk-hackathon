@@ -1,5 +1,4 @@
-import { getSession } from "next-auth/react";
-
+import { getBackendToken } from "@/lib/active-profile";
 import type { ChatStreamEvent, ChatStreamRequest } from "@/lib/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -59,8 +58,7 @@ export async function streamChat(
   onEvent: (event: ChatStreamEvent) => void,
   options: StreamOptions = {},
 ): Promise<void> {
-  const session = await getSession();
-  const token = session?.backendToken;
+  const token = await getBackendToken(true);
   if (!token) throw new Error("Oturum bulunamadı, tekrar giriş yap.");
 
   const response = await fetch(`${BASE_URL}/api/chat/stream`, {

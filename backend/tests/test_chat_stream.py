@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -177,4 +178,53 @@ def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:
     assert "event: tool_call" in response.text
     assert '"tool_name": "get_spending"' in response.text
     assert "125,00 ₺" in response.text
+    assert [message.role for message in fake_session.messages] == ["user", "tool", "assistant"]
+
+
+def test_chat_stream_can_analyze_receipt_attachment_without_persisting_raw_text() -> None:
+    user = make_user()
+    market = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    receipt_text = """MIGROS TICARET A.S.
+TARIH: 12.05.2026 14:32
+EKMEK            15,00
+SUT              42,50
+MEYVE            90,00
+TEMIZLIK         100,00
+GENEL TOPLAM     247,50 TL
+"""
+    fake_session = FakeSession(user, [market], [])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={
+                "message": "Bu fişi analiz eder misin?",
+                "receipt_image_base64": base64.b64encode(receipt_text.encode()).decode("ascii"),
+                "receipt_filename": "migros_demo.txt",
+                "receipt_content_type": "text/plain",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "analyze_receipt"' in response.text
+    assert "MIGROS TICARET A.S." in response.text
+    assert "247,50" in response.text
+    assert "₺" in response.text
+    assert "raw_text" not in response.text
+    assert "receipt_image_base64" not in response.text
     assert [message.role for message in fake_session.messages] == ["user", "tool", "assistant"]

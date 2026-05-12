@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
-from typing import TypedDict
+from decimal import Decimal, InvalidOperation
+from typing import Any, TypedDict
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.graph import build_agent_graph_from_settings
 from app.agent.tools import (
+    build_receipt_candidate,
     build_spending_summary,
     build_subscriptions_summary,
+    explain_finance_concept,
     infer_category_from_text,
+    simulate_finance_scenario,
 )
+from app.config import Settings, get_settings
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
@@ -33,6 +41,8 @@ class ChatStreamEvent(TypedDict, total=False):
 
 
 SUBSCRIPTION_HINTS = ("abonelik", "abonelikler", "tekrarlayan", "subscription")
+CONCEPT_HINTS = ("faiz", "enflasyon", "biriktir", "harçlık", "harclik")
+SCENARIO_HINTS = ("asgari", "kredi kart", "senaryo", "ödesem", "odesem")
 
 
 def _get_or_create_conversation(
@@ -82,6 +92,32 @@ def _persist_message(
     db.commit()
 
 
+def _sanitize_payload(value: object) -> object:
+    if isinstance(value, dict):
+        sanitized: dict[str, object] = {}
+        for key, item in value.items():
+            if key in {"image_base64", "receipt_image_base64", "raw_text"}:
+                sanitized[key] = "[redacted]"
+            elif key == "raw_ocr_data" and isinstance(item, dict):
+                sanitized[key] = {
+                    "provider": item.get("provider"),
+                    "source_filename": item.get("source_filename"),
+                }
+            else:
+                sanitized[key] = _sanitize_payload(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_payload(item) for item in value]
+    return value
+
+
+def _json_payload(value: object) -> dict[str, object]:
+    sanitized = _sanitize_payload(value)
+    if isinstance(sanitized, dict):
+        return sanitized
+    return {"value": sanitized}
+
+
 def _chunks(text: str) -> Iterator[str]:
     words = text.split(" ")
     bucket: list[str] = []
@@ -97,6 +133,16 @@ def _chunks(text: str) -> Iterator[str]:
 def _wants_subscriptions(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in SUBSCRIPTION_HINTS)
+
+
+def _wants_concept(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in CONCEPT_HINTS)
+
+
+def _wants_scenario(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in SCENARIO_HINTS)
 
 
 def _int_result(result: dict[str, object], key: str) -> int:
@@ -134,24 +180,251 @@ def _subscription_answer(result: dict[str, object]) -> str:
     return f"Aktif tekrarlayan ödemelerin aylık etkisi {total}. Toplam {count} kayıt var."
 
 
+def _receipt_answer(result: dict[str, object]) -> str:
+    if "error" in result:
+        return str(result["error"])
+    merchant = result.get("merchant") or "Fiş"
+    amount = result.get("amount")
+    category = result.get("category_name") or "Kategorisiz"
+    items = result.get("items")
+    item_count = len(items) if isinstance(items, list) else 0
+    amount_text = format_amount_text(str(amount)) if amount is not None else "tutar okunamadı"
+    return (
+        f"{merchant} fişini okudum: toplam {amount_text}, kategori önerisi {category}. "
+        f"{item_count} satır kalemi bulundu. İşleme kaydetmeden önce Fişler ekranındaki onay "
+        "masasından kontrol edebilirsin."
+    )
+
+
+def format_amount_text(value: str) -> str:
+    try:
+        numeric = Decimal(value.replace(",", "."))
+        whole, fraction = f"{numeric:.2f}".split(".")
+        grouped = f"{int(whole):,}".replace(",", ".")
+        return f"{grouped},{fraction} ₺"
+    except (InvalidOperation, ValueError):
+        return value
+
+
+def _concept_answer(result: dict[str, object]) -> str:
+    explanation = result.get("explanation")
+    return str(explanation) if explanation else "Bu kavramı açıklayamadım, tekrar dener misin?"
+
+
+def _scenario_answer(result: dict[str, object]) -> str:
+    summary = result.get("summary")
+    return str(summary) if summary else "Bu senaryo için daha fazla bilgiye ihtiyacım var."
+
+
+def _receipt_context(result: dict[str, object]) -> str:
+    if "error" in result:
+        return f"Fiş OCR hatası: {result['error']}"
+    merchant = result.get("merchant")
+    amount = result.get("amount")
+    category = result.get("category_name")
+    return (
+        "Fiş OCR sonucu: "
+        f"satıcı={merchant}, tutar={amount}, kategori={category}, "
+        "kullanıcı onayı olmadan işlem yazılmadı."
+    )
+
+
+def _live_agent_available(settings: Settings) -> bool:
+    if settings.llm_provider == "openrouter":
+        return bool(settings.openrouter_api_key)
+    return bool(settings.gemini_api_key)
+
+
+def _message_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                parts.append(str(item["text"]))
+        return "\n".join(parts)
+    return str(content)
+
+
+def _tool_result_payload(message: ToolMessage) -> dict[str, object]:
+    try:
+        parsed: object = json.loads(_message_text(message.content))
+    except json.JSONDecodeError:
+        parsed = {"content": message.content}
+    return _json_payload(parsed)
+
+
+def _tool_call_name(call: dict[str, Any]) -> str:
+    value = call.get("name")
+    return value if isinstance(value, str) else "tool"
+
+
+def _tool_call_args(call: dict[str, Any]) -> dict[str, object]:
+    args = call.get("args")
+    return _json_payload(args if isinstance(args, dict) else {})
+
+
+def _stream_live_graph(
+    db: Session,
+    current_user: User,
+    payload: ChatStreamRequest,
+    conversation: Conversation,
+    *,
+    receipt_context: str | None = None,
+    settings: Settings | None = None,
+) -> Iterator[ChatStreamEvent]:
+    graph = build_agent_graph_from_settings(settings)
+    user_content = (
+        payload.message if receipt_context is None else f"{payload.message}\n\n{receipt_context}"
+    )
+    final_answer = ""
+    for update in graph.stream(
+        {
+            "messages": [HumanMessage(content=user_content)],
+            "user_id": str(current_user.id),
+            "user_role": current_user.role,
+            "finance_level": current_user.finance_level,
+        },
+        stream_mode="updates",
+    ):
+        if not isinstance(update, dict):
+            continue
+        messages: list[BaseMessage] = []
+        for node_value in update.values():
+            if isinstance(node_value, dict) and isinstance(node_value.get("messages"), list):
+                messages.extend(node_value["messages"])
+        for message in messages:
+            if isinstance(message, AIMessage):
+                tool_calls = getattr(message, "tool_calls", None) or []
+                if tool_calls:
+                    for call in tool_calls:
+                        tool_name = _tool_call_name(call)
+                        tool_input = _tool_call_args(call)
+                        yield {
+                            "type": "tool_call",
+                            "conversation_id": str(conversation.id),
+                            "tool_name": tool_name,
+                            "input": tool_input,
+                        }
+                else:
+                    content = _message_text(message.content)
+                    final_answer = content
+                    for chunk in _chunks(content):
+                        yield {
+                            "type": "delta",
+                            "conversation_id": str(conversation.id),
+                            "content": chunk,
+                        }
+            elif isinstance(message, ToolMessage):
+                result = _tool_result_payload(message)
+                _persist_message(
+                    db,
+                    conversation,
+                    role="tool",
+                    content="Araç sonucu alındı.",
+                    tool_name=message.name or "tool",
+                    tool_calls={"result": result},
+                )
+                yield {
+                    "type": "tool_result",
+                    "conversation_id": str(conversation.id),
+                    "tool_name": message.name or "tool",
+                    "result": result,
+                }
+    if final_answer:
+        _persist_message(db, conversation, role="assistant", content=final_answer)
+
+
 def stream_chat_turn(
     db: Session,
     current_user: User,
     payload: ChatStreamRequest,
 ) -> Iterator[ChatStreamEvent]:
-    """Yield a deterministic Day 3 SSE stream from real scoped tool calls."""
+    """Yield an SSE stream, preferring LangGraph and falling back to scoped tools."""
     conversation = _get_or_create_conversation(db, current_user, payload.conversation_id)
     conversation_id = str(conversation.id)
     yield {"type": "message_start", "conversation_id": conversation_id, "role": "assistant"}
     _persist_message(db, conversation, role="user", content=payload.message)
 
+    receipt_result: dict[str, object] | None = None
+    if payload.receipt_image_base64 is not None:
+        receipt_tool_input: dict[str, object] = {
+            "filename": payload.receipt_filename or "receipt.jpg",
+            "content_type": payload.receipt_content_type or "image/jpeg",
+        }
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "analyze_receipt",
+            "input": receipt_tool_input,
+        }
+        receipt_result = build_receipt_candidate(
+            db,
+            current_user,
+            image_base64=payload.receipt_image_base64,
+            filename=payload.receipt_filename or "receipt.jpg",
+            content_type=payload.receipt_content_type or "image/jpeg",
+        )
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Fiş OCR sonucu alındı.",
+            tool_name="analyze_receipt",
+            tool_calls={"input": receipt_tool_input, "result": receipt_result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "analyze_receipt",
+            "result": receipt_result,
+        }
+
+    settings = get_settings()
+    if _live_agent_available(settings):
+        try:
+            yield from _stream_live_graph(
+                db,
+                current_user,
+                payload,
+                conversation,
+                receipt_context=_receipt_context(receipt_result) if receipt_result else None,
+                settings=settings,
+            )
+            yield {"type": "done", "conversation_id": conversation_id}
+            return
+        except Exception:
+            fallback_notice = (
+                "Canlı koç yolu şu an kullanılamadı; güvenli araç akışıyla devam ediyorum. "
+            )
+            for chunk in _chunks(fallback_notice):
+                yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+    else:
+        missing = (
+            "OPENROUTER_API_KEY" if settings.llm_provider == "openrouter" else "GEMINI_API_KEY"
+        )
+        notice = f"{missing} tanımlı değil; güvenli araç akışıyla yanıtlıyorum. "
+        for chunk in _chunks(notice):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+
+    if receipt_result is not None:
+        answer = _receipt_answer(receipt_result)
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
     if _wants_subscriptions(payload.message):
-        tool_input: dict[str, object] = {"only_active": True}
+        subscription_input: dict[str, object] = {"only_active": True}
         yield {
             "type": "tool_call",
             "conversation_id": conversation_id,
             "tool_name": "get_subscriptions",
-            "input": tool_input,
+            "input": subscription_input,
         }
         result = build_subscriptions_summary(db, current_user, only_active=True)
         _persist_message(
@@ -160,7 +433,7 @@ def stream_chat_turn(
             role="tool",
             content="Abonelik özeti alındı.",
             tool_name="get_subscriptions",
-            tool_calls={"input": tool_input, "result": result},
+            tool_calls={"input": subscription_input, "result": result},
         )
         yield {
             "type": "tool_result",
@@ -169,14 +442,63 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _subscription_answer(result)
+    elif _wants_scenario(payload.message):
+        scenario_input: dict[str, object] = {"scenario": payload.message}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "simulate_scenario",
+            "input": scenario_input,
+        }
+        result = simulate_finance_scenario(db, current_user, scenario=payload.message)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Senaryo simülasyonu alındı.",
+            tool_name="simulate_scenario",
+            tool_calls={"input": scenario_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "simulate_scenario",
+            "result": result,
+        }
+        answer = _scenario_answer(result)
+    elif _wants_concept(payload.message):
+        concept = payload.message
+        concept_input: dict[str, object] = {"concept": concept}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "explain_concept",
+            "input": concept_input,
+        }
+        result = explain_finance_concept(current_user, concept=concept)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Kavram açıklaması alındı.",
+            tool_name="explain_concept",
+            tool_calls={"input": concept_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "explain_concept",
+            "result": result,
+        }
+        answer = _concept_answer(result)
     else:
         category = infer_category_from_text(db, current_user, payload.message)
-        tool_input = {"category": category, "days": 30}
+        spending_input: dict[str, object] = {"category": category, "days": 30}
         yield {
             "type": "tool_call",
             "conversation_id": conversation_id,
             "tool_name": "get_spending",
-            "input": tool_input,
+            "input": spending_input,
         }
         result = build_spending_summary(db, current_user, category=category, days=30)
         _persist_message(
@@ -185,7 +507,7 @@ def stream_chat_turn(
             role="tool",
             content="Harcama özeti alındı.",
             tool_name="get_spending",
-            tool_calls={"input": tool_input, "result": result},
+            tool_calls={"input": spending_input, "result": result},
         )
         yield {
             "type": "tool_result",

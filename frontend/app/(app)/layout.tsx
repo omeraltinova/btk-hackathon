@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
+import { ActiveProfileBanner } from "@/components/ActiveProfileBanner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Sidebar } from "@/components/sidebar";
 import { authOptions } from "@/lib/auth";
@@ -23,14 +24,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="bg-background/82 flex min-h-16 items-center justify-between gap-4 border-b border-border/70 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
           <div className="hidden min-w-0 sm:block">
-            <p className="eyebrow">Defter açık</p>
+            <p className="eyebrow">Canlı kapsam</p>
             <p className="truncate text-sm text-muted-foreground">
-              Proaktif uyarılar, aile görünümü ve fiş akışı burada birleşecek.
+              Panel, fiş, sohbet ve proaktif notlar aynı veri kapsamını kullanıyor.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground sm:ml-auto">
+            <ActiveProfileBanner />
             <span className="stamp-label hidden bg-card/70 text-muted-foreground sm:inline-flex">
-              2. gün giriş modu
+              Canlı MVP
             </span>
           </div>
           <ThemeToggle />

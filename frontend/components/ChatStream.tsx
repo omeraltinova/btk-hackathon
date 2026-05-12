@@ -1,11 +1,12 @@
 "use client";
 
-import { Bot, Loader2, Send, Wrench } from "lucide-react";
-import { type FormEvent, useRef, useState } from "react";
+import { Bot, ImagePlus, Loader2, Send, Wrench, X } from "lucide-react";
+import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
 
 import { ChatMessage } from "@/components/ChatMessage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { amountToKurus, formatKurus } from "@/lib/format";
 import { streamChat } from "@/lib/sse";
 import type { ChatStreamEvent, ChatToolPayload } from "@/lib/types";
 
@@ -23,6 +24,12 @@ type ToolTraceItem = {
   detail: string;
 };
 
+type ReceiptAttachment = {
+  filename: string;
+  contentType: string;
+  base64: string;
+};
+
 function describeToolInput(input: ChatToolPayload): string {
   if ("category" in input || "days" in input) {
     const category = typeof input.category === "string" ? input.category : "Tüm kategoriler";
@@ -30,6 +37,9 @@ function describeToolInput(input: ChatToolPayload): string {
     return `${category} / son ${days} gün`;
   }
   if ("only_active" in input) return "Aktif kayıtlar";
+  if ("filename" in input) return String(input.filename);
+  if ("concept" in input) return String(input.concept);
+  if ("scenario" in input) return "Senaryo simülasyonu";
   return "Güvenli oturum kapsamı";
 }
 
@@ -49,15 +59,40 @@ function describeToolResult(event: Extract<ChatStreamEvent, { type: "tool_result
     const count = typeof result.count === "number" ? result.count : 0;
     return `${total} aylık etki / ${count} kayıt`;
   }
+  if (event.tool_name === "analyze_receipt") {
+    const merchant = typeof result.merchant === "string" ? result.merchant : "Fiş";
+    const amount = typeof result.amount === "string" ? result.amount : "";
+    return amount ? `${merchant} / ${formatKurus(amountToKurus(amount))}` : merchant;
+  }
+  if (event.tool_name === "explain_concept") return "Çocuk dostu açıklama";
+  if (event.tool_name === "simulate_scenario") return "Simülasyon hazır";
   return "Sonuç alındı";
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = reader.result;
+      if (typeof value !== "string") {
+        reject(new Error("Fiş görseli okunamadı."));
+        return;
+      }
+      resolve(value.split(",")[1] ?? "");
+    };
+    reader.onerror = () => reject(new Error("Fiş görseli okunamadı."));
+    reader.readAsDataURL(file);
+  });
 }
 
 export function ChatStream() {
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [toolTrace, setToolTrace] = useState<ToolTraceItem[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<ReceiptAttachment | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   function applyStreamEvent(event: ChatStreamEvent, assistantId: string) {
@@ -136,11 +171,19 @@ export function ChatStream() {
       { id: assistantId, role: "assistant", content: "", isStreaming: true },
     ]);
     setDraft("");
+    setAttachment(null);
+    setFileError(null);
     setIsStreaming(true);
 
     try {
       await streamChat(
-        { message: text, conversation_id: conversationId },
+        {
+          message: text,
+          conversation_id: conversationId,
+          receipt_image_base64: attachment?.base64 ?? null,
+          receipt_filename: attachment?.filename ?? null,
+          receipt_content_type: attachment?.contentType ?? null,
+        },
         (streamEvent) => applyStreamEvent(streamEvent, assistantId),
         { signal: controller.signal },
       );
@@ -157,6 +200,28 @@ export function ChatStream() {
     }
   }
 
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setFileError("Sohbete yalnızca JPG, PNG veya WEBP fişi ekleyebilirsin.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setFileError("Fiş dosyası en fazla 5 MB olmalı.");
+      return;
+    }
+    try {
+      const base64 = await readFileAsBase64(file);
+      setAttachment({ filename: file.name, contentType: file.type, base64 });
+      setFileError(null);
+      if (!draft.trim()) setDraft("Bu fişi analiz eder misin?");
+    } catch (err) {
+      setFileError(err instanceof Error ? err.message : "Fiş görseli okunamadı.");
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="min-h-72 space-y-4">
@@ -166,7 +231,7 @@ export function ChatStream() {
             <h3 className="mt-4 font-display text-2xl font-black">Koç akışı hazır</h3>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Harcama veya abonelik sorusu yazdığında Cüzdan Koçu güvenli oturum verinle araç
-              çağırır ve yanıtı parça parça gösterir.
+              çağırır. Fiş görseli eklersen fiş analiz aracı da aynı akışta görünür.
             </p>
           </div>
         ) : (
@@ -209,22 +274,56 @@ export function ChatStream() {
       </div>
 
       <form
-        className="flex gap-2 rounded-[1.75rem] border border-border/70 bg-muted/50 p-2"
+        className="space-y-2 rounded-[1.75rem] border border-border/70 bg-muted/50 p-2"
         onSubmit={handleSubmit}
       >
-        <Input
-          placeholder="Bu ay markete ne kadar harcadım?"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          disabled={isStreaming}
-        />
-        <Button type="submit" aria-label="Mesaj gönder" disabled={isStreaming || !draft.trim()}>
-          {isStreaming ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
-        </Button>
+        {attachment || fileError ? (
+          <div className="flex flex-wrap items-center gap-2 px-2">
+            {attachment ? (
+              <span className="stamp-label bg-background/70 text-muted-foreground">
+                <ImagePlus className="h-3.5 w-3.5" />
+                {attachment.filename}
+                <button
+                  type="button"
+                  aria-label="Fişi kaldır"
+                  onClick={() => setAttachment(null)}
+                  className="ml-1 rounded-full p-0.5 hover:bg-muted"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ) : null}
+            {fileError ? (
+              <span className="text-xs font-medium text-destructive">{fileError}</span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="flex gap-2">
+          <label className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border bg-background/70 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              disabled={isStreaming}
+              onChange={handleFileChange}
+            />
+            <ImagePlus className="h-4 w-4" />
+            <span className="sr-only">Fiş ekle</span>
+          </label>
+          <Input
+            placeholder="Bu ay markete ne kadar harcadım?"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            disabled={isStreaming}
+          />
+          <Button type="submit" aria-label="Mesaj gönder" disabled={isStreaming || !draft.trim()}>
+            {isStreaming ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </form>
     </div>
   );

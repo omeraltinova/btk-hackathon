@@ -276,7 +276,90 @@ def build_receipt_candidate(
         return {"error": "OCR servisi hazır değil."}
     except ReceiptOcrError:
         return {"error": "Fiş okunamadı."}
-    return candidate.model_dump(mode="json")
+    result = candidate.model_dump(mode="json")
+    raw_ocr_data = result.get("raw_ocr_data")
+    if isinstance(raw_ocr_data, dict):
+        result["raw_ocr_data"] = {
+            "provider": raw_ocr_data.get("provider"),
+            "source_filename": raw_ocr_data.get("source_filename"),
+        }
+    return result
+
+
+def explain_finance_concept(current_user: User, *, concept: str) -> dict[str, object]:
+    normalized = " ".join(concept.split()) or "finansal kavram"
+    is_child = current_user.role == "child" or current_user.finance_level == "child"
+    if "faiz" in normalized.casefold():
+        explanation = (
+            "Faiz, paranı bir süre beklettiğinde bankanın sana eklediği küçük teşekkür parası gibi "
+            "düşünülebilir. Diyelim kumbaranda 100 ₺ var ve banka ay sonunda 2 ₺ ekledi; artık "
+            "102 ₺ olur. Borçta ise durum tersine döner: banka sana para verdiğinde geri alırken "
+            "fazladan para ister."
+            if is_child
+            else "Faiz, paranın zaman değeridir. Birikimde paran beklediği için ek getiri sağlar; "
+            "borçta ise kullandığın para için ek maliyet oluşturur."
+        )
+    elif "enflasyon" in normalized.casefold():
+        explanation = (
+            "Enflasyon, aynı harçlıkla zamanla daha az şey alabilmendir. Bugün 50 ₺ ile iki dondurma "
+            "alırken birkaç ay sonra aynı para bir buçuk dondurmaya yetebilir."
+            if is_child
+            else "Enflasyon, fiyatların genel seviyesinin artmasıdır; aynı bütçeyle daha az ürün veya "
+            "hizmet alınmasına yol açar."
+        )
+    else:
+        explanation = (
+            f"{normalized} konusunu basitçe paranın nasıl kazanıldığı, saklandığı ve harcandığıyla "
+            "ilgili bir kural gibi düşünebilirsin."
+            if is_child
+            else f"{normalized} için temel yaklaşım, nakit akışına etkisini ve toplam maliyeti ayrı "
+            "ayrı değerlendirmektir."
+        )
+    return {"concept": normalized, "level": current_user.finance_level, "explanation": explanation}
+
+
+def simulate_finance_scenario(
+    db: Session,
+    current_user: User,
+    *,
+    scenario: str,
+) -> dict[str, object]:
+    normalized = scenario.casefold()
+    if "asgari" in normalized or "kredi kart" in normalized:
+        user_ids = visible_user_ids(current_user)
+        transactions = list(
+            db.execute(
+                select(Transaction)
+                .where(
+                    Transaction.user_id.in_(user_ids),
+                    Transaction.occurred_at >= datetime.now(UTC) - timedelta(days=30),
+                )
+                .order_by(Transaction.occurred_at.desc()),
+            )
+            .scalars()
+            .all(),
+        )
+        expenses = sum(
+            (Decimal(item.amount) for item in transactions if item.type == "expense"),
+            Decimal("0"),
+        )
+        monthly_rate = Decimal("0.0366")
+        interest = _money(expenses * monthly_rate)
+        return {
+            "scenario": "credit_card_minimum",
+            "current_expense_base": _decimal_text(expenses),
+            "current_expense_base_formatted": format_tl(expenses),
+            "estimated_monthly_interest": _decimal_text(interest),
+            "estimated_monthly_interest_formatted": format_tl(interest),
+            "summary": (
+                f"Son 30 gün gider bazın {format_tl(expenses)}. Asgari ödeme alışkanlığı bu "
+                f"tutar üzerinde yaklaşık {format_tl(interest)} aylık faiz yükü oluşturabilir."
+            ),
+        }
+    return {
+        "scenario": "general",
+        "summary": "Bu senaryo için net hesap yapmam için tutar, tarih ve ödeme planı gerekir.",
+    }
 
 
 @tool("get_spending")
@@ -337,4 +420,31 @@ def analyze_receipt_tool(
         )
 
 
-TOOLS = [get_spending_tool, get_subscriptions_tool, get_user_memory_tool, analyze_receipt_tool]
+@tool("explain_concept")
+def explain_concept_tool(
+    concept: str,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Finansal kavramı kullanıcının seviyesine göre Türkçe açıklar."""
+    with SessionLocal() as db:
+        return explain_finance_concept(_load_current_user(db, user_id), concept=concept)
+
+
+@tool("simulate_scenario")
+def simulate_scenario_tool(
+    scenario: str,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Kullanıcının verisiyle basit finansal senaryo simülasyonu döner."""
+    with SessionLocal() as db:
+        return simulate_finance_scenario(db, _load_current_user(db, user_id), scenario=scenario)
+
+
+TOOLS = [
+    get_spending_tool,
+    get_subscriptions_tool,
+    analyze_receipt_tool,
+    explain_concept_tool,
+    simulate_scenario_tool,
+    get_user_memory_tool,
+]

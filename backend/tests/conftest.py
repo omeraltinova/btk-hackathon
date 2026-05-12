@@ -18,3 +18,6 @@ os.environ.setdefault(
     "postgresql+psycopg://test:test@localhost:5432/cuzdan_test",
 )
 os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret")
+os.environ["GEMINI_API_KEY"] = ""
+os.environ["OPENROUTER_API_KEY"] = ""
+os.environ["LLM_PROVIDER"] = "gemini"

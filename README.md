@@ -2,21 +2,22 @@
 
 > Türk aileleri için proaktif AI finans koçu. BTK Hackathon 2026 projesi.
 
-> ⚠️ **Status:** Aktif MVP geliştirmesi. Auth, işlem paneli, streaming chat ve fiş yükleme/onay akışı çalışıyor; nihai demo içerikleri Day 7'de eklenecek.
+> ⚠️ **Status:** Aktif MVP geliştirmesi. Auth, işlem paneli, dashboard analitiği, streaming chat, fiş yükleme/onay, aile/çocuk profili ve API-backed proaktif insight akışları çalışıyor; canlı deploy ve final demo içerikleri Day 7'de tamamlanacak.
 
 ## Hızlı bakış
 
-- **Asistan modu:** Fiş yükle, agent OCR ile kategorize etsin; "Bu ay markete ne kadar?" gibi soruları cevaplasın.
+- **Asistan modu:** Fiş yükle veya chat'e fiş ekle, agent OCR ile kategorize etsin; "Bu ay markete ne kadar?" gibi soruları cevaplasın.
 - **Koç modu:** Finansal kavram açıklama (yaşa/seviyeye göre), borç/kredi senaryoları simüle etme.
-- **Aile bağlamı:** Parent ailenin tümünü, child sadece kendi verisini görür.
-- **Proaktif insight:** Kullanmadığın abonelikler, ay ortası harcama artışları gibi uyarılar sen sormadan üretilir.
+- **Aile bağlamı:** Parent çocuk profili oluşturur, child login olmadan aile switch ile kendi güvenli kapsamına geçer.
+- **Proaktif insight:** Harcama artışı, yaklaşan tekrarlayan ödeme, bütçe aşımı, düşük aktivite ve aylık durum özeti API üzerinden üretilir.
 
 ## Tech stack
 
 Frontend: Next.js 15 (App Router) · Tailwind · shadcn/ui · Recharts
-Backend: FastAPI · Python 3.12 · SQLAlchemy 2 · Alembic · APScheduler
-Agent: LangGraph + Gemini 2.5 Flash
+Backend: FastAPI · Python 3.12 · SQLAlchemy 2 · Alembic
+Agent: LangGraph + Gemini 2.5 Flash veya OpenRouter (`google/gemini-2.5-flash`)
 Storage: PostgreSQL 16 · MinIO (S3 uyumlu)
+Worker: Manuel tetiklenebilir/scheduler-ready proaktif insight job
 Deploy: Coolify on Hetzner VPS
 
 Detaylı mimari ve yol haritası: [`docs/master_plan.md`](docs/master_plan.md).

@@ -190,7 +190,7 @@ Agent ve takım bu terimleri tutarlı kullanır.
 | **Agent** | LangGraph state machine; LLM + tools |
 | **Asistan modu** | Harcama/abonelik/fiş tool çağrıları yapan davranış |
 | **Koç modu** | Finansal kavram açıklayan, senaryo simüle eden davranış |
-| **Proaktif insight** | Kullanıcı sormadan, cron worker tarafından üretilen içgörü |
+| **Proaktif insight** | Kullanıcı sormadan veya manuel yenilemeyle worker tarafından üretilen içgörü |
 | **Aile** | Bir parent ve 0+ child kullanıcılardan oluşan grup |
 | **Parent** | Aile yöneticisi; ailenin tümünü görür |
 | **Child** | Çocuk hesabı; sadece kendi verisini görür |
@@ -198,7 +198,7 @@ Agent ve takım bu terimleri tutarlı kullanır.
 | **Finance level** | beginner / intermediate / advanced / child |
 | **Tool** | Agent'ın çağırabildiği Python fonksiyonu (6 adet) |
 | **Memory** | `agent_memory` tablosu; kalıcı kullanıcı bilgisi |
-| **Insight type** | `subscription_unused` / `spending_spike` / `savings_opportunity` / `recurring_detected` |
+| **Insight type** | `low_activity` / `monthly_status` / `spending_spike` / `category_overspending` / `upcoming_recurring` / `savings_opportunity` / `receipt_activity` |
 | **Severity** | `info` / `warning` / `critical` |
 | **Transaction source** | `manual` / `receipt_ocr` / `recurring` |
 | **Usage score** | 0–1 arası, abonelik kullanım yoğunluğu tahmini |
@@ -328,7 +328,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 
 ### 12.2 Derece için zorunlu
 
-8. **Proaktif insight worker** (cron + 4 kural)
+8. **Proaktif insight worker** (manuel tetik + scheduler-ready kural seti)
 9. **Aile modu** (parent + child + family switch)
 10. **Agent memory** (`agent_memory` tablosu)
 11. **README + demo video**
@@ -361,7 +361,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 | Storage | MinIO (S3 uyumlu) | |
 | Auth | FastAPI custom (email + password + JWT). NextAuth.js sadece frontend session taşıyıcı. | |
 | Deploy | Coolify on Hetzner VPS | |
-| Cron | APScheduler (FastAPI içinde) | |
+| Cron | Scheduler-ready Python worker + manuel refresh endpoint | Platform cron/APScheduler daha sonra bağlanabilir |
 
 ---
 
@@ -379,10 +379,10 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 │  /api/receipts/upload  /api/insights  /api/family│
 └──────────┬───────────────────┬──────────────────┘
            │                   │
-   ┌───────▼─────────┐   ┌─────▼──────────────┐
-   │ LangGraph Agent │   │ Cron Worker        │
-   │ (in-process)    │   │ (APScheduler)      │
-   └───────┬─────────┘   └─────┬──────────────┘
+  ┌───────▼─────────┐   ┌─────▼──────────────┐
+  │ LangGraph Agent │   │ Proactive Worker   │
+  │ (in-process)    │   │ (manual/cron-ready)│
+  └───────┬─────────┘   └─────┬──────────────┘
            └─────────┬─────────┘
                      │
    ┌─────────────────▼───────────────────────────┐
@@ -635,38 +635,43 @@ Kuralların:
 
 ## 17. Proaktif uyarı sistemi
 
-`backend/app/workers/proactive.py` — APScheduler ile günde 1 kez (04:00 UTC) çalışan job.
+`backend/app/workers/proactive.py` — manuel çalıştırılabilir, cron/platform scheduler'a bağlanmaya hazır job. MVP'de `POST /api/insights/refresh` tek kullanıcı/aile kapsamını yeniler; worker ise child dışı tüm kullanıcılar için toplu yenileme yapar.
 
-**Kural 1 — Kullanılmayan abonelik:**
+**Kural 1 — Düşük aktivite / onboarding:**
+```
+son 30 günde görünür transaction yok
+→ insight_type='low_activity', severity='info'
+```
+
+**Kural 2 — Aylık durum özeti:**
+```
+current_income, current_expense, balance = bu ay görünür transaction toplamları
+→ insight_type='monthly_status', severity='warning' if balance < 0 else 'info'
+```
+
+**Kural 3 — Kategori artışı ve bütçe aşımı:**
+```
+current_category_total > previous_month_category_total * 1.25
+→ insight_type='spending_spike', severity='warning'
+
+current_category_total > categories.budget_monthly
+→ insight_type='category_overspending', severity='critical'
+```
+
+**Kural 4 — Yaklaşan tekrarlayan ödeme:**
 ```
 subscriptions.is_active=true
-AND son 90 günde aynı merchant'tan transaction yok
-→ insight_type='subscription_unused', severity='warning'
+AND next_billing_date bugünden sonraki 7 gün içinde
+→ insight_type='upcoming_recurring', severity='warning'
 ```
 
-**Kural 2 — Harcama artışı:**
+**Kural 5 — Abonelik yükü ve fiş katkısı:**
 ```
-this_month = SUM(category=X AND occurred_at >= ay başı)
-avg_3m = AVG(SUM by month for last 3 months)
-IF this_month > avg_3m * 1.25 AND ayın >= 15'i
-→ insight_type='spending_spike', severity='info'
-```
-
-**Kural 3 — Abonelik yükü:**
-```
-total_subs_monthly = SUM(amount where billing_cycle='monthly')
-total_income = SUM(transactions WHERE type='income' AND son 30 gün)
-IF total_subs_monthly > total_income * 0.10
+total_subs_monthly > current_income * 0.10
 → insight_type='savings_opportunity', severity='info'
-```
 
-**Kural 4 — Otomatik abonelik tespiti:**
-```
-GROUP BY merchant
-HAVING COUNT(*) >= 2 AND STDDEV(amount) < amount * 0.05
-       AND aralıklar 25-35 gün arasında
-→ subscriptions INSERT, detected_from_transactions=true
-→ insight_type='recurring_detected', severity='info'
+bu ay source='receipt_ocr' transaction varsa
+→ insight_type='receipt_activity', severity='info'
 ```
 
 ---
@@ -908,7 +913,8 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.7
+**Doküman versiyonu:** 0.8
 **Son güncelleme:** 12 Mayıs 2026
+**v0.8 değişiklikleri:** Proaktif insight kapsamı mevcut implementasyona göre güncellendi: manuel refresh endpoint'i, scheduler-ready worker, `low_activity`, `monthly_status`, `spending_spike`, `category_overspending`, `upcoming_recurring`, `savings_opportunity`, `receipt_activity` tipleri ve cron/APScheduler bağlama notu eklendi.
 **v0.7 değişiklikleri:** LLM sağlayıcı seçimi eklendi: doğrudan Gemini varsayılan kalır, OpenRouter `LLM_PROVIDER=openrouter` ile yedek yol olarak desteklenir; §10 gizlilik ifadesi sağlayıcı bağımsız hale getirildi, §13 stack satırı ve §22 risk planı güncellendi.
 **Sonraki güncelleme:** Handoff/ownership planı değişirse ya da yeni varsayım onayı geldiğinde.

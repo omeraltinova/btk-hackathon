@@ -36,9 +36,10 @@ Open `.env` and:
 - Set `JWT_SECRET` to a strong value: `openssl rand -hex 32`. (The placeholder works for first boot but you must change it before pushing anything to a real environment.)
 - Set `NEXTAUTH_SECRET` to a strong value too; it can use the same generation command as `JWT_SECRET` but should be a separate value outside local demos.
 - `LLM_PROVIDER` — keep `gemini` for direct Google AI Studio, or set `openrouter` to route chat models through OpenRouter.
-- `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Required when `LLM_PROVIDER=gemini`.
-- `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required when `LLM_PROVIDER=openrouter`; default model is `google/gemini-2.5-flash`.
-- Real image OCR on `/receipts` uses the same provider choice. Without a configured Gemini/OpenRouter key, the receipt UI can load but image OCR returns a Turkish "service not ready" error.
+- `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Required for the live LangGraph LLM path when `LLM_PROVIDER=gemini`.
+- `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required for the live LangGraph LLM path when `LLM_PROVIDER=openrouter`; default model is `google/gemini-2.5-flash`.
+- If the selected LLM key is missing, `/api/chat/stream` still works through the deterministic scoped fallback and streams a Turkish setup notice. Live LLM wording, child-coach natural language, and image OCR require a configured Gemini/OpenRouter key.
+- Real image OCR on `/receipts` and chat receipt attachments uses the same provider choice. Text receipt fixtures still parse locally; real image OCR returns a Turkish "service not ready" error without a configured provider key.
 - Leave the `POSTGRES_*`, `MINIO_*`, and `NEXT_PUBLIC_*` defaults as-is for local dev.
 
 ## 3. The "everything in Docker" path (recommended for first run)
@@ -61,7 +62,7 @@ curl http://localhost:8000/health
 # → {"status":"ok","version":"0.1.0"}
 ```
 
-**Verify frontend:** open <http://localhost:3000> — unauthenticated users are redirected to `/login`. Register or log in, then `/dashboard`, `/chat`, `/receipts`, and `/family` render inside the authenticated app shell.
+**Verify frontend:** open <http://localhost:3000> — unauthenticated users are redirected to `/login`. Register or log in, then `/dashboard`, `/chat`, `/receipts`, and `/family` render inside the authenticated app shell. `/family` can create child profiles and switch dashboard/chat calls into that child context.
 
 **Verify dark mode:** click the sun/moon icon top-right in the dashboard.
 
@@ -133,7 +134,31 @@ make build           # docker compose build
 make down            # stop docker compose
 ```
 
-## 6. Daily development quality bar
+## 6. Demo family and proactive worker
+
+After migrations, you can seed the local Yılmaz demo family:
+
+```bash
+cd backend
+uv run python ../seeds/demo_family.py
+```
+
+The script creates/updates an `is_demo=true` parent account plus Mehmet and Elif child profiles, sample scoped transactions, and one upcoming recurring payment.
+
+```text
+demo.aile@cuzdan-kocu.local / demo-sifre-123
+```
+
+To refresh proactive insights manually for all non-child users:
+
+```bash
+cd backend
+uv run python -m app.workers.proactive
+```
+
+For production, wire the same command to cron/platform scheduler after deploy, or call `POST /api/insights/refresh` from an authenticated session when a single user's dashboard needs an immediate refresh.
+
+## 7. Daily development quality bar
 
 Before pushing a commit:
 
@@ -143,7 +168,7 @@ make lint && make type-check && make test
 
 All three must pass. If `make lint` finds drift, run `make format` first.
 
-## 7. How to verify everything works (full smoke test)
+## 8. How to verify everything works (full smoke test)
 
 1. `docker compose up --build` (or the host path)
 2. `make migrate`
@@ -151,12 +176,15 @@ All three must pass. If `make lint` finds drift, run `make format` first.
 4. Open <http://localhost:8000/docs> → FastAPI Swagger UI shows the (currently empty) routers
 5. Open <http://localhost:3000> → redirects to `/dashboard`
 6. Click through `/chat`, `/receipts`, `/family`; `/receipts` shows the drag-drop uploader, OCR preview flow, and receipt history.
-7. With `GEMINI_API_KEY` or `OPENROUTER_API_KEY` configured, upload a receipt image on `/receipts`, confirm the candidate, and verify a `receipt_ocr` transaction appears in receipt history and dashboard transactions.
-8. Open <http://localhost:9001> → MinIO console (login: `minioadmin` / `minioadmin` unless you changed `.env`)
-9. Toggle dark mode — body color flips
-10. `make test` from repo root → backend pytest suite passes
+7. Create a child profile on `/family`, switch into it, then open `/dashboard` and `/chat`. The active child banner should be visible and API calls should use the child context.
+8. With `GEMINI_API_KEY` or `OPENROUTER_API_KEY` configured, ask chat a finance question and confirm the stream uses the live LangGraph route. Without a key, confirm the deterministic fallback notice appears and tool traces still stream.
+9. Attach a receipt image in `/chat`, then verify an `analyze_receipt` tool trace appears. Confirmed transaction saving still happens through `/receipts` edit-before-save flow.
+10. Open `/dashboard`; the insight banner should load from `/api/insights`. Click refresh to trigger `POST /api/insights/refresh`.
+11. Open <http://localhost:9001> → MinIO console (login: `minioadmin` / `minioadmin` unless you changed `.env`)
+12. Toggle dark mode — body color flips
+13. `make test` from repo root → backend pytest suite passes
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 ### `docker compose up` complains about port 5432 / 3000 / 8000 being in use
 
@@ -219,6 +247,6 @@ git reset --hard HEAD
 
 `next-themes` adds the `class="dark"` attribute on `<html>` after mount; the root layout uses `suppressHydrationWarning` for this exact reason. If you see other hydration warnings, check that you're not reading `localStorage` / `Date.now()` outside a `useEffect`.
 
-## 9. What changes day-by-day
+## 10. What changes day-by-day
 
 See [`TEAM_PROTOCOL.md`](TEAM_PROTOCOL.md) for the numbered task list and owners, and [`WORKDIVISION.md`](WORKDIVISION.md) for the collaboration rules around dependencies, review, and handoff. As features land, this SETUP.md should stay accurate — if a step here breaks, fix it in the same PR that introduced the regression.
