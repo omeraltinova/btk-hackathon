@@ -1,4 +1,4 @@
-function amountToKurus(amount: string): number {
+export function amountToKurus(amount: string): number {
   const trimmed = amount.trim();
   const sign = trimmed.startsWith("-") ? -1 : 1;
   const normalized = trimmed.replace("-", "").replace(",", ".");
@@ -32,4 +32,14 @@ export function formatDateTR(value: string): string {
     year: "numeric",
     timeZone: "Europe/Istanbul",
   }).format(new Date(value));
+}
+
+export function formatPercentTR(value: string | null): string {
+  if (value === null) return "Karşılaştırma yok";
+  const numeric = Number(value.replace(",", "."));
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${new Intl.NumberFormat("tr-TR", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 0,
+  }).format(numeric)}%`;
 }

@@ -282,7 +282,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 - **Veri sahipliği:** Kullanıcıya ait. Export (CSV) ve cascade delete butonları.
 - **Şifreleme:** Postgres at rest (Coolify), HTTPS (Traefik).
 - **Şifre hashleme:** bcrypt veya argon2id. Plain text yasak.
-- **Gemini'ye gönderilen veride:** İsim ve fiş görseli evet; IBAN, kart no, kimlik no HAYIR (regex redact).
+- **LLM sağlayıcısına gönderilen veride:** Gemini doğrudan veya OpenRouter üzerinden seçilen model kullanılsa da isim ve fiş görseli evet; IBAN, kart no, kimlik no HAYIR (regex redact).
 - **Audit log:** hangi user_id için hangi tool çağrıldı (içerik değil).
 - **Hesap silme:** Tek butonla cascade.
 - **Çocuk veri korumacılığı:** 18 yaş altı için ekstra disclaimer.
@@ -355,7 +355,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 | Python | 3.12 | |
 | Backend pkg manager | uv (lockfile commit) | latest |
 | Agent | LangGraph + LangChain | 0.2+ / 0.3+ |
-| LLM | Gemini 2.5 Flash | `langchain-google-genai` |
+| LLM | Gemini 2.5 Flash doğrudan veya OpenRouter üzerinden `google/gemini-2.5-flash` | `LLM_PROVIDER=gemini\|openrouter`, `langchain-google-genai`, `langchain-openai` |
 | Database | PostgreSQL | 16 |
 | ORM | SQLAlchemy 2.0 + Alembic | |
 | Storage | MinIO (S3 uyumlu) | |
@@ -515,6 +515,8 @@ CREATE INDEX idx_insight_user ON proactive_insights(user_id, created_at DESC)
 
 ```python
 # backend/app/agent/graph.py
+# Not (v0.7): gerçek kod LLM_PROVIDER ile doğrudan Gemini veya OpenRouter
+# OpenAI-compatible endpoint seçebilir. Aşağıdaki iskelet doğrudan Gemini yolunu gösterir.
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
@@ -819,7 +821,7 @@ cuzdan-kocu/
 | Gemini Vision Türk fişinde başarısız | Orta | Yüksek | 5 demo fişi önceden parse edilmiş JSON yedek, "demo modu" toggle |
 | LangGraph 1 günü aşar | Düşük | Orta | Custom while-loop tool calling yedek |
 | Coolify deploy gün 6'da sorun | Düşük | Kritik | Vercel + Railway yedek; localhost demo video |
-| Türkiye IP Gemini API limit | Düşük | Yüksek | OpenRouter via VPS proxy yedek |
+| Türkiye IP Gemini API limit | Düşük | Yüksek | `LLM_PROVIDER=openrouter` ile OpenRouter yedeği |
 | Demo veri seed çalışmaz | Orta | Orta | Manuel script + JSON fixture |
 | Takım üyesi hasta | Düşük | Yüksek | Full-stack ikisi de, GitHub commit + günlük senkron |
 | Form son dakika sorun | Düşük | Kritik | Form 18 Mayıs öğleden sonra gönderilecek |
@@ -906,7 +908,7 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.6
-**Son güncelleme:** 11 Mayıs 2026
-**v0.6 değişiklikleri:** Çalışma planı lane/seat mantığından çıkarılıp iki full-stack kişi arasında numaralı task listesine çevrildi; §18 kişi bazlı task dağılımı olarak sadeleştirildi; `TEAM_PROTOCOL.md` aktif task listesi, `WORKDIVISION.md` ise işbirliği kuralları olarak yeniden tanımlandı; §21 ve §25 buna göre güncellendi.
+**Doküman versiyonu:** 0.7
+**Son güncelleme:** 12 Mayıs 2026
+**v0.7 değişiklikleri:** LLM sağlayıcı seçimi eklendi: doğrudan Gemini varsayılan kalır, OpenRouter `LLM_PROVIDER=openrouter` ile yedek yol olarak desteklenir; §10 gizlilik ifadesi sağlayıcı bağımsız hale getirildi, §13 stack satırı ve §22 risk planı güncellendi.
 **Sonraki güncelleme:** Handoff/ownership planı değişirse ya da yeni varsayım onayı geldiğinde.

@@ -20,8 +20,8 @@ export default function ChatPage() {
               Sohbet sayfası, cevap kadar kanıt da gösterir.
             </h1>
             <p className="max-w-[58ch] text-base leading-7 text-muted-foreground">
-              Akışlı cevaplar 3. günde bağlandığında araç çağrıları görünür olacak; kullanıcı hangi
-              veriye dayanarak cevap aldığını anlayacak.
+              Akışlı cevaplar araç çağrılarıyla birlikte görünür; kullanıcı hangi veriye dayanarak
+              cevap aldığını anlayabilir.
             </p>
           </div>
           <div className="receipt-tape rotate-[-1deg] px-5 py-7">
@@ -40,12 +40,12 @@ export default function ChatPage() {
         <div className="relative z-10 space-y-5">
           <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border/80 pb-4">
             <div>
-              <p className="eyebrow">Koç taslağı</p>
+              <p className="eyebrow">Canlı koç</p>
               <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
                 Cüzdan Koçu ile konuşma alanı
               </h2>
             </div>
-            <span className="stamp-label bg-accent/25 text-accent-foreground">Yerel taslak</span>
+            <span className="stamp-label bg-accent/25 text-accent-foreground">Akış bağlı</span>
           </div>
 
           <ChatStream />

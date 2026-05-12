@@ -35,7 +35,9 @@ Open `.env` and:
 
 - Set `JWT_SECRET` to a strong value: `openssl rand -hex 32`. (The placeholder works for first boot but you must change it before pushing anything to a real environment.)
 - Set `NEXTAUTH_SECRET` to a strong value too; it can use the same generation command as `JWT_SECRET` but should be a separate value outside local demos.
-- `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). You can leave it empty until Day 2; the backend boots without it.
+- `LLM_PROVIDER` — keep `gemini` for direct Google AI Studio, or set `openrouter` to route chat models through OpenRouter.
+- `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Required when `LLM_PROVIDER=gemini`.
+- `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required when `LLM_PROVIDER=openrouter`; default model is `google/gemini-2.5-flash`.
 - Leave the `POSTGRES_*`, `MINIO_*`, and `NEXT_PUBLIC_*` defaults as-is for local dev.
 
 ## 3. The "everything in Docker" path (recommended for first run)

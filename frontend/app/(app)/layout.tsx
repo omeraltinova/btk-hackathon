@@ -35,7 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
           <ThemeToggle />
         </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+        <main className="w-full flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-8 2xl:px-10">
           {children}
         </main>
       </div>

@@ -1,0 +1,60 @@
+[
+  {
+    "event": "message_start",
+    "data": {
+      "type": "message_start",
+      "conversation_id": "6f2a23cc-80d7-4a0b-9af6-cf8c8ec4c3ac",
+      "role": "assistant"
+    }
+  },
+  {
+    "event": "tool_call",
+    "data": {
+      "type": "tool_call",
+      "conversation_id": "6f2a23cc-80d7-4a0b-9af6-cf8c8ec4c3ac",
+      "tool_name": "get_spending",
+      "input": {
+        "category": "Market",
+        "days": 30
+      }
+    }
+  },
+  {
+    "event": "tool_result",
+    "data": {
+      "type": "tool_result",
+      "conversation_id": "6f2a23cc-80d7-4a0b-9af6-cf8c8ec4c3ac",
+      "tool_name": "get_spending",
+      "result": {
+        "days": 30,
+        "category": "Market",
+        "transaction_count": 3,
+        "total_amount": "1250.50",
+        "total_amount_formatted": "1.250,50 ₺"
+      }
+    }
+  },
+  {
+    "event": "delta",
+    "data": {
+      "type": "delta",
+      "conversation_id": "6f2a23cc-80d7-4a0b-9af6-cf8c8ec4c3ac",
+      "content": "Son 30 günde Market kategorisinde toplam "
+    }
+  },
+  {
+    "event": "delta",
+    "data": {
+      "type": "delta",
+      "conversation_id": "6f2a23cc-80d7-4a0b-9af6-cf8c8ec4c3ac",
+      "content": "harcaman 1.250,50 ₺."
+    }
+  },
+  {
+    "event": "done",
+    "data": {
+      "type": "done",
+      "conversation_id": "6f2a23cc-80d7-4a0b-9af6-cf8c8ec4c3ac"
+    }
+  }
+]

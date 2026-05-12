@@ -1,6 +1,15 @@
 "use client";
 
-import { LayoutDashboard, LogOut, MessageSquare, Receipt, Users, Wallet } from "lucide-react";
+import {
+  LayoutDashboard,
+  LogOut,
+  MessageSquare,
+  Receipt,
+  Repeat2,
+  Users,
+  Wallet,
+  WalletCards,
+} from "lucide-react";
 import type { Session } from "next-auth";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
@@ -12,9 +21,11 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
-  { href: "/chat", label: "Sohbet", section: "02", icon: MessageSquare },
-  { href: "/receipts", label: "Fişler", section: "03", icon: Receipt },
-  { href: "/family", label: "Aile", section: "04", icon: Users },
+  { href: "/dashboard/transactions", label: "İşlemler", section: "02", icon: WalletCards },
+  { href: "/dashboard/recurring", label: "Tekrarlar", section: "03", icon: Repeat2 },
+  { href: "/chat", label: "Sohbet", section: "04", icon: MessageSquare },
+  { href: "/receipts", label: "Fişler", section: "05", icon: Receipt },
+  { href: "/family", label: "Aile", section: "06", icon: Users },
 ] as const;
 
 const ROLE_LABELS = {
@@ -74,7 +85,10 @@ export function Sidebar({ user }: SidebarProps) {
       {/* Nav */}
       <nav className="flex gap-2 overflow-x-auto px-3 pb-3 lg:mt-6 lg:flex-1 lg:flex-col lg:gap-2 lg:overflow-visible lg:px-4 lg:pb-0">
         {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive =
+            item.href === "/dashboard"
+              ? pathname === item.href
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
             <Link

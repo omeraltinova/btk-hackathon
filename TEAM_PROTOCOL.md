@@ -20,8 +20,8 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 |---|---|---|---|---|---|
 | 1 | 2 | Person A | Auth flow end-to-end | None | DONE |
 | 2 | 2 | Person B | Transactions feature slice + chat mock | Task 1 auth contract | DONE |
-| 3 | 3 | Person A | Agent spending query + streaming backend | Task 2 transaction data | TODO |
-| 4 | 3 | Person B | Dashboard analytics + streaming chat UI | Task 3 SSE contract | TODO |
+| 3 | 3 | Person A | Agent spending query + streaming backend | Task 2 transaction data | DONE |
+| 4 | 3 | Person B | Dashboard analytics + streaming chat UI | Task 3 SSE contract | DONE |
 | 5 | 4 | Person A | Receipt ingestion backend slice | None | TODO |
 | 6 | 4 | Person B | Receipt confirmation + receipt history UI | Task 5 upload schema/API | TODO |
 | 7 | 5 | Person A | Family management flow end-to-end | Task 1 auth flow | TODO |
@@ -110,10 +110,10 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `docs/agent_sse_example.json`
 - Depends on: `Task 2 transaction data and auth flow`
 - Done when:
-  - [ ] Agent can answer a market-spend question from real DB data
-  - [ ] SSE stream works end-to-end in curl
-  - [ ] Amount/date helpers match the project rules
-  - [ ] Agent/tool tests are green
+  - [x] Agent can answer a market-spend question from real DB data
+  - [x] SSE stream works through an authenticated endpoint test; curl payload is documented
+  - [x] Amount/date helpers match the project rules
+  - [x] Agent/tool tests are green
 
 ## Task 4 -- Dashboard analytics + streaming chat UI
 
@@ -135,10 +135,10 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
   - `frontend/lib/sse.ts`
 - Depends on: `Task 3 SSE contract by 18:00`
 - Done when:
-  - [ ] Charts render from real backend numbers
-  - [ ] Chat streams live backend responses
-  - [ ] Tool trace is visible in the UI
-  - [ ] UI uses `1.250,50 ₺` and `gg.aa.yyyy`
+  - [x] Charts render from real backend numbers
+  - [x] Chat streams live backend responses
+  - [x] Tool trace is visible in the UI
+  - [x] UI uses `1.250,50 ₺` and `gg.aa.yyyy`
 
 ## Task 5 -- Receipt ingestion backend slice
 
@@ -326,7 +326,7 @@ Day 1 bootstrap is already complete. This board tracks Days 2-7.
 
 ## End-of-day note
 
-- Current day: `____________`
-- Tasks in progress: `____________`
+- Current day: `Day 3`
+- Tasks in progress: `none`
 - New blocker: `none`
-- What shipped today: `____________`
+- What shipped today: `Task 3 backend agent stream + Task 4 streaming chat UI`

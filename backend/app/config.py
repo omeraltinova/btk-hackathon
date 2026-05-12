@@ -45,9 +45,15 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 7
 
-    # ---- LLM / Gemini (Day 2+) ----
+    # ---- LLM provider (Day 3+) ----
+    llm_provider: Literal["gemini", "openrouter"] = "gemini"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
+    openrouter_api_key: str | None = None
+    openrouter_model: str = "google/gemini-2.5-flash"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_http_referer: str | None = None
+    openrouter_app_title: str = "Cüzdan Koçu"
 
     # ---- MinIO (Day 4+) ----
     minio_endpoint: str = "minio:9000"

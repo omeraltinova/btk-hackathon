@@ -1,1 +1,1 @@
-"""LangGraph agent package. Implementations land Day 2 (graph) and Day 3+ (tools)."""
+"""LangGraph agent package for scoped finance-coach tools."""
