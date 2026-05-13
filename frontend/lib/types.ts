@@ -89,6 +89,15 @@ export type TransactionCreateInput = {
   raw_ocr_data?: Record<string, unknown> | null;
 };
 
+export type TransactionUpdateInput = {
+  amount?: string;
+  type?: TransactionType;
+  category_id?: string | null;
+  description?: string | null;
+  merchant?: string | null;
+  occurred_at?: string;
+};
+
 export type ReceiptItem = {
   name: string;
   quantity: string | null;
@@ -160,6 +169,8 @@ export type SubscriptionCreateInput = {
   category_id?: string | null;
   is_active?: boolean;
 };
+
+export type SubscriptionUpdateInput = Partial<SubscriptionCreateInput>;
 
 export type ChatStreamRequest = {
   message: string;
@@ -237,8 +248,15 @@ export type FamilyMemberFinance = {
   income: string;
   expense: string;
   balance: string;
+  expense_share_percent: string;
   recurring_monthly: string;
+  recurring_count: number;
   transaction_count: number;
+  receipt_transaction_count: number;
+  latest_transaction_at: string | null;
+  latest_transaction_merchant: string | null;
+  latest_transaction_amount: string | null;
+  latest_transaction_type: TransactionType | null;
 };
 
 export type FamilyOverview = {

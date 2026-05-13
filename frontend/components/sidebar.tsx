@@ -2,6 +2,7 @@
 
 import {
   LayoutDashboard,
+  LineChart,
   LogOut,
   MessageSquare,
   PanelLeftClose,
@@ -29,10 +30,11 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
   { href: "/dashboard/transactions", label: "İşlemler", section: "02", icon: WalletCards },
-  { href: "/chat", label: "Sohbet", section: "03", icon: MessageSquare },
-  { href: "/receipts", label: "Fişler", section: "04", icon: Receipt },
-  { href: "/family", label: "Aile", section: "05", icon: Users },
-  { href: "/account", label: "Hesap", section: "06", icon: UserRound },
+  { href: "/dashboard/income-expense", label: "Gelir/Gider", section: "03", icon: LineChart },
+  { href: "/chat", label: "Sohbet", section: "04", icon: MessageSquare },
+  { href: "/receipts", label: "Fişler", section: "05", icon: Receipt },
+  { href: "/family", label: "Aile", section: "06", icon: Users },
+  { href: "/account", label: "Hesap", section: "07", icon: UserRound },
 ] as const;
 
 const KID_NAV_ITEMS = [

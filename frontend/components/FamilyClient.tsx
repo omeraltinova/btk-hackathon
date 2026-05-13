@@ -1,13 +1,34 @@
 "use client";
 
-import { Baby, Edit3, Loader2, ShieldCheck, UserPlus, Users } from "lucide-react";
+import {
+  Baby,
+  BarChart3,
+  ChartPie,
+  Edit3,
+  Loader2,
+  ShieldCheck,
+  Trophy,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
-import { amountToKurus, formatKurus } from "@/lib/format";
+import { amountToKurus, formatDateTR, formatKurus } from "@/lib/format";
 import {
   clearActiveProfile,
   readActiveProfile,
@@ -18,6 +39,7 @@ import type {
   AgeStatus,
   ChildCreateInput,
   FamilyMember,
+  FamilyMemberFinance,
   FamilyOverview,
   FinanceLevel,
   TokenResponse,
@@ -36,6 +58,42 @@ type ChildDraft = {
   birthDate: string;
   financeLevel: FinanceLevel;
 };
+
+type FamilyHighlight = {
+  label: string;
+  name: string;
+  detail: string;
+};
+
+type FamilyChartPoint = {
+  name: string;
+  role: "parent" | "child";
+  income: number;
+  expense: number;
+  balance: number;
+  incomeFormatted: string;
+  expenseFormatted: string;
+  balanceFormatted: string;
+};
+
+type FamilyPiePoint = {
+  name: string;
+  value: number;
+  valueFormatted: string;
+};
+
+const CHART_COLORS = [
+  "oklch(var(--primary))",
+  "oklch(var(--accent))",
+  "oklch(0.64 0.1 192)",
+  "oklch(0.68 0.12 25)",
+  "oklch(0.62 0.11 310)",
+  "oklch(0.58 0.13 52)",
+];
+
+function chartColor(index: number): string {
+  return CHART_COLORS[index % CHART_COLORS.length] ?? "oklch(var(--primary))";
+}
 
 const ageStatusLabels: Record<AgeStatus, string> = {
   minor: "18 yaş altı",
@@ -73,6 +131,195 @@ function memberAgeText(member: Pick<FamilyMember, "age" | "age_status">): string
   return `${member.age} yaş / ${status}`;
 }
 
+function formatExpenseShare(value: string): string {
+  const numeric = Number(value.replace(",", "."));
+  if (!Number.isFinite(numeric)) return "%0";
+  return `%${new Intl.NumberFormat("tr-TR", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 0,
+  }).format(numeric)}`;
+}
+
+function latestTransactionAmount(member: FamilyMemberFinance): string {
+  if (!member.latest_transaction_amount || !member.latest_transaction_type) return "";
+  const sign = member.latest_transaction_type === "expense" ? -1 : 1;
+  return formatKurus(amountToKurus(member.latest_transaction_amount) * sign);
+}
+
+function latestTransactionText(member: FamilyMemberFinance): string {
+  if (!member.latest_transaction_at) return "Bu ay hareket yok";
+  const merchant = member.latest_transaction_merchant ?? "Son işlem";
+  const amount = latestTransactionAmount(member);
+  return `${formatDateTR(member.latest_transaction_at)} / ${merchant}${amount ? ` / ${amount}` : ""}`;
+}
+
+function topMember(
+  members: FamilyMemberFinance[],
+  getAmount: (member: FamilyMemberFinance) => number,
+): FamilyMemberFinance | null {
+  const [first] = [...members].sort((left, right) => getAmount(right) - getAmount(left));
+  return first && getAmount(first) > 0 ? first : null;
+}
+
+function highlightOrEmpty(
+  label: string,
+  member: FamilyMemberFinance | null,
+  amount: string | null,
+  empty: string,
+): FamilyHighlight {
+  return {
+    label,
+    name: member?.name ?? "Henüz veri yok",
+    detail: amount
+      ? `${formatKurus(amountToKurus(amount))} / ${label.toLocaleLowerCase("tr")}`
+      : empty,
+  };
+}
+
+function FamilyHighlights({ highlights }: { highlights: FamilyHighlight[] }) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-3">
+      {highlights.map((highlight) => (
+        <div key={highlight.label} className="receipt-tape px-5 py-6">
+          <div className="flex items-start gap-3">
+            <span className="bg-primary/12 grid h-10 w-10 shrink-0 place-items-center rounded-[1rem] text-primary">
+              <Trophy className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                {highlight.label}
+              </p>
+              <p className="mt-2 truncate font-display text-xl font-black">{highlight.name}</p>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{highlight.detail}</p>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FamilyBarComparison({ data }: { data: FamilyChartPoint[] }) {
+  if (data.length === 0) {
+    return <ChartEmpty title="Gelir/gider grafiği" detail="Bu ay grafik için kayıt yok." />;
+  }
+
+  return (
+    <figure className="rounded-[1.75rem] border border-border/70 bg-card/80 p-4 shadow-sm">
+      <figcaption className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-display text-xl font-black">Gelir/gider karşılaştırması</p>
+          <p className="mt-1 text-sm text-muted-foreground">Her profil için bu ayın hareketi.</p>
+        </div>
+        <BarChart3 className="h-5 w-5 text-primary" />
+      </figcaption>
+      <div className="mt-4 h-72 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={data}
+            layout="vertical"
+            margin={{ top: 8, right: 18, bottom: 8, left: 10 }}
+          >
+            <CartesianGrid stroke="oklch(var(--border) / 0.55)" horizontal={false} />
+            <XAxis type="number" hide />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={96}
+              tickLine={false}
+              axisLine={false}
+              tick={{ fill: "oklch(var(--muted-foreground))", fontSize: 11, fontWeight: 700 }}
+            />
+            <Bar dataKey="income" radius={[0, 8, 8, 0]} barSize={12} fill="oklch(var(--primary))" />
+            <Bar dataKey="expense" radius={[0, 8, 8, 0]} barSize={12} fill="oklch(var(--accent))" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-muted-foreground">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-3 w-3 rounded-full bg-primary" /> Gelir
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="h-3 w-3 rounded-full bg-accent" /> Gider
+        </span>
+      </div>
+    </figure>
+  );
+}
+
+function FamilyExpensePie({ data }: { data: FamilyPiePoint[] }) {
+  const total = data.reduce((sum, point) => sum + point.value, 0);
+  if (total <= 0) {
+    return <ChartEmpty title="Gider dağılımı" detail="Bu ay dağılım çıkaracak gider yok." />;
+  }
+
+  return (
+    <figure className="rounded-[1.75rem] border border-border/70 bg-card/80 p-4 shadow-sm">
+      <figcaption className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-display text-xl font-black">Gider dağılımı</p>
+          <p className="mt-1 text-sm text-muted-foreground">Aile giderinin kişi bazlı payı.</p>
+        </div>
+        <ChartPie className="h-5 w-5 text-primary" />
+      </figcaption>
+      <div className="mt-4 flex flex-wrap items-center gap-5">
+        <div className="h-48 w-48 shrink-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={42}
+                outerRadius={82}
+                paddingAngle={2}
+                stroke="oklch(var(--card))"
+                strokeWidth={2}
+              >
+                {data.map((point, index) => (
+                  <Cell key={`${point.name}-${index}`} fill={chartColor(index)} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <ul className="grid min-w-0 flex-1 gap-2 text-xs">
+          {data.map((point, index) => {
+            const percent = Math.round((point.value / total) * 100);
+            return (
+              <li
+                key={`${point.name}-pie-${index}`}
+                className="flex items-center justify-between gap-3"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="h-3 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: chartColor(index) }}
+                  />
+                  <span className="min-w-0 truncate font-medium">{point.name}</span>
+                </span>
+                <span className="font-display font-black tabular-nums">
+                  {point.valueFormatted} · %{percent}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </figure>
+  );
+}
+
+function ChartEmpty({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="rounded-[1.75rem] border border-dashed border-border/75 bg-card/70 p-5">
+      <p className="font-display text-xl font-black">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
 function friendlyError(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
@@ -97,6 +344,7 @@ export function FamilyClient() {
   const [childBirthDate, setChildBirthDate] = useState("2014-09-05");
   const [childFinanceLevel, setChildFinanceLevel] = useState<FinanceLevel>("child");
   const [childDrafts, setChildDrafts] = useState<Record<string, ChildDraft>>({});
+  const [showMemberDetails, setShowMemberDetails] = useState(false);
 
   const loadFamily = useCallback(async () => {
     setError(null);
@@ -127,6 +375,62 @@ export function FamilyClient() {
 
   const parents = useMemo(() => members.filter((member) => member.role === "parent"), [members]);
   const children = useMemo(() => members.filter((member) => member.role === "child"), [members]);
+  const familyChartData = useMemo<FamilyChartPoint[]>(() => {
+    if (!overview) return [];
+    return overview.members.map((member) => {
+      const income = Math.max(amountToKurus(member.income), 0);
+      const expense = Math.max(amountToKurus(member.expense), 0);
+      const balance = amountToKurus(member.balance);
+      return {
+        name: member.name,
+        role: member.role,
+        income,
+        expense,
+        balance,
+        incomeFormatted: formatKurus(income),
+        expenseFormatted: formatKurus(expense),
+        balanceFormatted: formatKurus(balance),
+      };
+    });
+  }, [overview]);
+  const expensePieData = useMemo<FamilyPiePoint[]>(
+    () =>
+      familyChartData
+        .filter((point) => point.expense > 0)
+        .map((point) => ({
+          name: point.name,
+          value: point.expense,
+          valueFormatted: point.expenseFormatted,
+        })),
+    [familyChartData],
+  );
+  const familyHighlights = useMemo<FamilyHighlight[]>(() => {
+    const overviewMembers = overview?.members ?? [];
+    const topIncome = topMember(overviewMembers, (member) => amountToKurus(member.income));
+    const topExpense = topMember(overviewMembers, (member) => amountToKurus(member.expense));
+    const topSaver = topMember(overviewMembers, (member) => amountToKurus(member.balance));
+
+    return [
+      highlightOrEmpty(
+        "En yüksek gelir",
+        topIncome,
+        topIncome?.income ?? null,
+        "Bu ay gelir kaydı yok.",
+      ),
+      highlightOrEmpty(
+        "En yüksek gider",
+        topExpense,
+        topExpense?.expense ?? null,
+        "Bu ay gider kaydı yok.",
+      ),
+      highlightOrEmpty(
+        "En çok biriktiren",
+        topSaver,
+        topSaver?.balance ?? null,
+        "Bu ay pozitif net durum yok.",
+      ),
+    ];
+  }, [overview]);
 
   async function handleCreateChild() {
     if (!childName.trim() || !childBirthDate) {
@@ -266,7 +570,17 @@ export function FamilyClient() {
                 Ebeveyn görünümü
               </h2>
             </div>
-            <span className="stamp-label bg-card/70 text-muted-foreground">Yalnızca ebeveyn</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowMemberDetails((current) => !current)}
+              >
+                {showMemberDetails ? "Kişi detayını gizle" : "Kişi detayını aç"}
+              </Button>
+              <span className="stamp-label bg-card/70 text-muted-foreground">Yalnızca ebeveyn</span>
+            </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
@@ -306,6 +620,8 @@ export function FamilyClient() {
             ))}
           </div>
 
+          <FamilyHighlights highlights={familyHighlights} />
+
           <div className="grid gap-3 xl:grid-cols-3">
             {overview.members.map((member) => (
               <div key={member.user_id} className="receipt-tape px-5 py-6">
@@ -321,10 +637,16 @@ export function FamilyClient() {
                       {member.transaction_count} işlem
                     </p>
                   </div>
-                  <p className="shrink-0 font-display text-lg font-black tabular-nums">
-                    {formatKurus(amountToKurus(member.balance))}
-                  </p>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                      Net
+                    </p>
+                    <p className="font-display text-lg font-black tabular-nums">
+                      {formatKurus(amountToKurus(member.balance))}
+                    </p>
+                  </div>
                 </div>
+
                 <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="font-bold text-muted-foreground">Gelir</p>
@@ -338,16 +660,55 @@ export function FamilyClient() {
                       {formatKurus(amountToKurus(member.expense))}
                     </p>
                   </div>
-                  <div className="col-span-2">
-                    <p className="font-bold text-muted-foreground">Aylık tekrar</p>
-                    <p className="font-display font-black tabular-nums">
-                      {formatKurus(amountToKurus(member.recurring_monthly))}
-                    </p>
-                  </div>
+
+                  {showMemberDetails ? (
+                    <>
+                      <div>
+                        <p className="font-bold text-muted-foreground">Gider payı</p>
+                        <p className="font-display font-black tabular-nums">
+                          {formatExpenseShare(member.expense_share_percent)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="font-bold text-muted-foreground">Fiş işlemi</p>
+                        <p className="font-display font-black tabular-nums">
+                          {member.receipt_transaction_count}
+                        </p>
+                      </div>
+                      <div className="col-span-2 grid grid-cols-2 gap-3 border-t border-dashed border-border pt-3">
+                        <div>
+                          <p className="font-bold text-muted-foreground">Aylık tekrar</p>
+                          <p className="font-display font-black tabular-nums">
+                            {formatKurus(amountToKurus(member.recurring_monthly))}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-bold text-muted-foreground">Aktif tekrar</p>
+                          <p className="font-display font-black tabular-nums">
+                            {member.recurring_count}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
+
+                {showMemberDetails ? (
+                  <div className="mt-4 rounded-[1rem] border border-border/65 bg-background/55 px-3 py-2 text-sm leading-6">
+                    <p className="font-bold text-muted-foreground">Son hareket</p>
+                    <p className="font-semibold">{latestTransactionText(member)}</p>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
+
+          {showMemberDetails ? (
+            <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+              <FamilyBarComparison data={familyChartData} />
+              <FamilyExpensePie data={expensePieData} />
+            </div>
+          ) : null}
         </section>
       ) : null}
 

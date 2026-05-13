@@ -24,6 +24,7 @@ from app.schemas.transaction import (
     TransactionSummaryRead,
     TransactionUpdate,
 )
+from app.services.recurring_materializer import materialize_due_subscriptions
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -78,10 +79,12 @@ def list_transactions(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Sequence[Transaction]:
+    user_ids = visible_user_ids(current_user)
+    materialize_due_subscriptions(db, user_ids)
     return (
         db.execute(
             select(Transaction)
-            .where(Transaction.user_id.in_(visible_user_ids(current_user)))
+            .where(Transaction.user_id.in_(user_ids))
             .order_by(Transaction.occurred_at.desc(), Transaction.created_at.desc())
             .offset(offset)
             .limit(limit),
@@ -154,6 +157,7 @@ def get_transaction_summary(
     current_start = _month_start(now)
     previous_start = _previous_month_start(current_start)
     user_ids = visible_user_ids(current_user)
+    materialize_due_subscriptions(db, user_ids, today=now.date())
 
     categories = (
         db.execute(

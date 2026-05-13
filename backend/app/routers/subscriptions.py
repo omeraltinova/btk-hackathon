@@ -15,6 +15,7 @@ from app.models.subscription import Subscription
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
 from app.schemas.subscription import SubscriptionCreate, SubscriptionRead, SubscriptionUpdate
+from app.services.recurring_materializer import materialize_due_subscriptions
 from app.utils.recurrence import (
     monthly_equivalent,
     recurrence_from_billing_cycle,
@@ -115,10 +116,12 @@ def list_subscriptions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[SubscriptionRead]:
+    user_ids = visible_user_ids(current_user)
+    materialize_due_subscriptions(db, user_ids)
     subscriptions = (
         db.execute(
             select(Subscription)
-            .where(Subscription.user_id.in_(visible_user_ids(current_user)))
+            .where(Subscription.user_id.in_(user_ids))
             .order_by(
                 Subscription.is_active.desc(),
                 Subscription.next_billing_date.is_(None),

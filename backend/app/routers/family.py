@@ -30,6 +30,7 @@ from app.utils.recurrence import monthly_equivalent
 router = APIRouter(prefix="/api/family", tags=["family"])
 ISTANBUL = ZoneInfo("Europe/Istanbul")
 MONEY_QUANT = Decimal("0.01")
+PERCENT_QUANT = Decimal("0.01")
 
 
 def _ensure_parent(current_user: User) -> None:
@@ -111,6 +112,12 @@ def _money(value: Decimal) -> Decimal:
     return value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
+def _percent(part: Decimal, total: Decimal) -> Decimal:
+    if total == 0:
+        return Decimal("0.00")
+    return ((part / total) * Decimal("100")).quantize(PERCENT_QUANT, rounding=ROUND_HALF_UP)
+
+
 def _month_start(value: datetime) -> datetime:
     return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -167,7 +174,10 @@ def family_overview(
     income_by_user = dict.fromkeys(user_ids, Decimal("0"))
     expense_by_user = dict.fromkeys(user_ids, Decimal("0"))
     recurring_by_user = dict.fromkeys(user_ids, Decimal("0"))
+    recurring_count_by_user = dict.fromkeys(user_ids, 0)
     count_by_user = dict.fromkeys(user_ids, 0)
+    receipt_count_by_user = dict.fromkeys(user_ids, 0)
+    latest_by_user: dict[UUID, Transaction | None] = dict.fromkeys(user_ids, None)
 
     for transaction in transactions:
         occurred_at = _as_aware_utc(transaction.occurred_at).astimezone(ISTANBUL)
@@ -175,6 +185,13 @@ def family_overview(
             continue
         amount = Decimal(transaction.amount)
         count_by_user[transaction.user_id] += 1
+        if transaction.source == "receipt_ocr":
+            receipt_count_by_user[transaction.user_id] += 1
+        latest = latest_by_user[transaction.user_id]
+        if latest is None or _as_aware_utc(transaction.occurred_at) > _as_aware_utc(
+            latest.occurred_at,
+        ):
+            latest_by_user[transaction.user_id] = transaction
         if transaction.type == "income":
             income_by_user[transaction.user_id] += amount
         else:
@@ -187,23 +204,40 @@ def family_overview(
             subscription.recurrence_unit,
             subscription.billing_cycle,
         )
+        recurring_count_by_user[subscription.user_id] += 1
 
-    member_rows = [
-        FamilyMemberFinanceRead(
-            user_id=member.id,
-            name=member.name,
-            role="parent" if member.role == "parent" else "child",
-            birth_date=member.birth_date,
-            age=member.age,
-            age_status=member.age_status,
-            income=_money(income_by_user[member.id]),
-            expense=_money(expense_by_user[member.id]),
-            balance=_money(income_by_user[member.id] - expense_by_user[member.id]),
-            recurring_monthly=_money(recurring_by_user[member.id]),
-            transaction_count=count_by_user[member.id],
+    total_expense = sum(expense_by_user.values(), Decimal("0"))
+
+    member_rows: list[FamilyMemberFinanceRead] = []
+    for member in members:
+        latest = latest_by_user[member.id]
+        latest_at = (
+            _as_aware_utc(latest.occurred_at).astimezone(ISTANBUL) if latest is not None else None
         )
-        for member in members
-    ]
+        member_rows.append(
+            FamilyMemberFinanceRead(
+                user_id=member.id,
+                name=member.name,
+                role="parent" if member.role == "parent" else "child",
+                birth_date=member.birth_date,
+                age=member.age,
+                age_status=member.age_status,
+                income=_money(income_by_user[member.id]),
+                expense=_money(expense_by_user[member.id]),
+                balance=_money(income_by_user[member.id] - expense_by_user[member.id]),
+                expense_share_percent=_percent(expense_by_user[member.id], total_expense),
+                recurring_monthly=_money(recurring_by_user[member.id]),
+                recurring_count=recurring_count_by_user[member.id],
+                transaction_count=count_by_user[member.id],
+                receipt_transaction_count=receipt_count_by_user[member.id],
+                latest_transaction_at=latest_at,
+                latest_transaction_merchant=(latest.merchant if latest is not None else None),
+                latest_transaction_amount=(
+                    _money(Decimal(latest.amount)) if latest is not None else None
+                ),
+                latest_transaction_type=(latest.type if latest is not None else None),
+            ),
+        )
 
     total_income = sum((row.income for row in member_rows), Decimal("0"))
     total_expense = sum((row.expense for row in member_rows), Decimal("0"))

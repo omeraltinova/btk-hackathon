@@ -32,6 +32,12 @@ class FakeSession:
             Category(id=uuid4(), user_id=None, name="Fatura", icon="receipt", parent_id=None),
             Category(id=uuid4(), user_id=None, name="Eğitim", icon="book", parent_id=None),
             Category(id=uuid4(), user_id=None, name="Eğlence", icon="ticket", parent_id=None),
+            Category(id=uuid4(), user_id=None, name="Harçlık", icon="piggy-bank", parent_id=None),
+            Category(id=uuid4(), user_id=None, name="Staj", icon="briefcase", parent_id=None),
+            Category(id=uuid4(), user_id=None, name="Hediye", icon="gift", parent_id=None),
+            Category(id=uuid4(), user_id=None, name="Akaryakıt", icon="fuel", parent_id=None),
+            Category(id=uuid4(), user_id=None, name="Telekom", icon="phone", parent_id=None),
+            Category(id=uuid4(), user_id=None, name="Yemek", icon="utensils", parent_id=None),
         ]
         self.refreshed_users: list[User] = []
 
@@ -130,8 +136,10 @@ def test_demo_seed_creates_parent_logins_child_and_refreshes_insights(
     assert all(user.password_hash is not None for user in db.users)
     assert all(user.is_demo for user in db.users)
     assert len(db.users) == 6
-    assert len(db.transactions) == 15
+    assert len(db.transactions) == 26
     assert any(transaction.source == "receipt_ocr" for transaction in db.transactions)
+    assert any(transaction.source == "recurring" for transaction in db.transactions)
+    assert any(transaction.merchant == "Bayram hediyesi" for transaction in db.transactions)
     assert len(db.subscriptions) == 4
     assert any(subscription.billing_cycle == "custom" for subscription in db.subscriptions)
     assert [user.name for user in db.refreshed_users] == [

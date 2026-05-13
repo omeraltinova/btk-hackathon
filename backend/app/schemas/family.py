@@ -41,8 +41,15 @@ class FamilyMemberFinanceRead(BaseModel):
     income: Decimal
     expense: Decimal
     balance: Decimal
+    expense_share_percent: Decimal
     recurring_monthly: Decimal
+    recurring_count: int
     transaction_count: int
+    receipt_transaction_count: int
+    latest_transaction_at: datetime | None
+    latest_transaction_merchant: str | None
+    latest_transaction_amount: Decimal | None
+    latest_transaction_type: Literal["income", "expense"] | None
 
 
 class FamilyOverviewRead(BaseModel):

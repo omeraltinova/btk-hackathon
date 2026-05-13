@@ -326,6 +326,44 @@ def seed_demo_family(db: Session) -> None:
     )
     _ensure_transaction(
         db,
+        user=ayse,
+        amount="1200.00",
+        tx_type="income",
+        merchant="Bayram hediyesi",
+        category_name="Hediye",
+        days_ago=5,
+    )
+    _ensure_transaction(
+        db,
+        user=ayse,
+        amount="449.90",
+        tx_type="expense",
+        merchant="TurkNet geçen ay",
+        category_name="Fatura",
+        days_ago=33,
+        source="recurring",
+    )
+    _ensure_transaction(
+        db,
+        user=ayse,
+        amount="499.90",
+        tx_type="expense",
+        merchant="TurkNet bu ay",
+        category_name="Fatura",
+        days_ago=4,
+        source="recurring",
+    )
+    _ensure_transaction(
+        db,
+        user=ayse,
+        amount="620.00",
+        tx_type="expense",
+        merchant="Turkcell aile hattı",
+        category_name="Telekom",
+        days_ago=9,
+    )
+    _ensure_transaction(
+        db,
         user=mehmet,
         amount="56000.00",
         tx_type="income",
@@ -344,11 +382,40 @@ def seed_demo_family(db: Session) -> None:
     )
     _ensure_transaction(
         db,
+        user=mehmet,
+        amount="199.90",
+        tx_type="expense",
+        merchant="Netflix mart ödemesi",
+        category_name="Eğlence",
+        days_ago=70,
+        source="recurring",
+    )
+    _ensure_transaction(
+        db,
+        user=mehmet,
+        amount="229.90",
+        tx_type="expense",
+        merchant="Netflix nisan ödemesi",
+        category_name="Eğlence",
+        days_ago=36,
+        source="recurring",
+    )
+    _ensure_transaction(
+        db,
+        user=mehmet,
+        amount="1800.00",
+        tx_type="expense",
+        merchant="Opet yakıt",
+        category_name="Akaryakıt",
+        days_ago=10,
+    )
+    _ensure_transaction(
+        db,
         user=elif_profile,
         amount="300.00",
         tx_type="income",
         merchant="Harçlık",
-        category_name="Maaş",
+        category_name="Harçlık",
         days_ago=4,
     )
     _ensure_transaction(
@@ -366,8 +433,17 @@ def seed_demo_family(db: Session) -> None:
         amount="150.00",
         tx_type="income",
         merchant="Haftalık harçlık",
-        category_name="Maaş",
+        category_name="Harçlık",
         days_ago=5,
+    )
+    _ensure_transaction(
+        db,
+        user=deniz_profile,
+        amount="250.00",
+        tx_type="income",
+        merchant="Doğum günü hediyesi",
+        category_name="Hediye",
+        days_ago=8,
     )
     _ensure_transaction(
         db,
@@ -384,7 +460,7 @@ def seed_demo_family(db: Session) -> None:
         amount="8500.00",
         tx_type="income",
         merchant="Staj ödemesi",
-        category_name="Maaş",
+        category_name="Staj",
         days_ago=3,
     )
     _ensure_transaction(
@@ -395,6 +471,16 @@ def seed_demo_family(db: Session) -> None:
         merchant="Üniversite kitapları",
         category_name="Eğitim",
         days_ago=1,
+    )
+    _ensure_transaction(
+        db,
+        user=zeynep_profile,
+        amount="5600.00",
+        tx_type="expense",
+        merchant="Yurt geçen dönem",
+        category_name="Eğitim",
+        days_ago=95,
+        source="recurring",
     )
     _ensure_subscription(
         db,
@@ -453,6 +539,26 @@ def seed_demo_family(db: Session) -> None:
         merchant="Yemeksepeti",
         category_name="Yemek",
         days_ago=2,
+    )
+    _ensure_transaction(
+        db,
+        user=kerem_profile,
+        amount="49.99",
+        tx_type="expense",
+        merchant="Spotify geçen ay",
+        category_name="Eğlence",
+        days_ago=40,
+        source="recurring",
+    )
+    _ensure_transaction(
+        db,
+        user=kerem_profile,
+        amount="59.99",
+        tx_type="expense",
+        merchant="Spotify bu ay",
+        category_name="Eğlence",
+        days_ago=8,
+        source="recurring",
     )
     _ensure_subscription(
         db,

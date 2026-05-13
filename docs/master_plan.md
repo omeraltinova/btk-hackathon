@@ -246,6 +246,8 @@ Bu kurallar şemaya ve mantığa kazınmıştır; bozulmaları bug'dır.
 
 **İK-17.** Tekrarlayan kayıtlar yalnızca haftalık/aylık/yıllık seçeneklerine bağlı değildir. `billing_cycle='custom'` için `recurrence_interval >= 1` ve `recurrence_unit IN ('day','week','month','year')` zorunludur.
 
+**İK-18.** Aktif tekrarlayan ödemeler `next_billing_date <= bugün` olduğunda otomatik olarak `transactions.source='recurring'` ve `type='expense'` işlemine materialize edilir. Aynı abonelik/tarih için tekrar işlem yazılmamalıdır; işlem tarihleri Europe/Istanbul yerel tarihine göre ay bazlı raporlanır.
+
 ---
 
 ## 9. Agent davranış kuralları
@@ -375,6 +377,25 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     değil) ve A-4 (tavsiye yasağı) ihlal edilemez. P5 (çocuk dilinde somut
     örnek) ile uyumlu: çocuk modunda görsel anlatımı kuvvetlendirir. Maliyet
     için her kullanıcıya günlük 10 görsel sınırı uygulanır.
+18. **Gelir/gider detay ve düzenleme yüzeyi:** `/dashboard/income-expense`
+    ayrı bir detay sayfasıdır. Kullanıcı kendi kapsamındaki gelir/gider
+    kayıtlarını tarih, tutar, kategori, satıcı/kaynak ve not alanlarıyla
+    düzenleyebilir; ekleme formunda olduğu gibi tarih girebilir. Gelir ve gider
+    kategori seçenekleri UI'da ayrı listelenir (ör. gelir: Maaş, Harçlık,
+    Staj, Hediye; gider: Market, Fatura, Kira, Eğitim, Yemek vb.). Özet
+    dashboard kısa kalır; detay sayfası kategori dağılımı, Recharts tooltip,
+    işlem listesi ve tekrarlayan ödeme ayrıntılarını gösterir. Yeni backend
+    veri kapsamı yoktur; mevcut scoped transaction/subscription endpoint'leri
+    kullanılır. Abonelik geçmişi, `transactions` tablosunda `subscription_id`
+    olmadığı için merchant/name/amount benzerliğiyle sunumsal olarak eşlenir;
+    kesin occurrence takibi gerekiyorsa ayrı schema değişikliği gerekir.
+19. **Tekrarlayan ödeme otomatik gider yazımı ve gelecek ay tahmini:** Aktif
+    abonelik/fatura `next_billing_date` gününe geldiğinde sistem bu kaydı gider
+    işlemine otomatik yazar ve `next_billing_date` değerini bir sonraki tekrar
+    tarihine taşır. Özet ve detay ekranları gelir/gideri ay bazında ayrı gösterir.
+    Gelecek ay tahmini, aktif abonelik/faturalardan hesaplanan yaklaşık değerdir;
+    kesinleşmiş borç veya finansal taahhüt değildir ve UI'da bu belirsizlik açık
+    yazılır.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
@@ -960,7 +981,7 @@ Bu maddeler Faruk + takım arkadaşı tarafından onaylanmalı; aksi halde deği
 
 Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
-1. Her yeni feature başlamadan önce ilgili user story (US-1..US-10) ve iş kuralları (İK-1..İK-15) kontrol et.
+1. Her yeni feature başlamadan önce ilgili user story (US-1..US-10) ve iş kuralları (İK-1..İK-18) kontrol et.
 2. Veri yazan her endpoint'te `user_id` filtresi olmalı (İK-4, İK-5).
 3. Tutar = `NUMERIC(12,2)`, tarih = `TIMESTAMPTZ` (İK-2, İK-3).
 4. Türkçe metin, TL formatı, Türk tarih (Bölüm 6).
@@ -974,8 +995,15 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.15
+**Doküman versiyonu:** 0.17
 **Son güncelleme:** 13 Mayıs 2026
+**v0.17 değişiklikleri:** İK-18 ve §12.2 madde 19 eklendi: aktif tekrarlayan
+ödemeler günü geldiğinde otomatik gider işlemine materialize edilir; gelir/gider
+ay bazında ayrılır; gelecek ay tahmini aktif aboneliklerden yaklaşık hesaplanır.
+**v0.16 değişiklikleri:** §12.2'ye 18. madde eklendi: ayrı gelir/gider detay
+sayfası, transaction edit yüzeyi, gelir/gider kategori ayrımı ve abonelik
+detay özetleri. Yeni backend scope/schema yok; mevcut endpoint'ler kullanılır,
+abonelik geçmişi kesin ilişki olmadığı için heuristiktir.
 **v0.15 değişiklikleri:** Sohbet geçmişi kapsamı genişletildi: kullanıcı kendi
 sohbetini silebilir (`DELETE /api/conversations/{id}`), geçmiş sohbeti `/chat`
 içinde sürdürebilir ve geçmiş tool ekleri (grafik/görsel) tekrar render edilir.

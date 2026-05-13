@@ -157,7 +157,15 @@ def auth_header(user: User) -> dict[str, str]:
     return {"Authorization": f"Bearer {create_token(user.id)}"}
 
 
-def make_transaction(user: User, *, amount: str, tx_type: str) -> Transaction:
+def make_transaction(
+    user: User,
+    *,
+    amount: str,
+    tx_type: str,
+    merchant: str = "Test",
+    occurred_at: datetime | None = None,
+    source: str = "manual",
+) -> Transaction:
     return Transaction(
         id=uuid4(),
         user_id=user.id,
@@ -165,9 +173,9 @@ def make_transaction(user: User, *, amount: str, tx_type: str) -> Transaction:
         type=tx_type,
         category_id=None,
         description="Aile özeti testi",
-        merchant="Test",
-        occurred_at=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
-        source="manual",
+        merchant=merchant,
+        occurred_at=occurred_at or datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+        source=source,
         receipt_image_url=None,
         raw_ocr_data=None,
     )
@@ -290,8 +298,15 @@ def test_parent_can_read_family_financial_overview(
     fake_session.transactions.extend(
         [
             make_transaction(parent, amount="1000.00", tx_type="income"),
-            make_transaction(parent, amount="250.00", tx_type="expense"),
-            make_transaction(child, amount="45.00", tx_type="expense"),
+            make_transaction(
+                parent,
+                amount="250.00",
+                tx_type="expense",
+                merchant="Migros",
+                occurred_at=datetime(2026, 5, 13, 13, 0, tzinfo=UTC),
+                source="receipt_ocr",
+            ),
+            make_transaction(child, amount="45.00", tx_type="expense", merchant="Kırtasiye"),
         ],
     )
     fake_session.subscriptions.append(make_subscription(parent, amount="100.00"))
@@ -305,6 +320,16 @@ def test_parent_can_read_family_financial_overview(
     assert body["total_balance"] == "705.00"
     assert body["total_recurring_monthly"] == "100.00"
     assert [member["name"] for member in body["members"]] == ["Ayşe Yılmaz", "Elif Yılmaz"]
+    parent_row = body["members"][0]
+    child_row = body["members"][1]
+    assert parent_row["expense_share_percent"] == "84.75"
+    assert parent_row["receipt_transaction_count"] == 1
+    assert parent_row["recurring_count"] == 1
+    assert parent_row["latest_transaction_merchant"] == "Migros"
+    assert parent_row["latest_transaction_amount"] == "250.00"
+    assert parent_row["latest_transaction_type"] == "expense"
+    assert child_row["expense_share_percent"] == "15.25"
+    assert child_row["recurring_count"] == 0
 
 
 def test_child_cannot_read_family_financial_overview(
