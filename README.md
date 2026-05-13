@@ -15,7 +15,7 @@
 
 Frontend: Next.js 15 (App Router) · Tailwind · shadcn/ui · Recharts
 Backend: FastAPI · Python 3.12 · SQLAlchemy 2 · Alembic
-Agent: LangGraph + Gemini 2.5 Flash veya OpenRouter (`google/gemini-2.5-flash`)
+Agent: LangGraph + Gemini veya OpenRouter (`google/gemini-3.1-flash-lite`)
 Storage: PostgreSQL 16 · MinIO (S3 uyumlu)
 Worker: Manuel tetiklenebilir/scheduler-ready proaktif insight job
 Deploy: Coolify on Hetzner VPS

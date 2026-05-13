@@ -396,7 +396,12 @@ def build_concept_illustration(
         }
 
     settings = get_settings()
-    if not settings.gemini_api_key:
+    provider_key_available = (
+        bool(settings.openrouter_api_key)
+        if settings.llm_provider == "openrouter"
+        else bool(settings.gemini_api_key)
+    )
+    if not provider_key_available:
         return {
             "concept": normalized,
             "error": "Görsel anlatım servisi şu an hazır değil.",

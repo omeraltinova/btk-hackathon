@@ -29,8 +29,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_IMAGE_MODEL: ${GEMINI_IMAGE_MODEL:-gemini-2.5-flash-image-preview}
+      GEMINI_IMAGE_MODEL: ${GEMINI_IMAGE_MODEL:-gemini-3.1-flash-image-preview}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_IMAGE_MODEL: ${OPENROUTER_IMAGE_MODEL:-google/gemini-3.1-flash-image-preview}
       MINIO_BUCKET_ILLUSTRATIONS: ${MINIO_BUCKET_ILLUSTRATIONS:-illustrations}
       ILLUSTRATION_DAILY_LIMIT: ${ILLUSTRATION_DAILY_LIMIT:-10}
     command: ["alembic", "upgrade", "head"]

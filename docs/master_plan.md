@@ -395,7 +395,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 | Python | 3.12 | |
 | Backend pkg manager | uv (lockfile commit) | latest |
 | Agent | LangGraph + LangChain | 0.2+ / 0.3+ |
-| LLM | Gemini 2.5 Flash doğrudan veya OpenRouter üzerinden `google/gemini-2.5-flash` | `LLM_PROVIDER=gemini\|openrouter`, `langchain-google-genai`, `langchain-openai` |
+| LLM | Gemini doğrudan veya OpenRouter üzerinden `google/gemini-3.1-flash-lite`; OpenRouter görsel model `google/gemini-3.1-flash-image-preview` | `LLM_PROVIDER=gemini\|openrouter`, `langchain-google-genai`, `langchain-openai` |
 | Database | PostgreSQL | 16 |
 | ORM | SQLAlchemy 2.0 + Alembic | |
 | Storage | MinIO (S3 uyumlu) | |
@@ -971,8 +971,13 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.13
+**Doküman versiyonu:** 0.14
 **Son güncelleme:** 13 Mayıs 2026
+**v0.14 değişiklikleri:** OpenRouter varsayılan modelleri güncellendi:
+sohbet için `google/gemini-3.1-flash-lite`, koç görsel anlatımı için
+`google/gemini-3.1-flash-image-preview`. Görsel anlatım OpenRouter modunda
+`OPENROUTER_IMAGE_MODEL` ile, doğrudan Gemini modunda `GEMINI_IMAGE_MODEL` ile
+seçilir; güvenlik/scope kuralları değişmedi.
 **v0.13 değişiklikleri:** §16 LangGraph iskeleti v0.12 scope ile hizalandı:
 `visualize_spending` ve `illustrate_concept` araçları import, `TOOLS` listesi ve
 tool interface örneklerine eklendi. Kapsam/sözleşme değişmedi; v0.12'de eklenen

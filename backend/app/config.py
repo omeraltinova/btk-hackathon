@@ -49,9 +49,10 @@ class Settings(BaseSettings):
     llm_provider: Literal["gemini", "openrouter"] = "gemini"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
-    gemini_image_model: str = "gemini-2.5-flash-image-preview"
+    gemini_image_model: str = "gemini-3.1-flash-image-preview"
     openrouter_api_key: str | None = None
-    openrouter_model: str = "google/gemini-2.5-flash"
+    openrouter_model: str = "google/gemini-3.1-flash-lite"
+    openrouter_image_model: str = "google/gemini-3.1-flash-image-preview"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_http_referer: str | None = None
     openrouter_app_title: str = "Cüzdan Koçu"

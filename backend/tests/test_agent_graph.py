@@ -11,14 +11,14 @@ def test_openrouter_chat_model_uses_openai_compatible_endpoint_and_headers() -> 
     model = build_chat_model(
         provider="openrouter",
         api_key="sk-or-test",
-        model="google/gemini-2.5-flash",
+        model="google/gemini-3.1-flash-lite",
         openrouter_base_url="https://openrouter.ai/api/v1",
         openrouter_http_referer="http://localhost:3000",
         openrouter_app_title="Cüzdan Koçu",
     )
 
     assert isinstance(model, ChatOpenAI)
-    assert model.model_name == "google/gemini-2.5-flash"
+    assert model.model_name == "google/gemini-3.1-flash-lite"
     assert str(model.openai_api_base) == "https://openrouter.ai/api/v1"
     assert model.default_headers == {
         "HTTP-Referer": "http://localhost:3000",

@@ -31,7 +31,8 @@ from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-GEMINI_IMAGE_MODEL_DEFAULT = "gemini-2.5-flash-image-preview"
+GEMINI_IMAGE_MODEL_DEFAULT = "gemini-3.1-flash-image-preview"
+OPENROUTER_IMAGE_MODEL_DEFAULT = "google/gemini-3.1-flash-image-preview"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
@@ -61,12 +62,19 @@ class IllustrationService:
         )
 
     def illustrate(self, *, user_id: UUID, concept: str, audience: str) -> Illustration:
-        if not self._settings.gemini_api_key:
-            raise IllustrationUnavailableError(
-                "Görsel anlatım servisi şu an hazır değil.",
-            )
         prompt = self._build_prompt(concept=concept, audience=audience)
-        image_bytes, content_type = self._call_gemini(prompt=prompt)
+        if self._settings.llm_provider == "openrouter":
+            if not self._settings.openrouter_api_key:
+                raise IllustrationUnavailableError(
+                    "Görsel anlatım servisi şu an hazır değil.",
+                )
+            image_bytes, content_type = self._call_openrouter(prompt=prompt)
+        else:
+            if not self._settings.gemini_api_key:
+                raise IllustrationUnavailableError(
+                    "Görsel anlatım servisi şu an hazır değil.",
+                )
+            image_bytes, content_type = self._call_gemini(prompt=prompt)
         stored = self._store(
             user_id=user_id,
             content=image_bytes,
@@ -175,13 +183,158 @@ class IllustrationService:
             "Görsel anlatım servisi şu an görsel üretmedi.",
         )
 
+    def _call_openrouter(self, *, prompt: str) -> tuple[bytes, str]:
+        model = self._settings.openrouter_image_model or OPENROUTER_IMAGE_MODEL_DEFAULT
+        url = f"{self._settings.openrouter_base_url.rstrip('/')}/chat/completions"
+        body: dict[str, object] = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt}],
+                },
+            ],
+            "modalities": ["image", "text"],
+            "temperature": 0.7,
+        }
+        headers = {
+            "Authorization": f"Bearer {self._settings.openrouter_api_key or ''}",
+            "Content-Type": "application/json",
+        }
+        if self._settings.openrouter_http_referer:
+            headers["HTTP-Referer"] = (
+                self._ascii_header(
+                    self._settings.openrouter_http_referer,
+                )
+                or "http://localhost:3000"
+            )
+        if self._settings.openrouter_app_title:
+            headers["X-Title"] = (
+                self._ascii_header(self._settings.openrouter_app_title) or "Cuzdan Kocu"
+            )
+
+        try:
+            response = httpx.post(url, headers=headers, json=body, timeout=120.0)
+        except httpx.HTTPError as exc:
+            logger.warning("illustration_openrouter_error: %s", type(exc).__name__)
+            raise IllustrationUnavailableError(
+                "Görsel anlatım servisi şu an cevap vermedi.",
+            ) from exc
+
+        if response.status_code >= 400:
+            logger.warning("illustration_openrouter_http_error: status=%s", response.status_code)
+            raise IllustrationUnavailableError(
+                "Görsel anlatım servisi şu an cevap vermedi.",
+            )
+
+        try:
+            payload: dict[str, object] = response.json()
+        except json.JSONDecodeError as exc:
+            raise IllustrationUnavailableError(
+                "Görsel anlatım yanıtı okunamadı.",
+            ) from exc
+
+        image = self._extract_openrouter_image(payload)
+        if image is None:
+            raise IllustrationUnavailableError(
+                "Görsel anlatım servisi şu an görsel üretmedi.",
+            )
+        return image
+
+    def _extract_openrouter_image(self, payload: dict[str, object]) -> tuple[bytes, str] | None:
+        choices = payload.get("choices")
+        if not isinstance(choices, list):
+            return None
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            message = choice.get("message")
+            if not isinstance(message, dict):
+                continue
+            image = self._extract_image_from_message(message)
+            if image is not None:
+                return image
+        return None
+
+    def _extract_image_from_message(self, message: dict[str, object]) -> tuple[bytes, str] | None:
+        images = message.get("images")
+        if isinstance(images, list):
+            for image in images:
+                extracted = self._extract_image_from_part(image)
+                if extracted is not None:
+                    return extracted
+
+        content = message.get("content")
+        if isinstance(content, list):
+            for part in content:
+                extracted = self._extract_image_from_part(part)
+                if extracted is not None:
+                    return extracted
+        elif isinstance(content, dict):
+            return self._extract_image_from_part(content)
+        return None
+
+    def _extract_image_from_part(self, part: object) -> tuple[bytes, str] | None:
+        if not isinstance(part, dict):
+            return None
+
+        for key in ("image_url", "image", "inline_data", "inlineData"):
+            nested = part.get(key)
+            if isinstance(nested, str):
+                extracted = self._image_from_reference(nested, default_mime="image/png")
+                if extracted is not None:
+                    return extracted
+            if isinstance(nested, dict):
+                url = nested.get("url")
+                if isinstance(url, str):
+                    extracted = self._image_from_reference(url, default_mime="image/png")
+                    if extracted is not None:
+                        return extracted
+                data = nested.get("data") or nested.get("b64_json")
+                mime = nested.get("mime_type") or nested.get("mimeType") or "image/png"
+                if isinstance(data, str) and isinstance(mime, str):
+                    extracted = self._image_from_reference(data, default_mime=mime)
+                    if extracted is not None:
+                        return extracted
+
+        url = part.get("url")
+        if isinstance(url, str):
+            return self._image_from_reference(url, default_mime="image/png")
+        data = part.get("data") or part.get("b64_json")
+        if isinstance(data, str):
+            return self._image_from_reference(data, default_mime="image/png")
+        return None
+
+    def _image_from_reference(
+        self, reference: str, *, default_mime: str
+    ) -> tuple[bytes, str] | None:
+        if reference.startswith("data:"):
+            header, separator, encoded = reference.partition(",")
+            if not separator:
+                return None
+            mime = header.removeprefix("data:").split(";", 1)[0] or default_mime
+            try:
+                return base64.b64decode(encoded, validate=True), mime
+            except (binascii.Error, ValueError):
+                return None
+        if reference.startswith("http://") or reference.startswith("https://"):
+            try:
+                response = httpx.get(reference, timeout=60.0)
+                response.raise_for_status()
+            except httpx.HTTPError:
+                return None
+            return response.content, response.headers.get("content-type", default_mime)
+        try:
+            return base64.b64decode(reference, validate=True), default_mime
+        except (binascii.Error, ValueError):
+            return None
+
     def _store(self, *, user_id: UUID, content: bytes, content_type: str) -> str:
         bucket = self._settings.minio_bucket_illustrations
         suffix = self._suffix_for(content_type)
         object_name = f"illustrations/{user_id}/{uuid4()}{suffix}"
         try:
-            if not self._client.bucket_exists(bucket):
-                self._client.make_bucket(bucket, location=self._settings.minio_region)
+            self._ensure_public_read_bucket(bucket)
             self._client.put_object(
                 bucket,
                 object_name,
@@ -192,6 +345,27 @@ class IllustrationService:
         except S3Error as exc:
             raise IllustrationUnavailableError("Görsel kaydedilemedi.") from exc
         return object_name
+
+    def _ensure_public_read_bucket(self, bucket: str) -> None:
+        if not self._client.bucket_exists(bucket):
+            self._client.make_bucket(bucket, location=self._settings.minio_region)
+        # Illustration URLs are rendered directly in the browser chat stream.
+        self._client.set_bucket_policy(
+            bucket,
+            json.dumps(
+                {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"AWS": ["*"]},
+                            "Action": ["s3:GetObject"],
+                            "Resource": [f"arn:aws:s3:::{bucket}/*"],
+                        },
+                    ],
+                },
+            ),
+        )
 
     def _public_url(self, object_name: str) -> str:
         base = self._settings.minio_public_endpoint.rstrip("/")

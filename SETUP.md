@@ -37,8 +37,8 @@ Open `.env` and:
 - Set `NEXTAUTH_SECRET` to a strong value too; it can use the same generation command as `JWT_SECRET` but should be a separate value outside local demos.
 - `LLM_PROVIDER` — keep `gemini` for direct Google AI Studio, or set `openrouter` to route chat models through OpenRouter.
 - `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Required for the live LangGraph LLM path when `LLM_PROVIDER=gemini`.
-- `GEMINI_IMAGE_MODEL` and `MINIO_BUCKET_ILLUSTRATIONS` — defaults work locally; concept illustration in chat also requires `GEMINI_API_KEY` and MinIO.
-- `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required for the live LangGraph LLM path when `LLM_PROVIDER=openrouter`; default model is `google/gemini-2.5-flash`.
+- `GEMINI_IMAGE_MODEL` and `MINIO_BUCKET_ILLUSTRATIONS` — defaults work locally; concept illustration in chat requires either `GEMINI_API_KEY` for direct Gemini mode or `OPENROUTER_API_KEY` for OpenRouter mode.
+- `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required for the live LangGraph LLM path when `LLM_PROVIDER=openrouter`; default chat model is `google/gemini-3.1-flash-lite`, and default image model is `google/gemini-3.1-flash-image-preview`.
 - If the selected LLM key is missing, `/api/chat/stream` still works through the deterministic scoped fallback and streams a Turkish setup notice. Live LLM wording, child-coach natural language, and image OCR require a configured Gemini/OpenRouter key.
 - Real image OCR on `/receipts` and chat receipt attachments uses the same provider choice. Text receipt fixtures still parse locally; real image OCR returns a Turkish "service not ready" error without a configured provider key.
 - Leave the `POSTGRES_*`, `MINIO_*`, `ILLUSTRATION_DAILY_LIMIT`, and `NEXT_PUBLIC_*` defaults as-is for local dev.
