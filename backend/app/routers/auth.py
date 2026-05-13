@@ -14,9 +14,22 @@ from app.models.user import User
 from app.schemas.auth import (
     AccountUpdateRequest,
     AuthUser,
+    DemoAccount,
     LoginRequest,
     RegisterRequest,
     TokenResponse,
+)
+from app.workers.demo_seed import (
+    child_demo_password,
+    deniz_email,
+    elif_email,
+    individual_demo_password,
+    kerem_email,
+    mehmet_email,
+    mehmet_password,
+    parent_email,
+    parent_password,
+    zeynep_email,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -81,6 +94,73 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
             detail="E-posta veya şifre hatalı.",
         )
     return _token_response(user)
+
+
+def _demo_account_taglines() -> dict[str, tuple[str, str | None]]:
+    """Maps demo email → (tagline, family_label) for the login selector.
+
+    Single source of truth so the seeder and the endpoint cannot drift. Family
+    labels group accounts visually on the login screen; individual demo
+    accounts get None so they render in a separate row.
+    """
+    return {
+        parent_email(): ("Ev bütçesini yöneten ebeveyn", "Yılmaz ailesi"),
+        mehmet_email(): ("Aboneliklerden sorumlu ebeveyn", "Yılmaz ailesi"),
+        elif_email(): ("12 yaşında — çocuk lite mod", "Yılmaz ailesi"),
+        deniz_email(): ("7 yaşında — çocuk lite mod", "Yılmaz ailesi"),
+        zeynep_email(): ("21 yaşında — yetişkin çocuk", "Yılmaz ailesi"),
+        kerem_email(): ("24, yeni mezun — bireysel hesap", None),
+    }
+
+
+def _demo_password_for(email: str) -> str:
+    if email == parent_email():
+        return parent_password()
+    if email == mehmet_email():
+        return mehmet_password()
+    if email == kerem_email():
+        return individual_demo_password()
+    return child_demo_password()
+
+
+@router.get("/demo-accounts", response_model=list[DemoAccount])
+def demo_accounts(db: Session = Depends(get_db)) -> list[DemoAccount]:
+    """Public list of demo accounts shown on the login screen.
+
+    Only returns rows where `is_demo=True` so this endpoint can never leak real
+    user data. Passwords are intentionally exposed because they are
+    well-known, seeder-generated demo passwords (`DEMO_*` env overrides).
+    """
+    taglines = _demo_account_taglines()
+    emails = list(taglines.keys())
+    rows = (
+        db.execute(
+            select(User).where(User.is_demo.is_(True), User.email.in_(emails)),
+        )
+        .scalars()
+        .all()
+    )
+    ordered: list[DemoAccount] = []
+    by_email = {user.email: user for user in rows}
+    for email in emails:
+        user = by_email.get(email)
+        if user is None or user.password_hash is None:
+            continue
+        tagline, family_label = taglines[email]
+        ordered.append(
+            DemoAccount(
+                email=user.email,
+                password=_demo_password_for(user.email),
+                name=user.name,
+                role=user.role,
+                age=user.age,
+                age_status=user.age_status,
+                finance_level=user.finance_level,
+                family_label=family_label,
+                tagline=tagline,
+            ),
+        )
+    return ordered
 
 
 @router.get("/me", response_model=AuthUser)

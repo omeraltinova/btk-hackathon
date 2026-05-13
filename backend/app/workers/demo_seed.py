@@ -24,6 +24,7 @@ LEGACY_MEHMET_EMAILS = ("demo.mehmet@cuzdan-kocu.local",)
 LEGACY_ELIF_EMAILS = ("demo.elif@cuzdan-kocu.local",)
 LEGACY_DENIZ_EMAILS: tuple[str, ...] = ()
 LEGACY_ZEYNEP_EMAILS: tuple[str, ...] = ()
+LEGACY_KEREM_EMAILS: tuple[str, ...] = ()
 
 
 def _env(name: str, default: str) -> str:
@@ -56,6 +57,26 @@ def deniz_email() -> str:
 
 def zeynep_email() -> str:
     return _env("DEMO_ZEYNEP_EMAIL", "zeynep@demo.cuzdan-kocu.app")
+
+
+def kerem_email() -> str:
+    return _env("DEMO_KEREM_EMAIL", "kerem@demo.cuzdan-kocu.app")
+
+
+def child_demo_password() -> str:
+    """Single shared demo password for the demo-only child accounts.
+
+    Demo children (Elif, Deniz, Zeynep) keep their family-switch behavior in
+    production via parent_id/family_id, but the seeder also gives them a known
+    password so the login page demo selector can show each role from its own
+    perspective. Real (non-demo) child accounts created at runtime still get
+    password_hash=NULL — see `app/routers/family.py`.
+    """
+    return _env("DEMO_CHILD_PASSWORD", "demo123")
+
+
+def individual_demo_password() -> str:
+    return _env("DEMO_INDIVIDUAL_PASSWORD", "demo123")
 
 
 def _find_user(db: Session, email: str) -> User | None:
@@ -216,6 +237,10 @@ def seed_demo_family(db: Session) -> None:
         password_hash=hash_password(mehmet_password()),
         legacy_emails=LEGACY_MEHMET_EMAILS,
     )
+    # NOTE: demo children are intentionally given a password here so the login
+    # page demo selector can show each perspective (e.g. minor-only kid mode UI,
+    # adult child, individual). Non-demo child accounts created via /api/family
+    # still use password_hash=None — see app/routers/family.py.
     elif_profile = _upsert_user(
         db,
         email=elif_email(),
@@ -224,7 +249,7 @@ def seed_demo_family(db: Session) -> None:
         parent=ayse,
         birth_date=date(2014, 9, 5),
         finance_level="child",
-        password_hash=None,
+        password_hash=hash_password(child_demo_password()),
         legacy_emails=LEGACY_ELIF_EMAILS,
     )
     deniz_profile = _upsert_user(
@@ -235,7 +260,7 @@ def seed_demo_family(db: Session) -> None:
         parent=ayse,
         birth_date=date(2018, 4, 20),
         finance_level="child",
-        password_hash=None,
+        password_hash=hash_password(child_demo_password()),
         legacy_emails=LEGACY_DENIZ_EMAILS,
     )
     zeynep_profile = _upsert_user(
@@ -246,8 +271,18 @@ def seed_demo_family(db: Session) -> None:
         parent=ayse,
         birth_date=date(2004, 11, 18),
         finance_level="beginner",
-        password_hash=None,
+        password_hash=hash_password(child_demo_password()),
         legacy_emails=LEGACY_ZEYNEP_EMAILS,
+    )
+    kerem_profile = _upsert_user(
+        db,
+        email=kerem_email(),
+        name="Kerem Demir",
+        role="individual",
+        birth_date=date(2002, 6, 14),
+        finance_level="intermediate",
+        password_hash=hash_password(individual_demo_password()),
+        legacy_emails=LEGACY_KEREM_EMAILS,
     )
 
     _ensure_transaction(
@@ -392,16 +427,60 @@ def seed_demo_family(db: Session) -> None:
         recurrence_unit="month",
         usage_score="1.00",
     )
+    _ensure_transaction(
+        db,
+        user=kerem_profile,
+        amount="32000.00",
+        tx_type="income",
+        merchant="İlk maaş",
+        category_name="Maaş",
+        days_ago=3,
+    )
+    _ensure_transaction(
+        db,
+        user=kerem_profile,
+        amount="3450.00",
+        tx_type="expense",
+        merchant="Hepsiburada elektronik",
+        category_name="Eğlence",
+        days_ago=5,
+    )
+    _ensure_transaction(
+        db,
+        user=kerem_profile,
+        amount="780.00",
+        tx_type="expense",
+        merchant="Yemeksepeti",
+        category_name="Yemek",
+        days_ago=2,
+    )
+    _ensure_subscription(
+        db,
+        user=kerem_profile,
+        name="Spotify Bireysel",
+        merchant="Spotify",
+        amount="59.99",
+        category_name="Eğlence",
+        days_until_billing=10,
+        usage_score="0.95",
+    )
     db.flush()
     refresh_insights_for_user(db, ayse)
     refresh_insights_for_user(db, mehmet)
+    refresh_insights_for_user(db, kerem_profile)
     db.commit()
 
 
 def main() -> None:
     with SessionLocal() as db:
         seed_demo_family(db)
-    print(f"Demo family ready: {parent_email()}")
+    print("Demo family ready:")
+    print(f"  - {parent_email()} (parent)")
+    print(f"  - {mehmet_email()} (parent)")
+    print(f"  - {elif_email()} (child / minor)")
+    print(f"  - {deniz_email()} (child / minor)")
+    print(f"  - {zeynep_email()} (child / adult)")
+    print(f"  - {kerem_email()} (individual)")
 
 
 if __name__ == "__main__":

@@ -132,3 +132,22 @@ class TokenResponse(BaseModel):
     token_type: Literal["bearer"] = "bearer"
     expires_in_days: int
     user: AuthUser
+
+
+class DemoAccount(BaseModel):
+    """Public summary of a demo (is_demo=True) account for the login selector.
+
+    The password is exposed here intentionally — these are shared demo
+    credentials seeded by `app.workers.demo_seed`. The endpoint is restricted to
+    accounts where `is_demo=True`, so real user passwords can never leak here.
+    """
+
+    email: str
+    password: str
+    name: str
+    role: Literal["parent", "child", "individual"]
+    age: int | None
+    age_status: AgeStatus | None
+    finance_level: Literal["beginner", "intermediate", "advanced", "child"]
+    family_label: str | None
+    tagline: str

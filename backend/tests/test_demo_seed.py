@@ -116,19 +116,29 @@ def test_demo_seed_creates_parent_logins_child_and_refreshes_insights(
     assert users_by_name["Elif Yılmaz"].role == "child"
     assert users_by_name["Deniz Yılmaz"].role == "child"
     assert users_by_name["Zeynep Yılmaz"].role == "child"
+    assert users_by_name["Kerem Demir"].role == "individual"
     assert users_by_name["Elif Yılmaz"].parent_id == users_by_name["Ayşe Yılmaz"].id
     assert users_by_name["Zeynep Yılmaz"].age_status == "adult"
     assert users_by_name["Deniz Yılmaz"].age_status == "minor"
     assert users_by_name["Ayşe Yılmaz"].family_id == users_by_name["Mehmet Yılmaz"].family_id
+    # Kerem is independent of the Yılmaz family.
+    assert users_by_name["Kerem Demir"].parent_id is None
+    assert users_by_name["Kerem Demir"].family_id is None
+    # Demo seeder gives every demo account a password so each role can be
+    # demonstrated from its own perspective via the login selector. Real
+    # non-demo child accounts created at runtime still get password_hash=None.
+    assert all(user.password_hash is not None for user in db.users)
     assert all(user.is_demo for user in db.users)
-    assert len(db.users) == 5
-    assert len(db.transactions) == 12
+    assert len(db.users) == 6
+    assert len(db.transactions) == 15
     assert any(transaction.source == "receipt_ocr" for transaction in db.transactions)
-    assert len(db.subscriptions) == 3
+    assert len(db.subscriptions) == 4
     assert any(subscription.billing_cycle == "custom" for subscription in db.subscriptions)
     assert [user.name for user in db.refreshed_users] == [
         "Ayşe Yılmaz",
         "Mehmet Yılmaz",
+        "Kerem Demir",
         "Ayşe Yılmaz",
         "Mehmet Yılmaz",
+        "Kerem Demir",
     ]

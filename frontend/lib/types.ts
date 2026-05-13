@@ -28,6 +28,18 @@ export type TokenResponse = {
   user: AuthUser;
 };
 
+export type DemoAccount = {
+  email: string;
+  password: string;
+  name: string;
+  role: UserRole;
+  age: number | null;
+  age_status: AgeStatus | null;
+  finance_level: FinanceLevel;
+  family_label: string | null;
+  tagline: string;
+};
+
 export type AccountUpdateInput = {
   email?: string;
   name?: string;

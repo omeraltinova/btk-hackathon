@@ -73,8 +73,9 @@ export default function LoginPage() {
             <LoginForm />
             <div className="cash-envelope p-4 text-sm leading-6 text-muted-foreground">
               <p className="relative z-10">
-                Demo için Ayşe hesabı hazır gelir. Çocuk profiline geçiş aile sayfasından yapılır;
-                çocuk hesabı ayrı şifreyle giriş yapmaz.
+                Demo hesapları yukarıdan seçebilirsin. Ebeveyn, 18 yaş altı/üstü çocuk ve bireysel
+                kullanıcı perspektiflerini ayrı ayrı deneyerek veri sınırlarının çalıştığını
+                görebilirsin.
               </p>
             </div>
           </div>
