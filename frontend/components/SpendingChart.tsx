@@ -1,6 +1,7 @@
 "use client";
 
 import { ChartPie } from "lucide-react";
+import { useState } from "react";
 
 import { amountToKurus, formatKurus } from "@/lib/format";
 import type { TransactionSummary } from "@/lib/types";
@@ -24,7 +25,15 @@ type SpendingChartProps = {
   summary: TransactionSummary | null;
 };
 
+type ActiveSlice = {
+  amount: string;
+  color: string;
+  name: string;
+  percentage: string;
+};
+
 export function SpendingChart({ summary }: SpendingChartProps) {
+  const [activeSlice, setActiveSlice] = useState<ActiveSlice | null>(null);
   const totals = summary?.category_totals ?? [];
   const total = totals.reduce((sum, item) => sum + amountToKurus(item.amount), 0);
   let offset = 0;
@@ -34,7 +43,7 @@ export function SpendingChart({ summary }: SpendingChartProps) {
       item,
       percent,
       offset,
-      color: pieColors[index % pieColors.length],
+      color: pieColors[index % pieColors.length] ?? "oklch(var(--primary))",
     };
     offset += percent;
     return slice;
@@ -60,12 +69,8 @@ export function SpendingChart({ summary }: SpendingChartProps) {
           </p>
         </div>
       ) : (
-        <div
-          className="spending-pie-shell mt-7 grid gap-6 sm:grid-cols-[13rem_1fr] sm:items-center"
-          tabIndex={0}
-          aria-label="Kategori detaylarını görmek için pastanın üstüne gel veya odaklan."
-        >
-          <div className="relative mx-auto h-44 w-44 sm:h-48 sm:w-48">
+        <div className="mt-7 grid gap-6 sm:grid-cols-[13rem_1fr] sm:items-center">
+          <div className="spending-pie-shell relative mx-auto h-44 w-44 sm:h-48 sm:w-48">
             <svg viewBox="0 0 36 36" className="spending-pie-wheel h-full w-full">
               <circle
                 cx="18"
@@ -75,24 +80,49 @@ export function SpendingChart({ summary }: SpendingChartProps) {
                 stroke="oklch(var(--muted))"
                 strokeWidth="5.8"
               />
-              {slices.map((slice) => (
-                <circle
-                  key={slice.item.category_id ?? slice.item.category_name}
-                  cx="18"
-                  cy="18"
-                  r="15.9155"
-                  fill="none"
-                  stroke={slice.color}
-                  strokeDasharray={`${slice.percent} ${100 - slice.percent}`}
-                  strokeDashoffset={-slice.offset}
-                  strokeLinecap="round"
-                  strokeWidth="5.8"
-                />
-              ))}
+              {slices.map((slice) => {
+                const name = slice.item.category_name;
+                const percentage = formatPlainPercent(slice.item.percentage);
+                const amount = formatKurus(amountToKurus(slice.item.amount));
+                return (
+                  <circle
+                    key={slice.item.category_id ?? slice.item.category_name}
+                    aria-label={`${name}: ${amount}, ${percentage}`}
+                    className="spending-pie-slice"
+                    cx="18"
+                    cy="18"
+                    r="15.9155"
+                    fill="none"
+                    role="button"
+                    stroke={slice.color}
+                    strokeDasharray={`${slice.percent} ${100 - slice.percent}`}
+                    strokeDashoffset={-slice.offset}
+                    strokeLinecap="round"
+                    strokeWidth="5.8"
+                    tabIndex={0}
+                    onBlur={() => setActiveSlice(null)}
+                    onFocus={() => setActiveSlice({ amount, color: slice.color, name, percentage })}
+                    onMouseEnter={() =>
+                      setActiveSlice({ amount, color: slice.color, name, percentage })
+                    }
+                    onMouseLeave={() => setActiveSlice(null)}
+                  />
+                );
+              })}
             </svg>
-            <p className="spending-pie-hint bg-background/88 absolute inset-x-2 top-1/2 -translate-y-1/2 rounded-full px-3 py-2 text-center text-xs font-black text-foreground shadow-sm backdrop-blur">
-              Detay için üzerine gel
-            </p>
+            {activeSlice ? (
+              <div className="spending-pie-center-label absolute left-1/2 top-1/2 w-[8.5rem] -translate-x-1/2 -translate-y-1/2 rounded-[1.25rem] bg-background/90 px-3 py-2 text-center shadow-sm backdrop-blur">
+                <span
+                  aria-hidden
+                  className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: activeSlice.color }}
+                />
+                <p className="truncate text-xs font-black text-foreground">{activeSlice.name}</p>
+                <p className="mt-0.5 text-[0.68rem] font-bold text-muted-foreground">
+                  {activeSlice.percentage} / {activeSlice.amount}
+                </p>
+              </div>
+            ) : null}
           </div>
           <div className="spending-pie-details space-y-3">
             {slices.map((slice) => (

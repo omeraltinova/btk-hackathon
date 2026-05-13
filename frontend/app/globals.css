@@ -464,79 +464,64 @@
 }
 
 @keyframes spending-pie-idle {
-  0%,
-  100% {
-    transform: rotate(-92deg);
+  from {
+    transform: rotate(-90deg);
   }
-  50% {
-    transform: rotate(-86deg);
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+@keyframes spending-pie-label-in {
+  from {
+    opacity: 0;
+    transform: translate3d(-50%, -48%, 0) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(-50%, -50%, 0) scale(1);
   }
 }
 
 .spending-pie-shell {
-  outline: none;
-}
-
-.spending-pie-shell:focus-visible {
-  border-radius: 1.5rem;
-  box-shadow: 0 0 0 3px oklch(var(--ring) / 0.38);
+  isolation: isolate;
 }
 
 .spending-pie-wheel {
   transform-origin: center;
-  animation: spending-pie-idle 6.5s var(--ease-out-quint) infinite;
+  animation: spending-pie-idle 18s linear infinite;
   transition:
     transform 260ms var(--ease-out-quint),
     filter 260ms var(--ease-out-quint);
   will-change: transform;
 }
 
-.spending-pie-shell:hover .spending-pie-wheel,
-.spending-pie-shell:focus-visible .spending-pie-wheel,
+.spending-pie-shell:has(.spending-pie-slice:hover) .spending-pie-wheel,
 .spending-pie-shell:focus-within .spending-pie-wheel {
   animation-play-state: paused;
   filter: drop-shadow(0 12px 18px oklch(var(--foreground) / 0.16));
   transform: rotate(-90deg) scale(1.025);
 }
 
-.spending-pie-details,
-.spending-pie-hint {
+.spending-pie-slice {
+  cursor: pointer;
+  transition:
+    filter 180ms var(--ease-out-quint),
+    stroke-width 180ms var(--ease-out-quint);
+}
+
+.spending-pie-slice:hover,
+.spending-pie-slice:focus-visible {
+  filter: brightness(1.07);
+  outline: none;
+  stroke-width: 6.5;
+}
+
+.spending-pie-center-label {
+  animation: spending-pie-label-in 180ms var(--ease-out-quint) both;
   transition:
     opacity 240ms var(--ease-out-quint),
     transform 240ms var(--ease-out-quint);
-}
-
-.spending-pie-hint {
-  pointer-events: none;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .spending-pie-details {
-    opacity: 0;
-    pointer-events: none;
-    transform: translate3d(-0.65rem, 0, 0);
-  }
-
-  .spending-pie-shell:hover .spending-pie-details,
-  .spending-pie-shell:focus-visible .spending-pie-details,
-  .spending-pie-shell:focus-within .spending-pie-details {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translate3d(0, 0, 0);
-  }
-
-  .spending-pie-shell:hover .spending-pie-hint,
-  .spending-pie-shell:focus-visible .spending-pie-hint,
-  .spending-pie-shell:focus-within .spending-pie-hint {
-    opacity: 0;
-    transform: translate3d(0, -50%, 0) scale(0.94);
-  }
-}
-
-@media (hover: none), (pointer: coarse) {
-  .spending-pie-hint {
-    display: none;
-  }
 }
 
 /* Kid lite mode — softer, brighter, simpler. Triggered by `data-kid-mode="on"`
