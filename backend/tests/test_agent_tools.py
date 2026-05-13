@@ -6,6 +6,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.agent.tools import (
+    build_concept_illustration,
+    build_spending_chart,
     build_spending_summary,
     build_subscriptions_summary,
     build_user_memory,
@@ -218,6 +220,24 @@ def test_build_subscriptions_summary_filters_active_and_calculates_monthly_total
     assert result["monthly_total_formatted"] == "220,00 ₺"
 
 
+def test_build_spending_chart_returns_string_amounts_not_float() -> None:
+    user = make_user()
+    market = make_category("Market")
+    db = FakeSession(
+        categories=[market],
+        transactions=[make_transaction(user_id=user.id, category_id=market.id, amount="100.25")],
+    )
+
+    result = build_spending_chart(db, user, now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC))
+    chart = result["chart"]
+
+    assert isinstance(chart, dict)
+    data = chart["data"]
+    assert isinstance(data, list)
+    assert data[0]["value"] == "100.25"
+    assert not isinstance(data[0]["value"], float)
+
+
 def test_build_user_memory_reads_current_user_only() -> None:
     user = make_user()
     other = make_user()
@@ -232,6 +252,16 @@ def test_build_user_memory_reads_current_user_only() -> None:
 
     assert result["count"] == 1
     assert result["entries"] == [{"key": "hedef", "value": {"text": "birikim"}}]
+
+
+def test_build_concept_illustration_rejects_investment_visuals() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_concept_illustration(db, user, concept="Hangi hisseyi alayım?")
+
+    assert "error" in result
+    assert result["concept"] == "Hangi hisseyi alayım?"
 
 
 def test_infer_category_from_text_matches_turkish_suffixes() -> None:

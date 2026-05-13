@@ -15,9 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.agent.graph import build_agent_graph_from_settings
 from app.agent.tools import (
+    build_concept_illustration,
     build_receipt_candidate,
+    build_spending_chart,
     build_spending_summary,
     build_subscriptions_summary,
+    build_user_memory,
     explain_finance_concept,
     infer_category_from_text,
     simulate_finance_scenario,
@@ -26,7 +29,6 @@ from app.config import Settings, get_settings
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
-from app.routers._scoping import visible_user_ids
 from app.schemas.chat import ChatStreamRequest
 
 
@@ -38,11 +40,26 @@ class ChatStreamEvent(TypedDict, total=False):
     tool_name: str
     input: dict[str, object]
     result: dict[str, object]
+    image_url: str
+    alt_text: str
 
 
 SUBSCRIPTION_HINTS = ("abonelik", "abonelikler", "tekrarlayan", "subscription")
 CONCEPT_HINTS = ("faiz", "enflasyon", "biriktir", "harçlık", "harclik")
 SCENARIO_HINTS = ("asgari", "kredi kart", "senaryo", "ödesem", "odesem")
+VISUALIZE_HINTS = ("grafik", "grafiğ", "chart", "görselle", "gorselle", "pasta", "bar grafik")
+MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")
+ILLUSTRATION_HINTS = (
+    "görsel",
+    "gorsel",
+    "resim",
+    "illüstrasyon",
+    "illustrasyon",
+    "görselle",
+    "gorselle",
+    "çiz",
+    "ciz",
+)
 
 
 def _get_or_create_conversation(
@@ -60,7 +77,7 @@ def _get_or_create_conversation(
     existing = db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
-            Conversation.user_id.in_(visible_user_ids(current_user)),
+            Conversation.user_id == current_user.id,
         ),
     ).scalar_one_or_none()
     if existing is None:
@@ -145,6 +162,21 @@ def _wants_scenario(message: str) -> bool:
     return any(hint in normalized for hint in SCENARIO_HINTS)
 
 
+def _wants_visualization(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in VISUALIZE_HINTS)
+
+
+def _wants_memory(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in MEMORY_HINTS)
+
+
+def _wants_illustration(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in ILLUSTRATION_HINTS)
+
+
 def _int_result(result: dict[str, object], key: str) -> int:
     value = result[key]
     if isinstance(value, int):
@@ -214,6 +246,52 @@ def _concept_answer(result: dict[str, object]) -> str:
 def _scenario_answer(result: dict[str, object]) -> str:
     summary = result.get("summary")
     return str(summary) if summary else "Bu senaryo için daha fazla bilgiye ihtiyacım var."
+
+
+def _visualization_answer(result: dict[str, object]) -> str:
+    total = str(result.get("total_amount_formatted", "0,00 ₺"))
+    count = _int_result(result, "transaction_count") if "transaction_count" in result else 0
+    days = _int_result(result, "days") if "days" in result else 30
+    if count == 0:
+        return (
+            f"Son {days} günde gösterecek bir gider bulamadım, bu yüzden grafik şu an boş. "
+            "İlk işlemi eklediğinde kategori dağılımını çizebilirim."
+        )
+    return (
+        f"Son {days} günün kategori dağılımını çizdim — toplam {total}, {count} işlem. "
+        "Grafiği hemen üstünde görebilirsin."
+    )
+
+
+def _memory_answer(result: dict[str, object]) -> str:
+    count = _int_result(result, "count") if "count" in result else 0
+    entries = result.get("entries")
+    if count == 0 or not isinstance(entries, list):
+        return "Hafızamda bu profil için kayıtlı bir bilgi bulamadım."
+    labels: list[str] = []
+    for entry in entries[:5]:
+        if isinstance(entry, dict) and isinstance(entry.get("key"), str):
+            labels.append(str(entry["key"]))
+    if labels:
+        return f"Hafızamda bu profil için {count} kayıt var: {', '.join(labels)}."
+    return f"Hafızamda bu profil için {count} kayıt var."
+
+
+def _image_event_from_result(
+    *,
+    conversation_id: str,
+    result: dict[str, object],
+) -> ChatStreamEvent | None:
+    image_url = result.get("image_url")
+    if not isinstance(image_url, str) or not image_url:
+        return None
+    alt_text = result.get("alt_text")
+    return {
+        "type": "image",
+        "conversation_id": conversation_id,
+        "image_url": image_url,
+        "alt_text": alt_text if isinstance(alt_text, str) else "Finansal kavram görseli",
+    }
 
 
 def _receipt_context(result: dict[str, object]) -> str:
@@ -334,6 +412,12 @@ def _stream_live_graph(
                     "tool_name": message.name or "tool",
                     "result": result,
                 }
+                image_event = _image_event_from_result(
+                    conversation_id=str(conversation.id),
+                    result=result,
+                )
+                if image_event is not None:
+                    yield image_event
     if final_answer:
         _persist_message(db, conversation, role="assistant", content=final_answer)
 
@@ -418,7 +502,56 @@ def stream_chat_turn(
         yield {"type": "done", "conversation_id": conversation_id}
         return
 
-    if _wants_subscriptions(payload.message):
+    if _wants_memory(payload.message):
+        memory_input: dict[str, object] = {}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "get_user_memory",
+            "input": memory_input,
+        }
+        result = build_user_memory(db, current_user)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Hafıza kayıtları alındı.",
+            tool_name="get_user_memory",
+            tool_calls={"input": memory_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "get_user_memory",
+            "result": result,
+        }
+        answer = _memory_answer(result)
+    elif _wants_visualization(payload.message) and not _wants_concept(payload.message):
+        chart_type = "pie" if "pasta" in payload.message.casefold() else "bar"
+        visualize_input: dict[str, object] = {"days": 30, "chart_type": chart_type}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "visualize_spending",
+            "input": visualize_input,
+        }
+        result = build_spending_chart(db, current_user, days=30, chart_type=chart_type)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Harcama grafiği üretildi.",
+            tool_name="visualize_spending",
+            tool_calls={"input": visualize_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "visualize_spending",
+            "result": result,
+        }
+        answer = _visualization_answer(result)
+    elif _wants_subscriptions(payload.message):
         subscription_input: dict[str, object] = {"only_active": True}
         yield {
             "type": "tool_call",
@@ -491,6 +624,37 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _concept_answer(result)
+        if _wants_illustration(payload.message):
+            illustration_input: dict[str, object] = {"concept": concept}
+            yield {
+                "type": "tool_call",
+                "conversation_id": conversation_id,
+                "tool_name": "illustrate_concept",
+                "input": illustration_input,
+            }
+            illustration_result = build_concept_illustration(db, current_user, concept=concept)
+            _persist_message(
+                db,
+                conversation,
+                role="tool",
+                content="Kavram görseli üretildi.",
+                tool_name="illustrate_concept",
+                tool_calls={"input": illustration_input, "result": illustration_result},
+            )
+            yield {
+                "type": "tool_result",
+                "conversation_id": conversation_id,
+                "tool_name": "illustrate_concept",
+                "result": illustration_result,
+            }
+            image_event = _image_event_from_result(
+                conversation_id=conversation_id,
+                result=illustration_result,
+            )
+            if image_event is not None:
+                yield image_event
+            elif "error" in illustration_result:
+                answer = f"{answer}\n\nGörsel notu: {illustration_result['error']}"
     else:
         category = infer_category_from_text(db, current_user, payload.message)
         spending_input: dict[str, object] = {"category": category, "days": 30}

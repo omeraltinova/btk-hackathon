@@ -1,5 +1,9 @@
+import { History } from "lucide-react";
+import Link from "next/link";
+
 import { ChatHero } from "@/components/ChatHero";
 import { ChatStream } from "@/components/ChatStream";
+import { Button } from "@/components/ui/button";
 
 export const metadata = {
   title: "Sohbet — Cüzdan Koçu",
@@ -19,7 +23,15 @@ export default function ChatPage() {
                 Cüzdan Koçu ile konuşma alanı
               </h2>
             </div>
-            <span className="stamp-label bg-accent/28 text-foreground">Akış bağlı</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/chat/history">
+                  <History className="h-4 w-4" />
+                  Sohbet geçmişi
+                </Link>
+              </Button>
+              <span className="stamp-label bg-accent/28 text-foreground">Akış bağlı</span>
+            </div>
           </div>
 
           <ChatStream />

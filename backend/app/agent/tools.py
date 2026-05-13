@@ -8,19 +8,24 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.models.category import Category
+from app.models.conversation import Conversation
 from app.models.memory import AgentMemory
+from app.models.message import Message
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
+from app.services.image_gen import IllustrationService, IllustrationUnavailableError
 from app.services.ocr import ReceiptOcrError, ReceiptOcrService, ReceiptOcrUnavailableError
 from app.utils.date_format import format_tr_date
 from app.utils.recurrence import monthly_equivalent, recurrence_label
@@ -28,6 +33,19 @@ from app.utils.tl_format import format_tl
 
 MONEY_QUANT = Decimal("0.01")
 MAX_SPENDING_DAYS = 365
+ISTANBUL_TZ = ZoneInfo("Europe/Istanbul")
+BLOCKED_ILLUSTRATION_TERMS = (
+    "hisse",
+    "borsa",
+    "kripto",
+    "bitcoin",
+    "al sat",
+    "al-sat",
+    "yatırım öner",
+    "hangi fon",
+    "hangi altın",
+    "hangi döviz",
+)
 
 
 def _money(value: Decimal) -> Decimal:
@@ -289,6 +307,130 @@ def build_receipt_candidate(
     return result
 
 
+def build_spending_chart(
+    db: Session,
+    current_user: User,
+    *,
+    days: int = 30,
+    chart_type: str = "bar",
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Return a chart specification of the user's category spending.
+
+    The chart payload is rendered inline by the frontend when it sees a `chart`
+    key on a tool_result event. Same `visible_user_ids` scope as get_spending.
+    """
+    if chart_type not in {"bar", "pie"}:
+        chart_type = "bar"
+    summary = build_spending_summary(db, current_user, days=days, now=now)
+    rows = summary.get("category_totals")
+    if not isinstance(rows, list):
+        rows = []
+
+    points = [
+        {
+            "label": str(row.get("category", "Kategorisiz")),
+            "value": _decimal_text(Decimal(str(row.get("amount", "0")))),
+            "value_formatted": str(row.get("amount_formatted", "0,00 ₺")),
+        }
+        for row in rows
+    ]
+    total = summary.get("total_amount_formatted", "0,00 ₺")
+    days_value = summary.get("days", days)
+    title = f"Son {days_value} gün kategori bazında harcama"
+    subtitle = f"Toplam {total}"
+
+    return {
+        "days": days_value,
+        "period_start": summary.get("period_start"),
+        "period_end": summary.get("period_end"),
+        "transaction_count": summary.get("transaction_count", 0),
+        "total_amount_formatted": total,
+        "chart": {
+            "type": chart_type,
+            "title": title,
+            "subtitle": subtitle,
+            "data": points,
+            "value_label": "Tutar",
+            "currency": "TRY",
+        },
+    }
+
+
+def _illustration_forbidden(concept: str) -> bool:
+    normalized = concept.casefold()
+    return any(term in normalized for term in BLOCKED_ILLUSTRATION_TERMS)
+
+
+def _illustration_day_start_utc(now: datetime | None = None) -> datetime:
+    local_now = _aware_utc(now or datetime.now(UTC)).astimezone(ISTANBUL_TZ)
+    return local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+
+
+def _daily_illustration_count(db: Session, current_user: User) -> int:
+    day_start = _illustration_day_start_utc()
+    count = db.execute(
+        select(func.count(Message.id))
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(
+            Conversation.user_id == current_user.id,
+            Message.tool_name == "illustrate_concept",
+            Message.created_at >= day_start,
+        ),
+    ).scalar_one()
+    return int(count)
+
+
+def build_concept_illustration(
+    db: Session,
+    current_user: User,
+    *,
+    concept: str,
+) -> dict[str, object]:
+    """Generate a safe educational concept illustration for the current user."""
+    normalized = " ".join(concept.split()) or "finansal kavram"
+    if _illustration_forbidden(normalized):
+        return {
+            "concept": normalized,
+            "error": "Görsel anlatımı yalnızca eğitim amaçlı finans kavramları için kullanabilirim.",
+        }
+
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        return {
+            "concept": normalized,
+            "error": "Görsel anlatım servisi şu an hazır değil.",
+        }
+
+    daily_limit = max(1, settings.illustration_daily_limit)
+    if _daily_illustration_count(db, current_user) >= daily_limit:
+        return {
+            "concept": normalized,
+            "daily_limit": daily_limit,
+            "error": f"Bugünkü {daily_limit} görsel sınırına ulaştın.",
+        }
+
+    audience = (
+        "child"
+        if current_user.role == "child" or current_user.finance_level == "child"
+        else "adult"
+    )
+    try:
+        illustration = IllustrationService(settings).illustrate(
+            user_id=current_user.id,
+            concept=normalized,
+            audience=audience,
+        )
+    except IllustrationUnavailableError as exc:
+        return {"concept": normalized, "error": str(exc)}
+
+    return {
+        "concept": normalized,
+        "image_url": illustration.public_url,
+        "alt_text": f"{normalized} kavramını anlatan eğitim amaçlı illüstrasyon",
+    }
+
+
 def explain_finance_concept(current_user: User, *, concept: str) -> dict[str, object]:
     normalized = " ".join(concept.split()) or "finansal kavram"
     is_child = current_user.role == "child" or current_user.finance_level == "child"
@@ -443,6 +585,40 @@ def simulate_scenario_tool(
         return simulate_finance_scenario(db, _load_current_user(db, user_id), scenario=scenario)
 
 
+@tool("visualize_spending")
+def visualize_spending_tool(
+    days: int = 30,
+    chart_type: str = "bar",
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Harcama özetinden kategori bazında grafik üretir; chat'te inline çizilir.
+
+    `chart_type` 'bar' veya 'pie' olabilir. `days` 1-365 aralığında olmalı.
+    Tüm veri agent state'inden gelen user_id kapsamı içindedir.
+    """
+    with SessionLocal() as db:
+        return build_spending_chart(
+            db,
+            _load_current_user(db, user_id),
+            days=days,
+            chart_type=chart_type,
+        )
+
+
+@tool("illustrate_concept")
+def illustrate_concept_tool(
+    concept: str,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Finansal bir kavram için güvenli eğitim illüstrasyonu üretir.
+
+    Yalnızca koç modunda kavram anlatımı içindir; yatırım/ürün/fiyat görselleştirme yapmaz.
+    Günlük kullanıcı başına sınır uygulanır. `user_id` sistem durumundan gelir.
+    """
+    with SessionLocal() as db:
+        return build_concept_illustration(db, _load_current_user(db, user_id), concept=concept)
+
+
 TOOLS = [
     get_spending_tool,
     get_subscriptions_tool,
@@ -450,4 +626,6 @@ TOOLS = [
     explain_concept_tool,
     simulate_scenario_tool,
     get_user_memory_tool,
+    visualize_spending_tool,
+    illustrate_concept_tool,
 ]

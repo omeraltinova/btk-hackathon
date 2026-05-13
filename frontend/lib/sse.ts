@@ -21,6 +21,9 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
   if (value.type === "tool_result") {
     return typeof value.tool_name === "string" && isRecord(value.result);
   }
+  if (value.type === "image") {
+    return typeof value.image_url === "string" && typeof value.alt_text === "string";
+  }
   if (value.type === "delta") return typeof value.content === "string";
   return value.type === "done";
 }

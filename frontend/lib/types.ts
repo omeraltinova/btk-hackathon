@@ -171,6 +171,23 @@ export type ChatStreamRequest = {
 
 export type ChatToolPayload = Record<string, unknown>;
 
+export type ChatChartType = "bar" | "pie";
+
+export type ChatChartPoint = {
+  label: string;
+  value: number;
+  value_formatted: string;
+};
+
+export type ChatChartSpec = {
+  type: ChatChartType;
+  title: string;
+  subtitle?: string | null;
+  data: ChatChartPoint[];
+  value_label?: string | null;
+  currency?: string | null;
+};
+
 export type ChatStreamEvent =
   | {
       type: "message_start";
@@ -188,6 +205,12 @@ export type ChatStreamEvent =
       conversation_id: string;
       tool_name: string;
       result: ChatToolPayload;
+    }
+  | {
+      type: "image";
+      conversation_id: string;
+      image_url: string;
+      alt_text: string;
     }
   | {
       type: "delta";
@@ -247,6 +270,36 @@ export type ProactiveInsight = {
   severity: InsightSeverity;
   action_label: string | null;
   is_dismissed: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ConversationListItem = {
+  id: string;
+  started_at: string;
+  last_message_at: string | null;
+  message_count: number;
+  preview: string | null;
+};
+
+export type ConversationMessage = {
+  id: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  tool_name: string | null;
+  created_at: string;
+};
+
+export type ConversationMessages = {
+  conversation_id: string;
+  started_at: string;
+  message_count: number;
+  messages: ConversationMessage[];
+};
+
+export type MemoryEntry = {
+  key: string;
+  value: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 };

@@ -3,19 +3,21 @@
 import { Bot, ImagePlus, Loader2, Send, Wrench, X } from "lucide-react";
 import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
 
+import { ChatChart } from "@/components/ChatChart";
 import { ChatMessage } from "@/components/ChatMessage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { amountToKurus, formatKurus } from "@/lib/format";
 import { useKidMode } from "@/lib/kid-mode";
 import { streamChat } from "@/lib/sse";
-import type { ChatStreamEvent, ChatToolPayload } from "@/lib/types";
+import type { ChatChartSpec, ChatStreamEvent, ChatToolPayload } from "@/lib/types";
 
 type ChatMessageItem = {
   id: string;
   role: "user" | "assistant";
   content: string;
   isStreaming?: boolean;
+  attachments?: ChatAttachmentItem[];
 };
 
 type ToolTraceItem = {
@@ -31,7 +33,64 @@ type ReceiptAttachment = {
   base64: string;
 };
 
+type ChatAttachmentItem =
+  | {
+      id: string;
+      type: "chart";
+      spec: ChatChartSpec;
+    }
+  | {
+      id: string;
+      type: "image";
+      imageUrl: string;
+      altText: string;
+    };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function extractChart(result: ChatToolPayload): ChatChartSpec | null {
+  const candidate = (result as Record<string, unknown>).chart;
+  if (!isRecord(candidate)) return null;
+  const type = candidate.type === "pie" ? "pie" : candidate.type === "bar" ? "bar" : null;
+  if (!type) return null;
+  if (typeof candidate.title !== "string") return null;
+  if (!Array.isArray(candidate.data)) return null;
+  const points: ChatChartSpec["data"] = [];
+  for (const entry of candidate.data) {
+    if (!isRecord(entry)) continue;
+    const label = typeof entry.label === "string" ? entry.label : null;
+    const rawValue = entry.value;
+    const value =
+      typeof rawValue === "number"
+        ? rawValue
+        : typeof rawValue === "string"
+          ? Number(rawValue)
+          : null;
+    const valueFormatted = typeof entry.value_formatted === "string" ? entry.value_formatted : null;
+    if (label === null || value === null || !Number.isFinite(value) || valueFormatted === null) {
+      continue;
+    }
+    points.push({ label, value, value_formatted: valueFormatted });
+  }
+  if (points.length === 0) return null;
+  return {
+    type,
+    title: candidate.title,
+    subtitle: typeof candidate.subtitle === "string" ? candidate.subtitle : null,
+    data: points,
+    value_label: typeof candidate.value_label === "string" ? candidate.value_label : null,
+    currency: typeof candidate.currency === "string" ? candidate.currency : null,
+  };
+}
+
 function describeToolInput(input: ChatToolPayload): string {
+  if ("chart_type" in input) {
+    const chartType = input.chart_type === "pie" ? "Pasta grafik" : "Çubuk grafik";
+    const days = typeof input.days === "number" ? input.days : 30;
+    return `${chartType} / son ${days} gün`;
+  }
   if ("category" in input || "days" in input) {
     const category = typeof input.category === "string" ? input.category : "Tüm kategoriler";
     const days = typeof input.days === "number" ? input.days : 30;
@@ -67,7 +126,37 @@ function describeToolResult(event: Extract<ChatStreamEvent, { type: "tool_result
   }
   if (event.tool_name === "explain_concept") return "Çocuk dostu açıklama";
   if (event.tool_name === "simulate_scenario") return "Simülasyon hazır";
+  if (event.tool_name === "visualize_spending") {
+    const total =
+      typeof result.total_amount_formatted === "string" ? result.total_amount_formatted : "0,00 ₺";
+    return `Grafik hazır / ${total}`;
+  }
+  if (event.tool_name === "get_user_memory") {
+    const count = typeof result.count === "number" ? result.count : 0;
+    return `${count} hafıza kaydı`;
+  }
+  if (event.tool_name === "illustrate_concept") {
+    return typeof result.image_url === "string" ? "Görsel hazır" : "Görsel hazırlanamadı";
+  }
   return "Sonuç alındı";
+}
+
+function renderAttachment(attachment: ChatAttachmentItem) {
+  if (attachment.type === "chart") {
+    return <ChatChart key={attachment.id} spec={attachment.spec} />;
+  }
+  return (
+    <figure
+      key={attachment.id}
+      className="overflow-hidden rounded-3xl border border-border/70 bg-card/85 shadow-sm"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- Backend returns user-scoped MinIO URLs from runtime config. */}
+      <img src={attachment.imageUrl} alt={attachment.altText} className="w-full object-cover" />
+      <figcaption className="px-4 py-3 text-xs font-medium text-muted-foreground">
+        {attachment.altText}
+      </figcaption>
+    </figure>
+  );
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -115,6 +204,22 @@ export function ChatStream() {
       return;
     }
     if (event.type === "tool_result") {
+      const chart = extractChart(event.result);
+      if (chart) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  attachments: [
+                    ...(message.attachments ?? []),
+                    { id: crypto.randomUUID(), type: "chart", spec: chart },
+                  ],
+                }
+              : message,
+          ),
+        );
+      }
       setToolTrace((current) => {
         const index = current.findIndex(
           (item) => item.name === event.tool_name && item.status === "running",
@@ -136,6 +241,27 @@ export function ChatStream() {
             : item,
         );
       });
+      return;
+    }
+    if (event.type === "image") {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                attachments: [
+                  ...(message.attachments ?? []),
+                  {
+                    id: crypto.randomUUID(),
+                    type: "image",
+                    imageUrl: event.image_url,
+                    altText: event.alt_text,
+                  },
+                ],
+              }
+            : message,
+        ),
+      );
       return;
     }
     if (event.type === "delta") {
@@ -246,7 +372,9 @@ export function ChatStream() {
               role={message.role}
               content={message.content}
               isStreaming={message.isStreaming}
-            />
+            >
+              {message.attachments?.map(renderAttachment)}
+            </ChatMessage>
           ))
         )}
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { Bot, UserRound } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -8,9 +9,10 @@ type ChatMessageProps = {
   role: "user" | "assistant";
   content: string;
   isStreaming?: boolean;
+  children?: ReactNode;
 };
 
-export function ChatMessage({ role, content, isStreaming = false }: ChatMessageProps) {
+export function ChatMessage({ role, content, isStreaming = false, children }: ChatMessageProps) {
   const isAssistant = role === "assistant";
   const label = isAssistant ? "Cüzdan Koçu" : "Sen";
   const Icon = isAssistant ? Bot : UserRound;
@@ -34,6 +36,7 @@ export function ChatMessage({ role, content, isStreaming = false }: ChatMessageP
         <p className="mt-1 whitespace-pre-wrap opacity-85">
           {content || (isStreaming ? "Yanıt hazırlanıyor..." : "")}
         </p>
+        {children ? <div className="mt-4 space-y-3">{children}</div> : null}
       </div>
     </div>
   );

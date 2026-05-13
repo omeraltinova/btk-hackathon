@@ -29,7 +29,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_IMAGE_MODEL: ${GEMINI_IMAGE_MODEL:-gemini-2.5-flash-image-preview}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      MINIO_BUCKET_ILLUSTRATIONS: ${MINIO_BUCKET_ILLUSTRATIONS:-illustrations}
+      ILLUSTRATION_DAILY_LIMIT: ${ILLUSTRATION_DAILY_LIMIT:-10}
     command: ["alembic", "upgrade", "head"]
 
   demo-seed:

@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     llm_provider: Literal["gemini", "openrouter"] = "gemini"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
+    gemini_image_model: str = "gemini-2.5-flash-image-preview"
     openrouter_api_key: str | None = None
     openrouter_model: str = "google/gemini-2.5-flash"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
@@ -61,8 +62,12 @@ class Settings(BaseSettings):
     minio_root_user: str = "minioadmin"
     minio_root_password: str = "minioadmin"
     minio_bucket_receipts: str = "receipts"
+    minio_bucket_illustrations: str = "illustrations"
     minio_region: str = "us-east-1"
     minio_use_ssl: bool = False
+
+    # ---- Coach illustration guardrail (Day 7+) ----
+    illustration_daily_limit: int = 10
 
     @field_validator("app_cors_origins")
     @classmethod

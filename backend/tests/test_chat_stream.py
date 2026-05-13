@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
+from pytest import MonkeyPatch
 
 from app.auth import create_token
 from app.db import get_db
@@ -179,6 +180,121 @@ def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:
     assert '"tool_name": "get_spending"' in response.text
     assert "125,00 ₺" in response.text
     assert [message.role for message in fake_session.messages] == ["user", "tool", "assistant"]
+
+
+def test_chat_stream_returns_inline_chart_payload() -> None:
+    user = make_user()
+    category = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    transaction = Transaction(
+        id=uuid4(),
+        user_id=user.id,
+        amount=Decimal("125.00"),
+        type="expense",
+        category_id=category.id,
+        description="Alışveriş",
+        merchant="Market",
+        occurred_at=datetime.now(UTC),
+        source="manual",
+        receipt_image_url=None,
+        raw_ocr_data=None,
+    )
+    fake_session = FakeSession(user, [category], [transaction])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Harcamalarımı grafik olarak gösterir misin?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "visualize_spending"' in response.text
+    assert '"chart"' in response.text
+    assert '"value": "125.00"' in response.text
+
+
+def test_chat_stream_can_read_current_profile_memory() -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Hafızanda benimle ilgili ne var?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "get_user_memory"' in response.text
+    assert "Hafızamda bu profil için" in response.text
+    assert "kayıtlı bir bilgi" in response.text
+    assert "bulamadım" in response.text
+
+
+def test_chat_stream_emits_image_event_for_concept_illustration(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def fake_illustration(
+        db: FakeSession,
+        current_user: User,
+        *,
+        concept: str,
+    ) -> dict[str, object]:
+        assert db is fake_session
+        assert current_user.id == user.id
+        return {
+            "concept": concept,
+            "image_url": "http://localhost:9000/illustrations/demo/faiz.png",
+            "alt_text": "Faiz kavramını anlatan görsel",
+        }
+
+    monkeypatch.setattr(
+        "app.services.agent_runner.build_concept_illustration",
+        fake_illustration,
+    )
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Faiz nedir, görsel olarak çizer misin?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "illustrate_concept"' in response.text
+    assert "event: image" in response.text
+    assert "http://localhost:9000/illustrations/demo/faiz.png" in response.text
 
 
 def test_chat_stream_can_analyze_receipt_attachment_without_persisting_raw_text() -> None:

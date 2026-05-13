@@ -571,7 +571,8 @@ from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from .tools import (
     get_spending, get_subscriptions, analyze_receipt,
-    explain_concept, simulate_scenario, get_user_memory
+    explain_concept, simulate_scenario, get_user_memory,
+    visualize_spending, illustrate_concept
 )
 from .prompts import build_system_prompt
 
@@ -584,6 +585,7 @@ class AgentState(TypedDict):
 TOOLS = [
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
+    visualize_spending, illustrate_concept,
 ]
 
 llm = ChatGoogleGenerativeAI(
@@ -647,6 +649,16 @@ def simulate_scenario(scenario: str, user_id: str) -> str:
 @tool
 def get_user_memory(user_id: str, key: str = None) -> dict:
     """Agent'in kullanıcı hakkında hatırladığı bilgileri çeker."""
+    ...
+
+@tool
+def visualize_spending(user_id: str, days: int = 30, chart_type: str = "bar") -> dict:
+    """Kapsam içi harcamadan bar/pie chart spec döner."""
+    ...
+
+@tool
+def illustrate_concept(user_id: str, concept: str) -> dict:
+    """Koç modunda finansal kavram için eğitim illüstrasyonu URL'i döner."""
     ...
 ```
 
@@ -959,8 +971,12 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.12
+**Doküman versiyonu:** 0.13
 **Son güncelleme:** 13 Mayıs 2026
+**v0.13 değişiklikleri:** §16 LangGraph iskeleti v0.12 scope ile hizalandı:
+`visualize_spending` ve `illustrate_concept` araçları import, `TOOLS` listesi ve
+tool interface örneklerine eklendi. Kapsam/sözleşme değişmedi; v0.12'de eklenen
+sohbet içi grafik ve koç görsel anlatım kararları netleştirildi.
 **v0.12 değişiklikleri:** §12.2'ye 14–17 maddeleri eklendi: sohbet içi grafik
 (chart tool), sohbet geçmişi sayfası, agent memory görüntüleyici ve koç görsel
 anlatım (image generation) aracı. Image generation P7/A-4'ü ihlal etmemek için

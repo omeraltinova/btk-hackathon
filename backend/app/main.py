@@ -13,8 +13,10 @@ from app.routers import (
     auth,
     categories,
     chat,
+    conversations,
     family,
     insights,
+    memory,
     receipts,
     subscriptions,
     transactions,
@@ -59,6 +61,8 @@ def create_app() -> FastAPI:
     app.include_router(subscriptions.router)
     app.include_router(receipts.router)
     app.include_router(chat.router)
+    app.include_router(conversations.router)
+    app.include_router(memory.router)
     app.include_router(insights.router)
     app.include_router(family.router)
 

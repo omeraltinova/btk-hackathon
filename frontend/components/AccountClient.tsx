@@ -1,7 +1,8 @@
 "use client";
 
-import { Loader2, Save, ShieldCheck } from "lucide-react";
+import { BrainCircuit, Loader2, Save, ShieldCheck } from "lucide-react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -145,6 +146,12 @@ export function AccountClient() {
                 Şifre değiştirmek için mevcut şifre doğrulanır; yaş statüsü manuel değil doğum
                 tarihinden hesaplanır.
               </p>
+              <Button asChild variant="outline" size="sm" className="mt-4">
+                <Link href="/account/memory">
+                  <BrainCircuit className="h-4 w-4" />
+                  Koç hafızasını gör
+                </Link>
+              </Button>
             </div>
           </div>
         </aside>
