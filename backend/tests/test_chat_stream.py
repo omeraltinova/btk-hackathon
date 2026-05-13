@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 
+from app.agent.prompts import build_system_prompt
 from app.auth import create_token
 from app.db import get_db
 from app.main import app
@@ -159,6 +160,13 @@ def make_user() -> User:
     return user
 
 
+def test_system_prompt_rejects_investment_advice() -> None:
+    prompt = build_system_prompt(role="parent", level="beginner")
+
+    assert "Asla yatırım tavsiyesi verme" in prompt
+    assert "Yatırım tavsiyesi veremem" in prompt
+
+
 def test_graph_context_includes_recent_user_and_assistant_messages() -> None:
     user = make_user()
     conversation = Conversation(id=uuid4(), user_id=user.id)
@@ -296,6 +304,76 @@ def test_chat_stream_returns_inline_chart_payload() -> None:
     assert '"tool_name": "visualize_spending"' in response.text
     assert '"chart"' in response.text
     assert '"value": "125.00"' in response.text
+
+
+def test_chat_stream_returns_monthly_chart_payload_for_trend_request() -> None:
+    user = make_user()
+    category = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    transaction = Transaction(
+        id=uuid4(),
+        user_id=user.id,
+        amount=Decimal("125.00"),
+        type="expense",
+        category_id=category.id,
+        description="Alışveriş",
+        merchant="Market",
+        occurred_at=datetime(2026, 5, 1, 10, 0, tzinfo=UTC),
+        source="manual",
+        receipt_image_url=None,
+        raw_ocr_data=None,
+    )
+    fake_session = FakeSession(user, [category], [transaction])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Market harcamam ay ay nasıl değişti?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "visualize_spending"' in response.text
+    assert '"chart_type": "monthly"' in response.text
+    assert '"type": "monthly"' in response.text
+    assert '"series": "Market"' in response.text
+
+
+def test_chat_stream_rejects_investment_advice_without_tool_call() -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Hangi hisseyi almalıyım?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "Yatırım tavsiyesi veremem" in response.text
+    assert '"tool_name"' not in response.text
+    assert [message.role for message in fake_session.messages] == ["user", "assistant"]
 
 
 def test_chat_stream_can_read_current_profile_memory() -> None:

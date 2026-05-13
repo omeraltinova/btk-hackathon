@@ -83,12 +83,14 @@ def materialize_due_subscriptions(
     local_today = today or datetime.now(ISTANBUL).date()
     subscriptions = (
         db.execute(
-            select(Subscription).where(
+            select(Subscription)
+            .where(
                 Subscription.user_id.in_(user_ids),
                 Subscription.is_active.is_(True),
                 Subscription.next_billing_date.is_not(None),
                 Subscription.next_billing_date <= local_today,
-            ).with_for_update(skip_locked=True),
+            )
+            .with_for_update(skip_locked=True),
         )
         .scalars()
         .all()

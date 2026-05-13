@@ -358,16 +358,18 @@ function RecurringBars({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {visible.map((subscription) => {
         const monthly = amountToKurus(subscription.monthly_equivalent);
         return (
-          <div key={subscription.id} className="space-y-2">
+          <div key={subscription.id} className="space-y-1.5">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="font-bold">{subscription.name}</span>
-              <span className="font-display font-black tabular-nums">{formatKurus(monthly)}</span>
+              <span className="truncate font-bold">{subscription.name}</span>
+              <span className="shrink-0 font-display font-black tabular-nums">
+                {formatKurus(monthly)}
+              </span>
             </div>
-            <div className="h-3 overflow-hidden rounded-full bg-background/80">
+            <div className="h-2.5 overflow-hidden rounded-full bg-background/80">
               <div
                 className="h-full rounded-full bg-primary"
                 style={{ width: `${(monthly / maxAmount) * 100}%` }}
@@ -403,12 +405,12 @@ function TransactionRow({
     : "Kategorisiz";
 
   return (
-    <div className="receipt-tape flex flex-col gap-4 px-5 py-6 transition-transform duration-300 ease-quint motion-safe:hover:-rotate-1 sm:flex-row sm:items-center sm:justify-between">
+    <div className="receipt-tape flex flex-col gap-3 px-4 py-4 transition-transform duration-300 ease-quint motion-safe:hover:-rotate-1 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="font-display text-lg font-black">
+        <p className="truncate font-display text-base font-black leading-tight sm:text-lg">
           {item.merchant ?? item.description ?? "İsimsiz işlem"}
         </p>
-        <p className="text-sm text-muted-foreground">
+        <p className="mt-0.5 text-xs font-medium text-muted-foreground sm:text-sm">
           {item.type === "income" ? "Gelir" : "Gider"} / {categoryName} /{" "}
           {formatDateTR(item.occurred_at)}
         </p>
@@ -418,10 +420,10 @@ function TransactionRow({
       </div>
       <div className="flex w-full shrink-0 items-center justify-between gap-3 sm:w-auto sm:text-right">
         <div>
-          <p className="break-words font-display text-xl font-black tabular-nums">
+          <p className="break-words font-display text-lg font-black tabular-nums sm:text-xl">
             {formatTransactionAmount(item.amount, item.type)}
           </p>
-          <p className="text-xs font-bold text-muted-foreground">
+          <p className="text-[0.7rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
             {item.source === "manual" ? "Manuel" : "Otomatik"}
           </p>
         </div>
@@ -430,19 +432,21 @@ function TransactionRow({
             type="button"
             variant="ghost"
             size="icon"
+            className="h-9 w-9"
             aria-label="İşlemi düzenle"
             onClick={() => onEdit(item)}
           >
-            <Edit3 className="h-4 w-4" />
+            <Edit3 className="h-3.5 w-3.5" />
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="icon"
+            className="h-9 w-9"
             aria-label="İşlemi sil"
             onClick={() => onDelete(item.id)}
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
@@ -470,11 +474,13 @@ function SubscriptionRow({
     : "Kategorisiz";
 
   return (
-    <div className="receipt-tape px-5 py-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="receipt-tape px-4 py-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="font-display text-lg font-black">{subscription.name}</p>
-          <p className="text-sm text-muted-foreground">
+          <p className="truncate font-display text-base font-black leading-tight sm:text-lg">
+            {subscription.name}
+          </p>
+          <p className="mt-0.5 text-xs font-medium text-muted-foreground sm:text-sm">
             {subscription.recurrence_label || billingCycleLabels[subscription.billing_cycle]} /{" "}
             {categoryName}
             {subscription.next_billing_date
@@ -486,7 +492,7 @@ function SubscriptionRow({
           ) : null}
         </div>
         <div className="shrink-0 sm:text-right">
-          <p className="break-words font-display text-xl font-black tabular-nums">
+          <p className="break-words font-display text-lg font-black tabular-nums sm:text-xl">
             {formatKurus(amountToKurus(subscription.amount))}
           </p>
           <p className="text-xs font-bold text-muted-foreground">
@@ -494,23 +500,23 @@ function SubscriptionRow({
           </p>
         </div>
       </div>
-      <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
+      <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
         <Button
           type="button"
           variant="default"
           size="sm"
-          className="min-h-11"
+          className="min-h-9 px-3 text-xs"
           disabled={isUpdating}
           onClick={() => onManage(subscription)}
         >
           Yönet
-          <Edit3 className="h-4 w-4" />
+          <Edit3 className="h-3.5 w-3.5" />
         </Button>
         <Button
           type="button"
           variant={subscription.is_active ? "secondary" : "outline"}
           size="sm"
-          className="min-h-11"
+          className="min-h-9 px-3 text-xs"
           disabled={isUpdating}
           onClick={() => onToggle(subscription)}
         >
@@ -520,12 +526,12 @@ function SubscriptionRow({
           type="button"
           variant="ghost"
           size="sm"
-          className="min-h-11"
+          className="min-h-9 px-3 text-xs"
           disabled={isUpdating}
           onClick={() => onDelete(subscription.id)}
         >
           Sil
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
     </div>
@@ -547,13 +553,13 @@ function FullListDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] w-[calc(100vw-1.5rem)] overflow-hidden rounded-[1.5rem] p-4 sm:max-w-5xl sm:p-6">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-1.5rem)] overflow-hidden rounded-[1.5rem] p-4 sm:max-w-5xl sm:p-5">
         <DialogHeader>
           <DialogTitle className="font-display text-3xl font-black">{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="max-h-[68vh] overflow-y-auto pr-1">
-          <div className="space-y-3">{children}</div>
+          <div className="space-y-2.5">{children}</div>
         </div>
       </DialogContent>
     </Dialog>
@@ -1828,15 +1834,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       ) : null}
 
       {view === "transactions" ? (
-        <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(27rem,0.72fr)_minmax(38rem,1.28fr)]">
-          <section className="ledger-sheet p-5 sm:p-8">
-            <div className="relative z-10 space-y-6">
+        <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(25rem,0.68fr)_minmax(39rem,1.32fr)]">
+          <section className="ledger-sheet p-4 sm:p-6">
+            <div className="relative z-10 space-y-5">
               <div>
                 <p className="eyebrow">{isKid ? "Yeni hareket" : "Kayıt girişi"}</p>
-                <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+                <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
                   {isKid ? "Bir şey ekleyelim mi?" : "Yeni kayıt ekle"}
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                <p className="mt-2 text-sm leading-5 text-muted-foreground">
                   {isKid
                     ? "Aldığın harçlığı veya yaptığın bir alışverişi buraya yazabilirsin."
                     : "Tek seferlik gelir/gider veya tekrarlayan ödeme aynı ekrandan eklenir."}
@@ -1857,7 +1863,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         key={mode}
                         type="button"
                         className={cn(
-                          "flex min-h-12 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-bold transition-all duration-200 ease-quint",
+                          "flex min-h-10 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-bold transition-all duration-200 ease-quint",
                           isActive
                             ? "bg-primary text-primary-foreground shadow-sm"
                             : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -2142,21 +2148,21 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
             </div>
           </section>
 
-          <section className="space-y-6">
+          <section className="space-y-5">
             {error ? <ErrorNote>{error}</ErrorNote> : null}
 
             {isKid ? null : (
-              <div className="receipt-tape p-6 pt-9">
+              <div className="receipt-tape p-4 pt-6 sm:p-5 sm:pt-7">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="eyebrow">Tekrarlayan aylık etki</p>
-                    <h3 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+                    <h3 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
                       {formatKurus(recurringMonthlyTotal)}
                     </h3>
                   </div>
                   <span className="stamp-label bg-background/80">Toplam</span>
                 </div>
-                <div className="mt-6">
+                <div className="mt-4">
                   <RecurringBars
                     subscriptions={subscriptions}
                     limit={RECURRING_BAR_PREVIEW_LIMIT}
@@ -2166,11 +2172,11 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
               </div>
             )}
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="eyebrow">Veritabanı kayıtları</p>
-                  <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+                  <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
                     Son işlemler
                   </h2>
                 </div>
@@ -2188,17 +2194,17 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       </span>
                     </Button>
                   ) : null}
-                  <ReceiptText className="h-6 w-6 text-primary" />
+                  <ReceiptText className="h-5 w-5 text-primary" />
                 </div>
               </div>
 
               {isLoading ? (
-                <div className="receipt-tape flex items-center gap-3 px-5 py-6 text-muted-foreground">
+                <div className="receipt-tape flex items-center gap-3 px-4 py-4 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   İşlemler yükleniyor...
                 </div>
               ) : transactions.length === 0 ? (
-                <div className="receipt-tape px-5 py-8">
+                <div className="receipt-tape px-4 py-6">
                   <CalendarDays className="h-6 w-6 text-primary" />
                   <h3 className="mt-4 font-display text-2xl font-black">Henüz işlem yok</h3>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -2206,7 +2212,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {previewTransactions.map((item) => (
                     <TransactionRow
                       key={item.id}
@@ -2235,11 +2241,11 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
             </div>
 
             {isKid ? null : (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="eyebrow">Yenilenen kayıtlar</p>
-                    <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+                    <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
                       Tekrarlayan ödemeler
                     </h2>
                   </div>
@@ -2257,12 +2263,12 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         </span>
                       </Button>
                     ) : null}
-                    <Repeat2 className="h-6 w-6 text-primary" />
+                    <Repeat2 className="h-5 w-5 text-primary" />
                   </div>
                 </div>
 
                 {subscriptions.length === 0 ? (
-                  <div className="receipt-tape px-5 py-8">
+                  <div className="receipt-tape px-4 py-6">
                     <Repeat2 className="h-6 w-6 text-primary" />
                     <h3 className="mt-4 font-display text-2xl font-black">Tekrarlayan ödeme yok</h3>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -2271,7 +2277,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {previewSubscriptions.map((subscription) => (
                       <SubscriptionRow
                         key={subscription.id}
@@ -2370,7 +2376,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
         title="Tüm aylık tekrar etkileri"
         description="Aktif tekrarlayan kayıtların aylık bütçeye etkisi."
       >
-        <div className="receipt-tape p-5">
+        <div className="receipt-tape p-4">
           <RecurringBars subscriptions={subscriptions} />
         </div>
       </FullListDialog>

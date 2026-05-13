@@ -61,7 +61,7 @@ type ReceiptAttachment = {
 
 const ADULT_SUGGESTIONS = [
   "Bu ay markete ne kadar harcadım?",
-  "Harcamalarımı grafik olarak gösterir misin?",
+  "Market harcamam ay ay nasıl değişti?",
   "Aktif aboneliklerimi özetler misin?",
   "Kredi kartı asgarisini ödersem ne olur?",
   "Enflasyonu aile bütçesiyle açıklar mısın?",
@@ -76,7 +76,9 @@ const KID_SUGGESTIONS = [
 
 function describeToolInput(input: ChatToolPayload): string {
   if ("chart_type" in input) {
-    const chartType = input.chart_type === "pie" ? "Pasta grafik" : "Çubuk grafik";
+    let chartType = "Çubuk grafik";
+    if (input.chart_type === "pie") chartType = "Pasta grafik";
+    if (input.chart_type === "monthly") chartType = "Aylık trend";
     const days = typeof input.days === "number" ? input.days : 30;
     return `${chartType} / son ${days} gün`;
   }
@@ -543,9 +545,9 @@ export function ChatStream() {
             id="chat-panel"
             role="tabpanel"
             ref={scrollRef}
-            className="h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4"
+            className="h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 lg:px-6 xl:px-8"
           >
-            <div className="space-y-4">
+            <div className="space-y-4 lg:space-y-6">
               {isHydrating ? (
                 <div className="receipt-tape flex items-center gap-2 px-5 py-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />

@@ -131,6 +131,10 @@ def make_transaction(
     category_id: UUID | None,
     amount: str,
     tx_type: str = "expense",
+    merchant: str | None = "Market",
+    occurred_at: datetime | None = None,
+    source: str = "manual",
+    raw_ocr_data: dict[str, Any] | None = None,
 ) -> Transaction:
     return Transaction(
         id=uuid4(),
@@ -139,11 +143,11 @@ def make_transaction(
         type=tx_type,
         category_id=category_id,
         description=None,
-        merchant="Market",
-        occurred_at=datetime(2026, 5, 12, 10, 0, tzinfo=UTC),
-        source="manual",
+        merchant=merchant,
+        occurred_at=occurred_at or datetime(2026, 5, 12, 10, 0, tzinfo=UTC),
+        source=source,
         receipt_image_url=None,
-        raw_ocr_data=None,
+        raw_ocr_data=raw_ocr_data,
     )
 
 
@@ -151,14 +155,16 @@ def make_subscription(
     *,
     user_id: UUID,
     amount: str,
+    name: str = "Dijital servis",
+    merchant: str | None = "Servis",
     cycle: str = "monthly",
     is_active: bool = True,
 ) -> Subscription:
     return Subscription(
         id=uuid4(),
         user_id=user_id,
-        name="Dijital servis",
-        merchant="Servis",
+        name=name,
+        merchant=merchant,
         amount=Decimal(amount),
         billing_cycle=cycle,
         recurrence_interval=1,
@@ -236,6 +242,136 @@ def test_build_spending_chart_returns_string_amounts_not_float() -> None:
     assert isinstance(data, list)
     assert data[0]["value"] == "100.25"
     assert not isinstance(data[0]["value"], float)
+
+
+def test_build_monthly_spending_chart_matches_multiple_categories_from_query() -> None:
+    user = make_user()
+    market = make_category("Market")
+    food = make_category("Yemek")
+    bills = make_category("Fatura")
+    db = FakeSession(
+        categories=[market, food, bills],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=market.id,
+                amount="100.00",
+                occurred_at=datetime(2026, 3, 5, 10, 0, tzinfo=UTC),
+            ),
+            make_transaction(
+                user_id=user.id,
+                category_id=food.id,
+                amount="45.50",
+                merchant="Lokanta",
+                occurred_at=datetime(2026, 4, 5, 10, 0, tzinfo=UTC),
+            ),
+            make_transaction(
+                user_id=user.id,
+                category_id=bills.id,
+                amount="999.00",
+                merchant="Fatura",
+                occurred_at=datetime(2026, 4, 6, 10, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_spending_chart(
+        db,
+        user,
+        chart_type="monthly",
+        query="Market ve yemek harcamam ay ay nasıl değişti?",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+    chart = result["chart"]
+
+    assert result["target_type"] == "category"
+    assert result["transaction_count"] == 2
+    assert result["total_amount_formatted"] == "145,50 ₺"
+    assert isinstance(chart, dict)
+    assert chart["type"] == "monthly"
+    data = chart["data"]
+    assert isinstance(data, list)
+    assert {point["series"] for point in data} == {"Market", "Yemek"}
+    assert (
+        next(
+            point for point in data if point["label"] == "03.2026" and point["series"] == "Market"
+        )["value"]
+        == "100.00"
+    )
+    assert (
+        next(point for point in data if point["label"] == "04.2026" and point["series"] == "Yemek")[
+            "value"
+        ]
+        == "45.50"
+    )
+
+
+def test_build_monthly_spending_chart_matches_subscription_vendor_from_query() -> None:
+    user = make_user()
+    subscription = make_subscription(
+        user_id=user.id,
+        amount="149.99",
+        name="Netflix",
+        merchant="Netflix",
+    )
+    db = FakeSession(
+        subscriptions=[subscription],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=None,
+                amount="149.99",
+                merchant="Netflix",
+                occurred_at=datetime(2026, 3, 10, 10, 0, tzinfo=UTC),
+                source="recurring",
+                raw_ocr_data={
+                    "subscription_id": str(subscription.id),
+                    "billing_date": "2026-03-10",
+                },
+            ),
+            make_transaction(
+                user_id=user.id,
+                category_id=None,
+                amount="169.99",
+                merchant="Netflix",
+                occurred_at=datetime(2026, 4, 10, 10, 0, tzinfo=UTC),
+                source="recurring",
+                raw_ocr_data={
+                    "subscription_id": str(subscription.id),
+                    "billing_date": "2026-04-10",
+                },
+            ),
+        ],
+    )
+
+    result = build_spending_chart(
+        db,
+        user,
+        chart_type="monthly",
+        query="Netflix aboneliğim ay ay nasıl değişti?",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+    chart = result["chart"]
+
+    assert result["target_type"] == "subscription"
+    assert result["transaction_count"] == 2
+    assert result["total_amount_formatted"] == "319,98 ₺"
+    assert isinstance(chart, dict)
+    data = chart["data"]
+    assert isinstance(data, list)
+    assert {point["series"] for point in data} == {"Netflix"}
+    assert (
+        next(
+            point for point in data if point["label"] == "03.2026" and point["series"] == "Netflix"
+        )["value"]
+        == "149.99"
+    )
+    assert (
+        next(
+            point for point in data if point["label"] == "04.2026" and point["series"] == "Netflix"
+        )["value"]
+        == "169.99"
+    )
 
 
 def test_build_user_memory_reads_current_user_only() -> None:

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import UTC, datetime, timedelta
+from collections.abc import Iterable
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 from uuid import UUID
@@ -33,6 +34,8 @@ from app.utils.tl_format import format_tl
 
 MONEY_QUANT = Decimal("0.01")
 MAX_SPENDING_DAYS = 365
+MONTHLY_TREND_MIN_DAYS = 180
+MONTHLY_TREND_MAX_SERIES = 5
 ISTANBUL_TZ = ZoneInfo("Europe/Istanbul")
 BLOCKED_ILLUSTRATION_TERMS = (
     "hisse",
@@ -64,6 +67,45 @@ def _aware_utc(value: datetime) -> datetime:
 
 def _normalized_days(days: int) -> int:
     return max(1, min(days, MAX_SPENDING_DAYS))
+
+
+def _normalized_text(value: str | None) -> str:
+    return " ".join((value or "").casefold().split())
+
+
+def _matches_text(known_label: str | None, candidates: Iterable[str]) -> bool:
+    known = _normalized_text(known_label)
+    if not known:
+        return False
+    for candidate in candidates:
+        normalized = _normalized_text(candidate)
+        if normalized and (known in normalized or normalized in known):
+            return True
+    return False
+
+
+def _month_start(value: datetime) -> date:
+    local = _aware_utc(value).astimezone(ISTANBUL_TZ)
+    return date(local.year, local.month, 1)
+
+
+def _add_months(value: date, months: int) -> date:
+    month_index = value.month - 1 + months
+    return date(value.year + month_index // 12, month_index % 12 + 1, 1)
+
+
+def _month_label(value: date) -> str:
+    return f"{value.month:02d}.{value.year}"
+
+
+def _month_range(start: datetime, end: datetime) -> list[date]:
+    current = _month_start(start)
+    final = _month_start(end)
+    months: list[date] = []
+    while current <= final:
+        months.append(current)
+        current = _add_months(current, 1)
+    return months
 
 
 def _load_current_user(db: Session, user_id: str) -> User:
@@ -307,12 +349,334 @@ def build_receipt_candidate(
     return result
 
 
+def _unique_labels(labels: Iterable[str]) -> list[str]:
+    return list(dict.fromkeys(label for label in labels if label))
+
+
+def _chart_target_values(
+    *,
+    category: str | None,
+    target: str | None,
+    targets: list[str] | None,
+) -> list[str]:
+    values: list[str] = []
+    if category:
+        values.append(category)
+    if target:
+        values.append(target)
+    if targets:
+        values.extend(targets)
+    return [value for value in values if value.strip()]
+
+
+def _category_label(transaction: Transaction, category_names: dict[UUID, str]) -> str:
+    if transaction.category_id is None:
+        return "Kategorisiz"
+    return category_names.get(transaction.category_id, "Kategorisiz")
+
+
+def _select_category_labels(
+    categories: list[Category],
+    *,
+    target_values: list[str],
+    query: str | None,
+) -> list[str]:
+    labels = [category.name for category in categories]
+    if target_values:
+        return _unique_labels(label for label in labels if _matches_text(label, target_values))
+    if query:
+        return _unique_labels(label for label in labels if _matches_text(label, [query]))
+    return []
+
+
+def _subscription_texts(subscription: Subscription) -> list[str]:
+    return [subscription.name, subscription.merchant or ""]
+
+
+def _select_subscriptions(
+    subscriptions: list[Subscription],
+    *,
+    target_values: list[str],
+    query: str | None,
+) -> list[Subscription]:
+    if target_values:
+        return [
+            subscription
+            for subscription in subscriptions
+            if any(_matches_text(text, target_values) for text in _subscription_texts(subscription))
+        ]
+    if query:
+        return [
+            subscription
+            for subscription in subscriptions
+            if any(_matches_text(text, [query]) for text in _subscription_texts(subscription))
+        ]
+    return []
+
+
+def _transaction_subscription_id(transaction: Transaction) -> str | None:
+    raw_data = transaction.raw_ocr_data
+    if not isinstance(raw_data, dict):
+        return None
+    value = raw_data.get("subscription_id")
+    return str(value) if value is not None else None
+
+
+def _transaction_texts(transaction: Transaction) -> list[str]:
+    return [transaction.merchant or "", transaction.description or ""]
+
+
+def _matches_subscription(transaction: Transaction, subscription: Subscription) -> bool:
+    if _transaction_subscription_id(transaction) == str(subscription.id):
+        return True
+    transaction_texts = _transaction_texts(transaction)
+    return any(
+        _matches_text(text, transaction_texts) for text in _subscription_texts(subscription) if text
+    )
+
+
+def _select_merchant_labels(
+    transactions: list[Transaction],
+    *,
+    target_values: list[str],
+    query: str | None,
+) -> list[str]:
+    labels = _unique_labels(transaction.merchant or "" for transaction in transactions)
+    if target_values:
+        return _unique_labels(label for label in labels if _matches_text(label, target_values))
+    if query:
+        return _unique_labels(label for label in labels if _matches_text(label, [query]))
+    return []
+
+
+def _infer_monthly_target_type(
+    *,
+    target_type: str | None,
+    query: str | None,
+    target_values: list[str],
+    category_labels: list[str],
+    subscriptions: list[Subscription],
+    merchant_labels: list[str],
+) -> str:
+    requested = _normalized_text(target_type)
+    if requested in {
+        "subscription",
+        "subscriptions",
+        "abonelik",
+        "merchant",
+        "vendor",
+        "satıcı",
+        "satici",
+    }:
+        return "subscription"
+    if requested in {"category", "kategori"}:
+        return "category"
+    haystack = " ".join([query or "", *target_values])
+    if any(
+        hint in _normalized_text(haystack)
+        for hint in ("abonelik", "tekrarlayan", "satıcı", "satici")
+    ):
+        return "subscription"
+    if any(_matches_text(label, [haystack]) for label in category_labels):
+        return "category"
+    if any(
+        any(_matches_text(text, [haystack]) for text in _subscription_texts(item))
+        for item in subscriptions
+    ):
+        return "subscription"
+    if any(_matches_text(label, [haystack]) for label in merchant_labels):
+        return "subscription"
+    return "category"
+
+
+def _top_series_labels(series_totals: dict[str, Decimal]) -> list[str]:
+    return [
+        label
+        for label, total in sorted(series_totals.items(), key=lambda item: item[1], reverse=True)
+        if total > 0
+    ][:MONTHLY_TREND_MAX_SERIES]
+
+
+def _build_monthly_points(
+    *,
+    months: list[date],
+    series_labels: list[str],
+    monthly_totals: dict[date, dict[str, Decimal]],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "label": _month_label(month),
+            "series": label,
+            "value": _decimal_text(monthly_totals.get(month, {}).get(label, Decimal("0"))),
+            "value_formatted": format_tl(monthly_totals.get(month, {}).get(label, Decimal("0"))),
+        }
+        for month in months
+        for label in series_labels
+    ]
+
+
+def _build_monthly_spending_chart(
+    db: Session,
+    current_user: User,
+    *,
+    days: int,
+    category: str | None,
+    target: str | None,
+    targets: list[str] | None,
+    target_type: str | None,
+    query: str | None,
+    now: datetime | None,
+) -> dict[str, object]:
+    safe_days = max(_normalized_days(days), MONTHLY_TREND_MIN_DAYS)
+    period_end = _aware_utc(now or datetime.now(UTC))
+    period_start = period_end - timedelta(days=safe_days)
+    months = _month_range(period_start, period_end)
+    user_ids = visible_user_ids(current_user)
+    categories = visible_categories(db, current_user)
+    category_names = {item.id: item.name for item in categories}
+    target_values = _chart_target_values(category=category, target=target, targets=targets)
+
+    transactions = list(
+        db.execute(
+            select(Transaction)
+            .where(
+                Transaction.user_id.in_(user_ids),
+                Transaction.occurred_at >= period_start,
+                Transaction.type == "expense",
+            )
+            .order_by(Transaction.occurred_at.asc()),
+        )
+        .scalars()
+        .all(),
+    )
+    transactions = [item for item in transactions if _aware_utc(item.occurred_at) <= period_end]
+    subscriptions = list(
+        db.execute(
+            select(Subscription)
+            .where(Subscription.user_id.in_(user_ids))
+            .order_by(Subscription.name),
+        )
+        .scalars()
+        .all(),
+    )
+    mode = _infer_monthly_target_type(
+        target_type=target_type,
+        query=query,
+        target_values=target_values,
+        category_labels=[item.name for item in categories],
+        subscriptions=subscriptions,
+        merchant_labels=_unique_labels(item.merchant or "" for item in transactions),
+    )
+    monthly_totals: dict[date, dict[str, Decimal]] = {}
+    series_totals: dict[str, Decimal] = {}
+    selected_series: list[str] = []
+    transaction_count = 0
+
+    def add_total(transaction: Transaction, label: str) -> None:
+        nonlocal transaction_count
+        amount = Decimal(transaction.amount)
+        month = _month_start(transaction.occurred_at)
+        monthly_totals.setdefault(month, {})[label] = (
+            monthly_totals.setdefault(month, {}).get(label, Decimal("0")) + amount
+        )
+        series_totals[label] = series_totals.get(label, Decimal("0")) + amount
+        transaction_count += 1
+
+    if mode == "subscription":
+        selected_subscriptions = _select_subscriptions(
+            subscriptions,
+            target_values=target_values,
+            query=query,
+        )
+        selected_merchants = _select_merchant_labels(
+            transactions,
+            target_values=target_values,
+            query=query,
+        )
+        subscription_pool = selected_subscriptions or subscriptions
+        selected_series = _unique_labels(item.name for item in selected_subscriptions)
+        selected_series.extend(
+            label for label in selected_merchants if label not in selected_series
+        )
+        for transaction in transactions:
+            label = next(
+                (
+                    subscription.name
+                    for subscription in subscription_pool
+                    if _matches_subscription(transaction, subscription)
+                ),
+                None,
+            )
+            if label is None and selected_merchants:
+                merchant = transaction.merchant or ""
+                label = merchant if merchant in selected_merchants else None
+            if label is None and not selected_series and transaction.source == "recurring":
+                label = transaction.merchant or transaction.description or "Tekrarlayan ödeme"
+            if label is not None:
+                add_total(transaction, label)
+        if not selected_series:
+            selected_series = _top_series_labels(series_totals)
+    else:
+        selected_series = _select_category_labels(
+            categories,
+            target_values=target_values,
+            query=query,
+        )
+        selected_set = set(selected_series)
+        for transaction in transactions:
+            label = _category_label(transaction, category_names)
+            if selected_set and label not in selected_set:
+                continue
+            if target_values and not selected_set:
+                continue
+            add_total(transaction, label)
+        if not selected_series:
+            selected_series = _top_series_labels(series_totals)
+
+    selected_series = selected_series[:MONTHLY_TREND_MAX_SERIES]
+    total_amount = sum(
+        (series_totals.get(label, Decimal("0")) for label in selected_series), Decimal("0")
+    )
+    title_target = selected_series[0] if len(selected_series) == 1 else None
+    title = f"{title_target} aylık harcama trendi" if title_target else "Aylık harcama trendi"
+    subtitle = (
+        f"{_month_label(months[0])} - {_month_label(months[-1])}, toplam {format_tl(total_amount)}"
+    )
+
+    return {
+        "days": safe_days,
+        "month_count": len(months),
+        "target_type": mode,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "transaction_count": transaction_count,
+        "total_amount_formatted": format_tl(total_amount),
+        "chart": {
+            "type": "monthly",
+            "title": title,
+            "subtitle": subtitle,
+            "data": _build_monthly_points(
+                months=months,
+                series_labels=selected_series,
+                monthly_totals=monthly_totals,
+            ),
+            "value_label": "Tutar",
+            "currency": "TRY",
+        },
+    }
+
+
 def build_spending_chart(
     db: Session,
     current_user: User,
     *,
     days: int = 30,
     chart_type: str = "bar",
+    category: str | None = None,
+    target: str | None = None,
+    targets: list[str] | None = None,
+    target_type: str | None = None,
+    query: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
     """Return a chart specification of the user's category spending.
@@ -320,9 +684,22 @@ def build_spending_chart(
     The chart payload is rendered inline by the frontend when it sees a `chart`
     key on a tool_result event. Same `visible_user_ids` scope as get_spending.
     """
-    if chart_type not in {"bar", "pie"}:
+    if chart_type not in {"bar", "pie", "monthly"}:
         chart_type = "bar"
-    summary = build_spending_summary(db, current_user, days=days, now=now)
+    if chart_type == "monthly":
+        return _build_monthly_spending_chart(
+            db,
+            current_user,
+            days=days,
+            category=category,
+            target=target,
+            targets=targets,
+            target_type=target_type,
+            query=query,
+            now=now,
+        )
+
+    summary = build_spending_summary(db, current_user, category=category, days=days, now=now)
     rows = summary.get("category_totals")
     if not isinstance(rows, list):
         rows = []
@@ -594,11 +971,17 @@ def simulate_scenario_tool(
 def visualize_spending_tool(
     days: int = 30,
     chart_type: str = "bar",
+    category: str | None = None,
+    target: str | None = None,
+    targets: list[str] | None = None,
+    target_type: str | None = None,
+    query: str | None = None,
     user_id: Annotated[str, InjectedState("user_id")] = "",
 ) -> dict[str, object]:
-    """Harcama özetinden kategori bazında grafik üretir; chat'te inline çizilir.
+    """Harcama özetinden grafik üretir; chat'te inline çizilir.
 
-    `chart_type` 'bar' veya 'pie' olabilir. `days` 1-365 aralığında olmalı.
+    `chart_type` 'bar', 'pie' veya 'monthly' olabilir. Aylık trend için `category`,
+    `target`, `targets`, `target_type` veya `query` eşleştirmesi kullanılabilir.
     Tüm veri agent state'inden gelen user_id kapsamı içindedir.
     """
     with SessionLocal() as db:
@@ -607,6 +990,11 @@ def visualize_spending_tool(
             _load_current_user(db, user_id),
             days=days,
             chart_type=chart_type,
+            category=category,
+            target=target,
+            targets=targets,
+            target_type=target_type,
+            query=query,
         )
 
 

@@ -17,10 +17,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function readChartType(value: unknown): ChatChartSpec["type"] | null {
+  if (value === "pie") return "pie";
+  if (value === "bar") return "bar";
+  if (value === "monthly") return "monthly";
+  return null;
+}
+
 export function extractChart(result: ChatToolPayload): ChatChartSpec | null {
   const candidate = result.chart;
   if (!isRecord(candidate)) return null;
-  const type = candidate.type === "pie" ? "pie" : candidate.type === "bar" ? "bar" : null;
+  const type = readChartType(candidate.type);
   if (!type) return null;
   if (typeof candidate.title !== "string") return null;
   if (!Array.isArray(candidate.data)) return null;
@@ -39,7 +46,12 @@ export function extractChart(result: ChatToolPayload): ChatChartSpec | null {
     if (label === null || value === null || !Number.isFinite(value) || valueFormatted === null) {
       continue;
     }
-    points.push({ label, value, value_formatted: valueFormatted });
+    points.push({
+      label,
+      value,
+      value_formatted: valueFormatted,
+      series: typeof entry.series === "string" ? entry.series : null,
+    });
   }
   if (points.length === 0) return null;
   return {

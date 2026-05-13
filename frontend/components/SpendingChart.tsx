@@ -60,32 +60,41 @@ export function SpendingChart({ summary }: SpendingChartProps) {
           </p>
         </div>
       ) : (
-        <div className="mt-7 grid gap-6 sm:grid-cols-[13rem_1fr] sm:items-center">
-          <svg viewBox="0 0 36 36" className="mx-auto h-44 w-44 -rotate-90 sm:h-48 sm:w-48">
-            <circle
-              cx="18"
-              cy="18"
-              r="15.9155"
-              fill="none"
-              stroke="oklch(var(--muted))"
-              strokeWidth="5.8"
-            />
-            {slices.map((slice) => (
+        <div
+          className="spending-pie-shell mt-7 grid gap-6 sm:grid-cols-[13rem_1fr] sm:items-center"
+          tabIndex={0}
+          aria-label="Kategori detaylarını görmek için pastanın üstüne gel veya odaklan."
+        >
+          <div className="relative mx-auto h-44 w-44 sm:h-48 sm:w-48">
+            <svg viewBox="0 0 36 36" className="spending-pie-wheel h-full w-full">
               <circle
-                key={slice.item.category_id ?? slice.item.category_name}
                 cx="18"
                 cy="18"
                 r="15.9155"
                 fill="none"
-                stroke={slice.color}
-                strokeDasharray={`${slice.percent} ${100 - slice.percent}`}
-                strokeDashoffset={-slice.offset}
-                strokeLinecap="round"
+                stroke="oklch(var(--muted))"
                 strokeWidth="5.8"
               />
-            ))}
-          </svg>
-          <div className="space-y-3">
+              {slices.map((slice) => (
+                <circle
+                  key={slice.item.category_id ?? slice.item.category_name}
+                  cx="18"
+                  cy="18"
+                  r="15.9155"
+                  fill="none"
+                  stroke={slice.color}
+                  strokeDasharray={`${slice.percent} ${100 - slice.percent}`}
+                  strokeDashoffset={-slice.offset}
+                  strokeLinecap="round"
+                  strokeWidth="5.8"
+                />
+              ))}
+            </svg>
+            <p className="spending-pie-hint bg-background/88 absolute inset-x-2 top-1/2 -translate-y-1/2 rounded-full px-3 py-2 text-center text-xs font-black text-foreground shadow-sm backdrop-blur">
+              Detay için üzerine gel
+            </p>
+          </div>
+          <div className="spending-pie-details space-y-3">
             {slices.map((slice) => (
               <div
                 key={slice.item.category_id ?? slice.item.category_name}

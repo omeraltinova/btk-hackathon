@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, PieChart as PieIcon } from "lucide-react";
+import { BarChart3, PieChart as PieIcon, TrendingUp } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -9,6 +9,7 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
@@ -28,13 +29,22 @@ function colorFor(index: number): string {
   return PALETTE[index % PALETTE.length] ?? "oklch(var(--primary))";
 }
 
+function formatTry(value: number): string {
+  return `${new Intl.NumberFormat("tr-TR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)} ₺`;
+}
+
 type ChatChartProps = {
   spec: ChatChartSpec;
 };
 
 export function ChatChart({ spec }: ChatChartProps) {
-  const data = spec.data.filter((point) => Number.isFinite(point.value) && point.value > 0);
-  if (data.length === 0) {
+  const data = spec.data.filter((point) => Number.isFinite(point.value));
+  const drawableData = spec.type === "monthly" ? data : data.filter((point) => point.value > 0);
+  const hasPositiveValue = drawableData.some((point) => point.value > 0);
+  if (drawableData.length === 0 || !hasPositiveValue) {
     return (
       <div className="rounded-2xl border border-dashed border-border/70 bg-background/60 p-4 text-sm text-muted-foreground">
         Grafik için yeterli veri yok.
@@ -52,13 +62,21 @@ export function ChatChart({ spec }: ChatChartProps) {
         <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
           {spec.type === "pie" ? (
             <PieIcon className="h-4 w-4" />
+          ) : spec.type === "monthly" ? (
+            <TrendingUp className="h-4 w-4" />
           ) : (
             <BarChart3 className="h-4 w-4" />
           )}
         </span>
       </figcaption>
 
-      {spec.type === "pie" ? <PieView data={data} /> : <BarView data={data} />}
+      {spec.type === "pie" ? (
+        <PieView data={drawableData} />
+      ) : spec.type === "monthly" ? (
+        <MonthlyView data={drawableData} />
+      ) : (
+        <BarView data={drawableData} />
+      )}
     </figure>
   );
 }
@@ -145,6 +163,106 @@ function PieView({ data }: { data: ChatChartSpec["data"] }) {
         })}
       </ul>
     </div>
+  );
+}
+
+type MonthlySeries = {
+  key: string;
+  label: string;
+  total: number;
+};
+
+type MonthlyRow = {
+  label: string;
+  [key: string]: string | number;
+};
+
+function buildMonthlySeries(data: ChatChartSpec["data"]): MonthlySeries[] {
+  const labels = Array.from(new Set(data.map((point) => point.series ?? "Tutar")));
+  return labels.map((label, index) => ({
+    key: `series_${index}`,
+    label,
+    total: data
+      .filter((point) => (point.series ?? "Tutar") === label)
+      .reduce((sum, point) => sum + point.value, 0),
+  }));
+}
+
+function buildMonthlyRows(data: ChatChartSpec["data"], series: MonthlySeries[]): MonthlyRow[] {
+  const seriesKeys = new Map(series.map((item) => [item.label, item.key]));
+  return Array.from(new Set(data.map((point) => point.label))).map((label) => {
+    const row: MonthlyRow = { label };
+    series.forEach((item) => {
+      row[item.key] = 0;
+    });
+    data
+      .filter((point) => point.label === label)
+      .forEach((point) => {
+        const key = seriesKeys.get(point.series ?? "Tutar");
+        if (!key) return;
+        const current = typeof row[key] === "number" ? row[key] : 0;
+        row[key] = current + point.value;
+      });
+    return row;
+  });
+}
+
+function MonthlyView({ data }: { data: ChatChartSpec["data"] }) {
+  const series = buildMonthlySeries(data).filter((item) => item.total > 0);
+  const rows = buildMonthlyRows(data, series);
+
+  return (
+    <div className="space-y-3">
+      <div className="h-60 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+            <CartesianGrid stroke="oklch(var(--border) / 0.6)" vertical={false} />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              tick={{ fill: "oklch(var(--muted-foreground))", fontSize: 11, fontWeight: 700 }}
+            />
+            <YAxis hide />
+            <Tooltip
+              cursor={{ fill: "oklch(var(--muted) / 0.35)" }}
+              formatter={(value: number | string, name: string) => [formatTry(Number(value)), name]}
+            />
+            {series.map((item, index) => (
+              <Bar
+                key={item.key}
+                dataKey={item.key}
+                name={item.label}
+                fill={colorFor(index)}
+                radius={[7, 7, 0, 0]}
+                maxBarSize={28}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <MonthlyLegend series={series} />
+    </div>
+  );
+}
+
+function MonthlyLegend({ series }: { series: MonthlySeries[] }) {
+  return (
+    <ul className="grid gap-1.5 text-xs sm:grid-cols-2">
+      {series.map((item, index) => (
+        <li key={item.key} className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              aria-hidden
+              className="h-3 w-3 shrink-0 rounded-full"
+              style={{ backgroundColor: colorFor(index) }}
+            />
+            <span className="min-w-0 truncate font-medium">{item.label}</span>
+          </span>
+          <span className="font-display font-black tabular-nums">{formatTry(item.total)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

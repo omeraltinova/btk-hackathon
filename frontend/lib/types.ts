@@ -182,12 +182,13 @@ export type ChatStreamRequest = {
 
 export type ChatToolPayload = Record<string, unknown>;
 
-export type ChatChartType = "bar" | "pie";
+export type ChatChartType = "bar" | "pie" | "monthly";
 
 export type ChatChartPoint = {
   label: string;
   value: number;
   value_formatted: string;
+  series?: string | null;
 };
 
 export type ChatChartSpec = {

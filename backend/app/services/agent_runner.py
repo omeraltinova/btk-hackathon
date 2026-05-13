@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
@@ -48,6 +49,17 @@ SUBSCRIPTION_HINTS = ("abonelik", "abonelikler", "tekrarlayan", "subscription")
 CONCEPT_HINTS = ("faiz", "enflasyon", "biriktir", "harçlık", "harclik")
 SCENARIO_HINTS = ("asgari", "kredi kart", "senaryo", "ödesem", "odesem")
 VISUALIZE_HINTS = ("grafik", "grafiğ", "chart", "görselle", "gorselle", "pasta", "bar grafik")
+MONTHLY_VISUALIZE_HINTS = (
+    "ay ay",
+    "her ay",
+    "aylık trend",
+    "aylik trend",
+    "aylık değiş",
+    "aylik degis",
+    "nasıl değişti",
+    "nasil degisti",
+    "month by month",
+)
 MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")
 ILLUSTRATION_HINTS = (
     "görsel",
@@ -59,6 +71,43 @@ ILLUSTRATION_HINTS = (
     "gorselle",
     "çiz",
     "ciz",
+)
+INVESTMENT_TERMS = (
+    "hisse",
+    "borsa",
+    "kripto",
+    "bitcoin",
+    "ethereum",
+    "coin",
+    "fon",
+    "altın",
+    "altin",
+    "döviz",
+    "doviz",
+    "yatırım",
+    "yatirim",
+)
+INVESTMENT_ADVICE_ACTIONS = (
+    "alayım",
+    "alayim",
+    "almalı",
+    "almali",
+    "alınır",
+    "alinir",
+    "satayım",
+    "satayim",
+    "satmalı",
+    "satmali",
+    "satılır",
+    "satilir",
+    "öner",
+    "oner",
+    "tavsiye",
+    "hangi",
+    "neye yatır",
+    "neye yatir",
+    "portföy",
+    "portfoy",
 )
 MAX_CONTEXT_MESSAGES = 20
 
@@ -165,7 +214,12 @@ def _wants_scenario(message: str) -> bool:
 
 def _wants_visualization(message: str) -> bool:
     normalized = message.casefold()
-    return any(hint in normalized for hint in VISUALIZE_HINTS)
+    return any(hint in normalized for hint in (*VISUALIZE_HINTS, *MONTHLY_VISUALIZE_HINTS))
+
+
+def _wants_monthly_visualization(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in MONTHLY_VISUALIZE_HINTS)
 
 
 def _wants_memory(message: str) -> bool:
@@ -176,6 +230,17 @@ def _wants_memory(message: str) -> bool:
 def _wants_illustration(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in ILLUSTRATION_HINTS)
+
+
+def _wants_investment_advice(message: str) -> bool:
+    normalized = message.casefold()
+    if "yatırım tavsiyesi" in normalized or "yatirim tavsiyesi" in normalized:
+        return True
+    has_investment_term = any(term in normalized for term in INVESTMENT_TERMS)
+    has_action = any(action in normalized for action in INVESTMENT_ADVICE_ACTIONS) or bool(
+        re.search(r"\b(al|sat)\b", normalized),
+    )
+    return has_investment_term and has_action
 
 
 def _int_result(result: dict[str, object], key: str) -> int:
@@ -249,17 +314,39 @@ def _scenario_answer(result: dict[str, object]) -> str:
     return str(summary) if summary else "Bu senaryo için daha fazla bilgiye ihtiyacım var."
 
 
+def _investment_refusal_answer() -> str:
+    return (
+        "Yatırım tavsiyesi veremem; hangi hisse, fon, kripto, altın veya dövizin "
+        "alınıp satılacağını söyleyemem. İstersen risk, vade, çeşitlendirme ve bütçeye "
+        "etki gibi kavramları genel ve eğitici şekilde açıklayabilirim."
+    )
+
+
 def _visualization_answer(result: dict[str, object]) -> str:
     total = str(result.get("total_amount_formatted", "0,00 ₺"))
     count = _int_result(result, "transaction_count") if "transaction_count" in result else 0
     days = _int_result(result, "days") if "days" in result else 30
+    chart = result.get("chart")
+    chart_type = chart.get("type") if isinstance(chart, dict) else None
+    if chart_type == "monthly":
+        months = _int_result(result, "month_count") if "month_count" in result else 0
+        period_text = f"Son {months} ayda" if months > 0 else f"Son {days} günde"
+        if count == 0:
+            return (
+                f"{period_text} aylık trend için gösterecek gider bulamadım. "
+                "İlgili işlem kayıtları oluştuğunda değişimi ay ay çizebilirim."
+            )
+        return (
+            f"{period_text} aylık değişimi çizdim, toplam {total}, {count} işlem. "
+            "Grafiği hemen üstünde görebilirsin."
+        )
     if count == 0:
         return (
             f"Son {days} günde gösterecek bir gider bulamadım, bu yüzden grafik şu an boş. "
             "İlk işlemi eklediğinde kategori dağılımını çizebilirim."
         )
     return (
-        f"Son {days} günün kategori dağılımını çizdim — toplam {total}, {count} işlem. "
+        f"Son {days} günün kategori dağılımını çizdim, toplam {total}, {count} işlem. "
         "Grafiği hemen üstünde görebilirsin."
     )
 
@@ -508,6 +595,14 @@ def stream_chat_turn(
             "result": receipt_result,
         }
 
+    if _wants_investment_advice(payload.message):
+        answer = _investment_refusal_answer()
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
     settings = get_settings()
     if _live_agent_available(settings):
         try:
@@ -569,15 +664,28 @@ def stream_chat_turn(
         }
         answer = _memory_answer(result)
     elif _wants_visualization(payload.message) and not _wants_concept(payload.message):
-        chart_type = "pie" if "pasta" in payload.message.casefold() else "bar"
-        visualize_input: dict[str, object] = {"days": 30, "chart_type": chart_type}
+        chart_type = "bar"
+        if "pasta" in payload.message.casefold():
+            chart_type = "pie"
+        if _wants_monthly_visualization(payload.message):
+            chart_type = "monthly"
+        days = 180 if chart_type == "monthly" else 30
+        visualize_input: dict[str, object] = {"days": days, "chart_type": chart_type}
+        if chart_type == "monthly":
+            visualize_input["query"] = payload.message
         yield {
             "type": "tool_call",
             "conversation_id": conversation_id,
             "tool_name": "visualize_spending",
             "input": visualize_input,
         }
-        result = build_spending_chart(db, current_user, days=30, chart_type=chart_type)
+        result = build_spending_chart(
+            db,
+            current_user,
+            days=days,
+            chart_type=chart_type,
+            query=payload.message if chart_type == "monthly" else None,
+        )
         _persist_message(
             db,
             conversation,

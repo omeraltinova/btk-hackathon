@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ChatChart } from "@/components/ChatChart";
+import { FormattedMessageContent } from "@/components/ChatMessage";
 import { Button } from "@/components/ui/button";
 import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
 import { api, ApiError } from "@/lib/api";
@@ -345,9 +346,9 @@ export function ChatHistoryClient() {
                           {formatDateTime(message.created_at)}
                         </span>
                       </div>
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
-                        {message.content}
-                      </p>
+                      <div className="mt-1 space-y-3 text-sm leading-6">
+                        <FormattedMessageContent content={message.content} />
+                      </div>
                       {attachments.length > 0 ? (
                         <div className="mt-3 space-y-3">
                           {attachments.map(renderHistoryAttachment)}

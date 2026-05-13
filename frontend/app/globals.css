@@ -463,6 +463,82 @@
   }
 }
 
+@keyframes spending-pie-idle {
+  0%,
+  100% {
+    transform: rotate(-92deg);
+  }
+  50% {
+    transform: rotate(-86deg);
+  }
+}
+
+.spending-pie-shell {
+  outline: none;
+}
+
+.spending-pie-shell:focus-visible {
+  border-radius: 1.5rem;
+  box-shadow: 0 0 0 3px oklch(var(--ring) / 0.38);
+}
+
+.spending-pie-wheel {
+  transform-origin: center;
+  animation: spending-pie-idle 6.5s var(--ease-out-quint) infinite;
+  transition:
+    transform 260ms var(--ease-out-quint),
+    filter 260ms var(--ease-out-quint);
+  will-change: transform;
+}
+
+.spending-pie-shell:hover .spending-pie-wheel,
+.spending-pie-shell:focus-visible .spending-pie-wheel,
+.spending-pie-shell:focus-within .spending-pie-wheel {
+  animation-play-state: paused;
+  filter: drop-shadow(0 12px 18px oklch(var(--foreground) / 0.16));
+  transform: rotate(-90deg) scale(1.025);
+}
+
+.spending-pie-details,
+.spending-pie-hint {
+  transition:
+    opacity 240ms var(--ease-out-quint),
+    transform 240ms var(--ease-out-quint);
+}
+
+.spending-pie-hint {
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .spending-pie-details {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(-0.65rem, 0, 0);
+  }
+
+  .spending-pie-shell:hover .spending-pie-details,
+  .spending-pie-shell:focus-visible .spending-pie-details,
+  .spending-pie-shell:focus-within .spending-pie-details {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .spending-pie-shell:hover .spending-pie-hint,
+  .spending-pie-shell:focus-visible .spending-pie-hint,
+  .spending-pie-shell:focus-within .spending-pie-hint {
+    opacity: 0;
+    transform: translate3d(0, -50%, 0) scale(0.94);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .spending-pie-hint {
+    display: none;
+  }
+}
+
 /* Kid lite mode — softer, brighter, simpler. Triggered by `data-kid-mode="on"`
    on <html>, set by KidModeProvider when the active profile is a minor. */
 :root[data-kid-mode="on"] {

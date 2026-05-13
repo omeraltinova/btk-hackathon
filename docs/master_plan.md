@@ -352,9 +352,13 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     çocuk klasik UI'yi görür).
 14. **Sohbet içi grafik (chart tool):** Yeni `visualize_spending` agent tool'u
     kullanıcının kapsamı içindeki harcama verisinden bir grafik spec (`bar` /
-    `pie`) döner. Frontend tool_result event'inde `chart` alanı görürse Recharts
-    ile mesaj akışı içinde grafiği çizer. Veri kapsamı kuralları (İK-4..İK-8)
-    aynı `visible_user_ids` üzerinden uygulanır.
+    `pie` / `monthly`) döner. Frontend tool_result event'inde `chart` alanı
+    görürse Recharts ile mesaj akışı içinde grafiği çizer. Kullanıcı tek veya
+    birden çok kategori/abonelik için "X ay ay nasıl değişti?", "Y
+    kategorisinde her ay ne kadar harcadım?" gibi sorular sorarsa araç,
+    kategori adlarını veya abonelik/satıcı adlarını kapsam içi transaction
+    verisiyle eşleyerek aylık trend grafiği döner. Veri kapsamı kuralları
+    (İK-4..İK-8) aynı `visible_user_ids` üzerinden uygulanır.
 15. **Sohbet geçmişi sayfası:** `GET /api/conversations`,
     `GET /api/conversations/{id}/messages` ve scoped
     `DELETE /api/conversations/{id}` endpoint'leri kullanıcının kendi
@@ -676,8 +680,17 @@ def get_user_memory(user_id: str, key: str = None) -> dict:
     ...
 
 @tool
-def visualize_spending(user_id: str, days: int = 30, chart_type: str = "bar") -> dict:
-    """Kapsam içi harcamadan bar/pie chart spec döner."""
+def visualize_spending(
+    user_id: str,
+    days: int = 30,
+    chart_type: str = "bar",
+    category: str = None,
+    target: str = None,
+    targets: list[str] = None,
+    target_type: str = None,
+    query: str = None,
+) -> dict:
+    """Kapsam içi harcamadan bar/pie/monthly chart spec döner."""
     ...
 
 @tool
@@ -995,8 +1008,11 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.17
+**Doküman versiyonu:** 0.18
 **Son güncelleme:** 13 Mayıs 2026
+**v0.18 değişiklikleri:** §12.2 madde 14 genişletildi: `visualize_spending`
+artık kategori ve abonelik/satıcı eşleşmeleri için aylık trend (`monthly`) grafik
+spec'i dönebilir. Kapsam kuralları ve schema değişmedi.
 **v0.17 değişiklikleri:** İK-18 ve §12.2 madde 19 eklendi: aktif tekrarlayan
 ödemeler günü geldiğinde otomatik gider işlemine materialize edilir; gelir/gider
 ay bazında ayrılır; gelecek ay tahmini aktif aboneliklerden yaklaşık hesaplanır.
