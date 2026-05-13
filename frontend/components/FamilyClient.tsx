@@ -470,70 +470,75 @@ export function FamilyClient() {
                     financeLevel: child.finance_level,
                   };
                   return (
-                    <div key={child.id} className="receipt-tape px-5 py-6">
-                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div key={child.id} className="receipt-tape space-y-5 px-5 py-6">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="min-w-0 truncate font-display text-xl font-black">
-                              {child.name}
-                            </p>
-                            {isActive ? (
-                              <span className="stamp-label bg-primary text-primary-foreground">
-                                Aktif çocuk modu
-                              </span>
-                            ) : null}
-                          </div>
+                          <p className="min-w-0 truncate font-display text-xl font-black">
+                            {child.name}
+                          </p>
                           <p className="mt-1 text-sm text-muted-foreground">
                             Aile çocuğu / {memberAgeText(child)}
                           </p>
                         </div>
-                        <div className="grid gap-2 sm:grid-cols-[9.5rem_9.5rem_auto]">
-                          <Input
-                            type="date"
-                            value={draft.birthDate}
-                            aria-label={`${child.name} doğum tarihi`}
-                            onChange={(event) =>
-                              updateChildDraft(child, { birthDate: event.target.value })
-                            }
-                          />
-                          <select
-                            className={selectClassName}
-                            value={draft.financeLevel}
-                            aria-label={`${child.name} finans dili`}
-                            onChange={(event) =>
-                              updateChildDraft(child, {
-                                financeLevel: event.target.value as FinanceLevel,
-                              })
-                            }
-                          >
-                            {Object.entries(financeLevelLabels).map(([value, label]) => (
-                              <option key={value} value={value}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="min-h-11"
-                            disabled={isUpdating}
-                            onClick={() => void handleUpdateChildProfile(child)}
-                          >
-                            Kaydet
-                            <Edit3 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="min-h-11 sm:col-span-3"
-                            disabled={isUpdating || isActive}
-                            onClick={() => void handleSwitch(child)}
-                          >
-                            {isUpdating ? "Geçiliyor..." : "Bu profile geç"}
-                          </Button>
-                        </div>
+                        {isActive ? (
+                          <span className="badge-active shrink-0">
+                            <Baby className="h-3.5 w-3.5" />
+                            Aktif profil
+                          </span>
+                        ) : null}
                       </div>
+
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                        <Input
+                          type="date"
+                          value={draft.birthDate}
+                          aria-label={`${child.name} doğum tarihi`}
+                          onChange={(event) =>
+                            updateChildDraft(child, { birthDate: event.target.value })
+                          }
+                        />
+                        <select
+                          className={selectClassName}
+                          value={draft.financeLevel}
+                          aria-label={`${child.name} finans dili`}
+                          onChange={(event) =>
+                            updateChildDraft(child, {
+                              financeLevel: event.target.value as FinanceLevel,
+                            })
+                          }
+                        >
+                          {Object.entries(financeLevelLabels).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="min-h-11"
+                          disabled={isUpdating}
+                          onClick={() => void handleUpdateChildProfile(child)}
+                        >
+                          Kaydet
+                          <Edit3 className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant={isActive ? "secondary" : "default"}
+                        className="w-full"
+                        disabled={isUpdating || isActive}
+                        onClick={() => void handleSwitch(child)}
+                      >
+                        {isUpdating
+                          ? "Geçiliyor..."
+                          : isActive
+                            ? "Bu profilde aktifsin"
+                            : "Bu profile geç"}
+                      </Button>
                     </div>
                   );
                 })

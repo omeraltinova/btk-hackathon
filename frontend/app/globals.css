@@ -259,13 +259,45 @@
     border: 1px dashed currentColor;
     border-radius: 999px;
     padding: 0.35rem 0.7rem;
-    color: oklch(var(--primary));
     font-family: var(--font-display), system-ui, sans-serif;
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     transform: rotate(-1.5deg);
+  }
+
+  /* Default color sits in :where() so Tailwind text-* utilities (specificity
+     0,1,0) always win over the brand-stamp default. Without this, callers like
+     `stamp-label bg-primary text-primary-foreground` rendered primary text on a
+     primary background and the label became invisible. */
+  :where(.stamp-label) {
+    color: oklch(var(--primary));
+  }
+
+  /* Active-state badge for inline indicators (e.g. the currently-active child
+     profile on /family). Solid, no rotation, distinct from the brand stamp so
+     it does not collide with the same-colored primary button next to it. */
+  .badge-active {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: oklch(var(--accent) / 0.32);
+    color: oklch(var(--accent-foreground));
+    border: 1px solid oklch(var(--accent) / 0.55);
+  }
+
+  .dark .badge-active {
+    background: oklch(var(--accent) / 0.28);
+    color: oklch(var(--foreground));
+    border-color: oklch(var(--accent) / 0.6);
   }
 
   .binder-holes {
