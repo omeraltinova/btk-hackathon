@@ -49,7 +49,20 @@ class ChatStreamEvent(TypedDict, total=False):
 
 
 SUBSCRIPTION_HINTS = ("abonelik", "abonelikler", "tekrarlayan", "subscription")
-CONCEPT_HINTS = ("faiz", "enflasyon", "biriktir", "harçlık", "harclik")
+CONCEPT_HINTS = (
+    "nedir",
+    "faiz",
+    "enflasyon",
+    "bütçe",
+    "butce",
+    "tasarruf",
+    "biriktir",
+    "harçlık",
+    "harclik",
+    "fon",
+    "para piyasası",
+    "para piyasasi",
+)
 SCENARIO_HINTS = ("asgari", "kredi kart", "senaryo", "ödesem", "odesem")
 VISUALIZE_HINTS = ("grafik", "grafiğ", "chart", "görselle", "gorselle", "pasta", "bar grafik")
 MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")

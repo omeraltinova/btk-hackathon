@@ -398,14 +398,21 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     oluşturur, haftalık limit/taktik verir ve `Birikim zarfı`nı aylık hedef
     olarak konumlandırır. Bu akış da yatırım tavsiyesi vermez; sadece bütçe ve
     alışkanlık koçluğu yapar.
+21. **Finans Okulu (hazır AI dersleri):** Frontend, kontrollü bir başlık
+    listesiyle (`Faiz`, `Enflasyon`, `Bütçe`, `Tasarruf`, `Kredi kartı asgari
+    ödeme`, `Para piyasası fonu nedir?`) kısa ders akışı sunar. Kullanıcı başlığa
+    tıklayınca mevcut `/api/chat/stream` üzerinden `explain_concept` ve gerekirse
+    `illustrate_concept` kullanılır; sonuç sayfada okunur, tarayıcı
+    text-to-speech ile sesli okutulabilir. Fon/ürün başlıkları yalnızca eğitim
+    amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-21. Sesli giriş (Web Speech API)
-22. Çok dönemli birikim hedef takibi
-23. Quiz modu
-24. CSV export
-25. Magic link auth (email-only login, parola yok)
+22. Sesli giriş (Web Speech API)
+23. Çok dönemli birikim hedef takibi
+24. Quiz modu
+25. CSV export
+26. Magic link auth (email-only login, parola yok)
 
 ---
 
@@ -1020,8 +1027,12 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.18
+**Doküman versiyonu:** 0.19
 **Son güncelleme:** 13 Mayıs 2026
+**v0.19 değişiklikleri:** §12.2'ye Finans Okulu eklendi. Hazır ve kontrollü
+ders başlıkları mevcut chat/concept araçlarıyla açıklanır, istenirse görselle
+anlatılır ve tarayıcı TTS ile sesli okutulur. Video generation, gerçek zamanlı
+sesli görüşme ve yatırım tavsiyesi kapsam dışı kalır.
 **v0.18 değişiklikleri:** §12.2'ye Akıllı Hedef Planı eklendi. Amaç odaklı
 mesajlarda agent mevcut harcama/abonelik araçlarını kullanır, mevcut kategori
 tasarruf hedeflerinden 1–2 tane oluşturur ve taktik verir. Video generation,

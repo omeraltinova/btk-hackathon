@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpen,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -31,19 +32,21 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
   { href: "/dashboard/transactions", label: "İşlemler", section: "02", icon: WalletCards },
   { href: "/dashboard/goals", label: "Hedefler", section: "03", icon: Target },
-  { href: "/chat", label: "Sohbet", section: "04", icon: MessageSquare },
-  { href: "/receipts", label: "Fişler", section: "05", icon: Receipt },
-  { href: "/family", label: "Aile", section: "06", icon: Users },
-  { href: "/account", label: "Hesap", section: "07", icon: UserRound },
+  { href: "/learn", label: "Dersler", section: "04", icon: BookOpen },
+  { href: "/chat", label: "Sohbet", section: "05", icon: MessageSquare },
+  { href: "/receipts", label: "Fişler", section: "06", icon: Receipt },
+  { href: "/family", label: "Aile", section: "07", icon: Users },
+  { href: "/account", label: "Hesap", section: "08", icon: UserRound },
 ] as const;
 
 const KID_NAV_ITEMS = [
   { href: "/dashboard", label: "Cüzdanım", section: "01", icon: PiggyBank },
   { href: "/dashboard/transactions", label: "Hareketler", section: "02", icon: WalletCards },
   { href: "/dashboard/goals", label: "Hedefim", section: "03", icon: Target },
-  { href: "/chat", label: "Koç", section: "04", icon: Sparkles },
-  { href: "/receipts", label: "Fişlerim", section: "05", icon: Sticker },
-  { href: "/account", label: "Profilim", section: "06", icon: UserRound },
+  { href: "/learn", label: "Öğren", section: "04", icon: BookOpen },
+  { href: "/chat", label: "Koç", section: "05", icon: Sparkles },
+  { href: "/receipts", label: "Fişlerim", section: "06", icon: Sticker },
+  { href: "/account", label: "Profilim", section: "07", icon: UserRound },
 ] as const;
 
 const ROLE_LABELS = {
