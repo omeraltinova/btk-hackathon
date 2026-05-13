@@ -214,7 +214,7 @@ def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:
         name="Market",
         icon=None,
         parent_id=None,
-        budget_monthly=None,
+        budget_monthly=Decimal("600.00"),
     )
     transaction = Transaction(
         id=uuid4(),
@@ -250,7 +250,55 @@ def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:
     assert "event: tool_call" in response.text
     assert '"tool_name": "get_spending"' in response.text
     assert "125,00 ₺" in response.text
+    assert "Market zarfında" in response.text
+    assert "475,00 ₺ kaldı" in response.text
     assert [message.role for message in fake_session.messages] == ["user", "tool", "assistant"]
+
+
+def test_chat_stream_routes_harclik_zarf_to_spending_not_concept() -> None:
+    user = make_user()
+    category = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Harçlık",
+        icon=None,
+        parent_id=None,
+        budget_monthly=Decimal("300.00"),
+    )
+    transaction = Transaction(
+        id=uuid4(),
+        user_id=user.id,
+        amount=Decimal("120.00"),
+        type="expense",
+        category_id=category.id,
+        description="Harçlık",
+        merchant="Harçlık",
+        occurred_at=datetime.now(UTC),
+        source="manual",
+        receipt_image_url=None,
+        raw_ocr_data=None,
+    )
+    fake_session = FakeSession(user, [category], [transaction])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Harçlık zarfında ne kadar kaldı?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "get_spending"' in response.text
+    assert '"tool_name": "explain_concept"' not in response.text
+    assert "Harçlık zarfında" in response.text
+    assert "180,00 ₺ kaldı" in response.text
 
 
 def test_chat_stream_returns_inline_chart_payload() -> None:

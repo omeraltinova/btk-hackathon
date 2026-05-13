@@ -30,6 +30,7 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
 from app.schemas.chat import ChatStreamRequest
+from app.services.envelopes import resolve_envelope_category
 
 
 class ChatStreamEvent(TypedDict, total=False):
@@ -49,6 +50,17 @@ CONCEPT_HINTS = ("faiz", "enflasyon", "biriktir", "harçlık", "harclik")
 SCENARIO_HINTS = ("asgari", "kredi kart", "senaryo", "ödesem", "odesem")
 VISUALIZE_HINTS = ("grafik", "grafiğ", "chart", "görselle", "gorselle", "pasta", "bar grafik")
 MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")
+ENVELOPE_BUDGET_HINTS = (
+    "zarf",
+    "bütçe",
+    "butce",
+    "kald",
+    "kalan",
+    "günlük",
+    "gunluk",
+    "harcad",
+    "ne kadar",
+)
 ILLUSTRATION_HINTS = (
     "görsel",
     "gorsel",
@@ -154,6 +166,8 @@ def _wants_subscriptions(message: str) -> bool:
 
 
 def _wants_concept(message: str) -> bool:
+    if _wants_envelope_budget(message):
+        return False
     normalized = message.casefold()
     return any(hint in normalized for hint in CONCEPT_HINTS)
 
@@ -178,11 +192,28 @@ def _wants_illustration(message: str) -> bool:
     return any(hint in normalized for hint in ILLUSTRATION_HINTS)
 
 
+def _wants_envelope_budget(message: str) -> bool:
+    normalized = message.casefold()
+    return resolve_envelope_category(message) is not None and any(
+        hint in normalized for hint in ENVELOPE_BUDGET_HINTS
+    )
+
+
 def _int_result(result: dict[str, object], key: str) -> int:
     value = result[key]
     if isinstance(value, int):
         return value
     return int(str(value))
+
+
+def _decimal_result(result: dict[str, object], key: str) -> Decimal | None:
+    value = result.get(key)
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _spending_answer(result: dict[str, object]) -> str:
@@ -191,6 +222,43 @@ def _spending_answer(result: dict[str, object]) -> str:
     total = str(result["total_amount_formatted"])
     count = _int_result(result, "transaction_count")
     days = _int_result(result, "days")
+    envelope = result.get("budget_envelope")
+    savings = result.get("savings_envelope")
+    if isinstance(envelope, dict):
+        label = str(envelope.get("label") or "Bu zarf")
+        envelope_name = label.replace(" zarfı", "").casefold()
+        remaining = str(envelope.get("remaining_formatted") or "0,00 ₺")
+        remaining_value = _decimal_result(envelope, "remaining")
+        safe_daily = str(envelope.get("safe_daily_amount_formatted") or "0,00 ₺")
+        days_left = envelope.get("days_left_in_month")
+        if envelope.get("is_savings_goal"):
+            if remaining_value is not None and remaining_value <= 0:
+                return f"{label} bu ay tamamlanmış görünüyor."
+            answer = f"{label}nda bu ay {remaining} daha ayırman gerekiyor."
+            if isinstance(days_left, int) and days_left > 0:
+                answer = (
+                    f"{answer} Ay sonuna {days_left} gün var; günlük hedef yaklaşık {safe_daily}."
+                )
+            return answer
+        if remaining_value is not None and remaining_value < 0:
+            answer = f"{label} bu ay {format_amount_text(str(abs(remaining_value)))} aşıldı."
+        else:
+            answer = f"{label}nda bu ay {remaining} kaldı."
+            if isinstance(days_left, int) and days_left > 0:
+                answer = (
+                    f"{answer} Ay sonuna {days_left} gün var; günlük güvenli {envelope_name} "
+                    f"harcaman yaklaşık {safe_daily}."
+                )
+        if isinstance(savings, dict) and not envelope.get("is_savings_goal"):
+            savings_remaining = _decimal_result(savings, "remaining")
+            if savings_remaining is not None and savings_remaining <= 0:
+                answer = f"{answer} Birikim hedefi bu ay tamamlanmış görünüyor."
+            else:
+                answer = (
+                    f"{answer} Birikim hedefi için {savings.get('remaining_formatted', '0,00 ₺')} "
+                    "daha ayırman gerekiyor."
+                )
+        return answer
     if count == 0:
         return (
             f"Son {days} günde {category_text} kayıtlı gider bulamadım. "

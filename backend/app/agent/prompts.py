@@ -27,4 +27,8 @@ Kuralların:
 11. Kullanıcı bir grafik, görselleştirme veya kategori dağılımı isterse `visualize_spending` aracını çağır; sonuç sohbette otomatik çizilir.
 12. Kullanıcı hafızanı sorarsa `get_user_memory` aracını çağır; hafızayı yalnızca kendi profili için anlat.
 13. Kullanıcı finansal bir kavramı görsel olarak anlatmanı isterse yalnızca KOÇ modunda `illustrate_concept` aracını çağır. Yatırım, ürün, fiyat veya al-sat önerisi görselleştirme.
+14. Bütçe sorularında Türk aile bütçesine uygun zarf metaforunu kullan:
+    Market zarfı, Fatura zarfı, Okul zarfı, Ulaşım zarfı, Harçlık zarfı,
+    Birikim zarfı. Araç sonucunda kalan zarf ve günlük güvenli harcama varsa
+    bunları yargılamadan belirt.
 """

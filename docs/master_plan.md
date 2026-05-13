@@ -375,14 +375,21 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     değil) ve A-4 (tavsiye yasağı) ihlal edilemez. P5 (çocuk dilinde somut
     örnek) ile uyumlu: çocuk modunda görsel anlatımı kuvvetlendirir. Maliyet
     için her kullanıcıya günlük 10 görsel sınırı uygulanır.
+18. **Zarf bütçesi ve birikim hedefi (MVP):** Dashboard, mevcut
+    `categories.budget_monthly` alanını kullanarak Türk aile bütçesine uygun
+    `Market`, `Fatura`, `Okul`, `Ulaşım`, `Harçlık` ve `Birikim` zarflarını
+    gösterir. Yeni tablo yoktur; `Birikim zarfı` aylık hedef olarak yorumlanır,
+    çok dönemli hedef takibi stretch kapsamda kalır. Agent aynı scoped zarf
+    özetini kullanarak kalan bütçe ve ay sonuna kadar güvenli günlük harcama
+    yanıtı verir.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-13. Sesli giriş (Web Speech API)
-14. Tasarruf hedef takibi
-15. Quiz modu
-16. CSV export
-17. Magic link auth (email-only login, parola yok)
+19. Sesli giriş (Web Speech API)
+20. Çok dönemli tasarruf hedef takibi
+21. Quiz modu
+22. CSV export
+23. Magic link auth (email-only login, parola yok)
 
 ---
 
@@ -974,8 +981,14 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.15
+**Doküman versiyonu:** 0.16
 **Son güncelleme:** 13 Mayıs 2026
+**v0.16 değişiklikleri:** §12.2'ye zarf bütçesi ve birikim hedefi MVP kapsamı
+eklendi. Yeni tablo eklenmeden `categories.budget_monthly` mevcut şema alanı
+zarf limiti/hedefi olarak kullanılır; Dashboard `Bu ay bütçelenen`, `Bu ay
+harcanan`, `Kalan bütçe`, `Riskli kategori` değerlerini ve altı zarfı gösterir.
+Agent aynı scoped veriden kalan zarf tutarı ve günlük güvenli harcama cevabı
+üretir. Çok dönemli tasarruf hedef takibi stretch kapsamda kalır.
 **v0.15 değişiklikleri:** Sohbet geçmişi kapsamı genişletildi: kullanıcı kendi
 sohbetini silebilir (`DELETE /api/conversations/{id}`), geçmiş sohbeti `/chat`
 içinde sürdürebilir ve geçmiş tool ekleri (grafik/görsel) tekrar render edilir.

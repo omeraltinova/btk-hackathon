@@ -115,6 +115,30 @@ export type TransactionCategoryTotal = {
   percentage: string;
 };
 
+export type TransactionRiskyCategory = {
+  slug: string;
+  label: string;
+  category_name: string;
+  budget: string;
+  spent: string;
+  remaining: string;
+  used_percent: string;
+};
+
+export type TransactionBudgetEnvelope = {
+  slug: string;
+  label: string;
+  category_name: string;
+  budget: string;
+  spent: string;
+  remaining: string;
+  days_left_in_month: number;
+  safe_daily_amount: string;
+  used_percent: string | null;
+  status: "safe" | "watch" | "over";
+  is_savings_goal: boolean;
+};
+
 export type TransactionSummary = {
   period_start: string;
   period_end: string;
@@ -126,6 +150,11 @@ export type TransactionSummary = {
   income_change_percent: string | null;
   expense_change_percent: string | null;
   category_totals: TransactionCategoryTotal[];
+  budgeted_month: string;
+  spent_month: string;
+  remaining_budget: string;
+  risky_category: TransactionRiskyCategory | null;
+  envelopes: TransactionBudgetEnvelope[];
 };
 
 export type BillingCycle = "weekly" | "monthly" | "yearly" | "custom";

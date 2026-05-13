@@ -84,6 +84,30 @@ class TransactionCategoryTotal(BaseModel):
     percentage: Decimal
 
 
+class TransactionRiskyCategory(BaseModel):
+    slug: str
+    label: str
+    category_name: str
+    budget: Decimal
+    spent: Decimal
+    remaining: Decimal
+    used_percent: Decimal
+
+
+class TransactionBudgetEnvelope(BaseModel):
+    slug: str
+    label: str
+    category_name: str
+    budget: Decimal
+    spent: Decimal
+    remaining: Decimal
+    days_left_in_month: int
+    safe_daily_amount: Decimal
+    used_percent: Decimal | None
+    status: Literal["safe", "watch", "over"]
+    is_savings_goal: bool
+
+
 class TransactionSummaryRead(BaseModel):
     period_start: datetime
     period_end: datetime
@@ -95,3 +119,8 @@ class TransactionSummaryRead(BaseModel):
     income_change_percent: Decimal | None
     expense_change_percent: Decimal | None
     category_totals: list[TransactionCategoryTotal]
+    budgeted_month: Decimal
+    spent_month: Decimal
+    remaining_budget: Decimal
+    risky_category: TransactionRiskyCategory | None
+    envelopes: list[TransactionBudgetEnvelope]

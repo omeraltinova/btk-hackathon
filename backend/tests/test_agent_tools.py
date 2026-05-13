@@ -18,6 +18,7 @@ from app.models.memory import AgentMemory
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
+from app.services.envelopes import build_envelope_budget_summary
 
 
 class FakeScalars:
@@ -114,14 +115,14 @@ def make_user(*, role: str = "individual", parent_id: UUID | None = None) -> Use
     return user
 
 
-def make_category(name: str) -> Category:
+def make_category(name: str, *, budget: str | None = None) -> Category:
     return Category(
         id=uuid4(),
         user_id=None,
         name=name,
         icon=None,
         parent_id=None,
-        budget_monthly=None,
+        budget_monthly=Decimal(budget) if budget is not None else None,
     )
 
 
@@ -269,3 +270,54 @@ def test_infer_category_from_text_matches_turkish_suffixes() -> None:
     db = FakeSession(categories=[make_category("Market"), make_category("Fatura")])
 
     assert infer_category_from_text(db, user, "Bu ay markete ne kadar harcadım?") == "Market"
+
+
+def test_build_spending_summary_includes_envelope_budget_details() -> None:
+    user = make_user()
+    market = make_category("Market", budget="600.00")
+    db = FakeSession(
+        categories=[market],
+        transactions=[make_transaction(user_id=user.id, category_id=market.id, amount="180.00")],
+    )
+
+    result = build_spending_summary(
+        db,
+        user,
+        category="market zarfı",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["category"] == "Market"
+    assert result["total_amount_formatted"] == "180,00 ₺"
+    assert result["budget_envelope"] == {
+        "slug": "market",
+        "label": "Market zarfı",
+        "category_name": "Market",
+        "budget": "600.00",
+        "budget_formatted": "600,00 ₺",
+        "spent": "180.00",
+        "spent_formatted": "180,00 ₺",
+        "remaining": "420.00",
+        "remaining_formatted": "420,00 ₺",
+        "days_left_in_month": 18,
+        "safe_daily_amount": "23.33",
+        "safe_daily_amount_formatted": "23,33 ₺",
+        "status": "safe",
+        "is_savings_goal": False,
+    }
+
+
+def test_envelope_budget_summary_excludes_savings_goal_from_risky_category() -> None:
+    market = make_category("Market", budget="100.00")
+    savings = make_category("Birikim", budget="100.00")
+
+    result = build_envelope_budget_summary(
+        categories=[market, savings],
+        current_category_totals={market.id: Decimal("90.00"), savings.id: Decimal("100.00")},
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result.risky_category is not None
+    assert result.risky_category.slug == "market"
+    savings_envelope = next(envelope for envelope in result.envelopes if envelope.slug == "birikim")
+    assert savings_envelope.status == "safe"

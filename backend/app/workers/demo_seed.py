@@ -130,7 +130,31 @@ def _upsert_user(
     return user
 
 
-def _category_id(db: Session, name: str) -> UUID | None:
+def _ensure_category(
+    db: Session,
+    *,
+    user: User,
+    name: str,
+    icon: str,
+    budget_monthly: str,
+) -> None:
+    category = db.execute(
+        select(Category).where(Category.user_id == user.id, Category.name == name),
+    ).scalar_one_or_none()
+    if category is None:
+        category = Category(user_id=user.id, name=name, icon=icon)
+        db.add(category)
+    category.icon = icon
+    category.budget_monthly = Decimal(budget_monthly)
+
+
+def _category_id(db: Session, name: str, user: User | None = None) -> UUID | None:
+    if user is not None:
+        category = db.execute(
+            select(Category).where(Category.user_id == user.id, Category.name == name),
+        ).scalar_one_or_none()
+        if category is not None:
+            return category.id
     category = db.execute(
         select(Category).where(Category.user_id.is_(None), Category.name == name),
     ).scalar_one_or_none()
@@ -164,7 +188,7 @@ def _ensure_transaction(
             user_id=user.id,
             amount=Decimal(amount),
             type=tx_type,
-            category_id=_category_id(db, category_name),
+            category_id=_category_id(db, category_name, user),
             description=SEED_DESCRIPTION,
             merchant=merchant,
             occurred_at=datetime.now(UTC) - timedelta(days=days_ago),
@@ -207,7 +231,7 @@ def _ensure_subscription(
             recurrence_interval=recurrence_interval,
             recurrence_unit=recurrence_unit,
             next_billing_date=(datetime.now(UTC) + timedelta(days=days_until_billing)).date(),
-            category_id=_category_id(db, category_name),
+            category_id=_category_id(db, category_name, user),
             is_active=True,
             detected_from_transactions=False,
             usage_score=Decimal(usage_score),
@@ -274,6 +298,17 @@ def seed_demo_family(db: Session) -> None:
         password_hash=hash_password(child_demo_password()),
         legacy_emails=LEGACY_ZEYNEP_EMAILS,
     )
+
+    for name, icon, budget in (
+        ("Market", "basket", "2800.00"),
+        ("Fatura", "receipt", "1800.00"),
+        ("Eğitim", "book", "2200.00"),
+        ("Ulaşım", "bus", "1200.00"),
+        ("Harçlık", "wallet", "600.00"),
+        ("Birikim", "piggy-bank", "2500.00"),
+    ):
+        _ensure_category(db, user=ayse, name=name, icon=icon, budget_monthly=budget)
+    db.flush()
     kerem_profile = _upsert_user(
         db,
         email=kerem_email(),
@@ -323,6 +358,24 @@ def seed_demo_family(db: Session) -> None:
         source="receipt_ocr",
         receipt_image_url="demo://migros-fisi",
         raw_ocr_data={"source": "demo_seed", "merchant": "Migros"},
+    )
+    _ensure_transaction(
+        db,
+        user=ayse,
+        amount="300.00",
+        tx_type="expense",
+        merchant="Elif harçlığı",
+        category_name="Harçlık",
+        days_ago=4,
+    )
+    _ensure_transaction(
+        db,
+        user=ayse,
+        amount="1500.00",
+        tx_type="expense",
+        merchant="Birikim aktarımı",
+        category_name="Birikim",
+        days_ago=2,
     )
     _ensure_transaction(
         db,
