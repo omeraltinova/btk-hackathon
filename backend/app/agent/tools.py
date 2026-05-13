@@ -25,9 +25,15 @@ from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
+from app.schemas.saving_goal import SavingGoalProgressRead
 from app.services.envelopes import build_envelope_budget_summary, resolve_envelope_category
 from app.services.image_gen import IllustrationService, IllustrationUnavailableError
 from app.services.ocr import ReceiptOcrError, ReceiptOcrService, ReceiptOcrUnavailableError
+from app.services.saving_goals import (
+    calculate_saving_goal_progress,
+    create_saving_goal,
+    find_active_saving_goal,
+)
 from app.utils.date_format import format_tr_date
 from app.utils.recurrence import monthly_equivalent, recurrence_label
 from app.utils.tl_format import format_tl
@@ -243,6 +249,80 @@ def build_spending_summary(
             "remaining_formatted": format_tl(savings_envelope.remaining),
         },
     }
+
+
+def _progress_to_tool_result(progress: SavingGoalProgressRead) -> dict[str, object]:
+    goal = progress.goal
+    return {
+        "goal_id": str(goal.id),
+        "category_id": str(goal.category_id) if goal.category_id is not None else None,
+        "category_name": goal.category_name,
+        "title": goal.title,
+        "baseline_amount": _decimal_text(goal.baseline_amount),
+        "baseline_amount_formatted": format_tl(goal.baseline_amount),
+        "target_spending_amount": _decimal_text(goal.target_spending_amount),
+        "target_spending_amount_formatted": format_tl(goal.target_spending_amount),
+        "target_saving_amount": _decimal_text(goal.target_saving_amount),
+        "target_saving_amount_formatted": format_tl(goal.target_saving_amount),
+        "actual_spending": _decimal_text(progress.actual_spending),
+        "actual_spending_formatted": format_tl(progress.actual_spending),
+        "saved_amount": _decimal_text(progress.saved_amount),
+        "saved_amount_formatted": format_tl(progress.saved_amount),
+        "remaining_limit": _decimal_text(progress.remaining_limit),
+        "remaining_limit_formatted": format_tl(progress.remaining_limit),
+        "progress_percent": f"{progress.progress_percent:.1f}",
+        "expected_spending_to_date": _decimal_text(progress.expected_spending_to_date),
+        "expected_spending_to_date_formatted": format_tl(progress.expected_spending_to_date),
+        "status_label": progress.status_label,
+        "start_date": goal.start_date.isoformat(),
+        "start_date_formatted": format_tr_date(goal.start_date),
+        "end_date": goal.end_date.isoformat(),
+        "end_date_formatted": format_tr_date(goal.end_date),
+        "tactics": progress.tactics,
+    }
+
+
+def build_saving_goal_creation(
+    db: Session,
+    current_user: User,
+    *,
+    category: str,
+    target_reduction_percent: int = 15,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    category_name = resolve_envelope_category(category) or category
+    try:
+        goal = create_saving_goal(
+            db,
+            current_user,
+            category_name=category_name,
+            target_reduction_percent=Decimal(target_reduction_percent),
+            created_by="agent",
+            now=now,
+        )
+    except ValueError as exc:
+        return {"error": str(exc), "category": category_name}
+    progress = calculate_saving_goal_progress(db, goal, now=now)
+    return {"created": True, **_progress_to_tool_result(progress)}
+
+
+def build_saving_goal_progress(
+    db: Session,
+    current_user: User,
+    *,
+    category: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    category_name = resolve_envelope_category(category) if category else None
+    if category_name is None:
+        category_name = category
+    goal = find_active_saving_goal(db, current_user, category_name=category_name)
+    if goal is None:
+        return {
+            "error": "Bu kategori için aktif tasarruf hedefi bulamadım.",
+            "category": category_name,
+        }
+    return _progress_to_tool_result(calculate_saving_goal_progress(db, goal, now=now))
 
 
 def build_subscriptions_summary(
@@ -608,6 +688,32 @@ def get_subscriptions_tool(
         )
 
 
+@tool("create_saving_goal")
+def create_saving_goal_tool(
+    category: str,
+    target_reduction_percent: int = 15,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Bir gider kategorisinde harcama azaltma hedefi oluşturur."""
+    with SessionLocal() as db:
+        return build_saving_goal_creation(
+            db,
+            _load_current_user(db, user_id),
+            category=category,
+            target_reduction_percent=target_reduction_percent,
+        )
+
+
+@tool("get_saving_goal_progress")
+def get_saving_goal_progress_tool(
+    category: str | None = None,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Aktif kategori tasarruf hedefinin ilerlemesini döner."""
+    with SessionLocal() as db:
+        return build_saving_goal_progress(db, _load_current_user(db, user_id), category=category)
+
+
 @tool("get_user_memory")
 def get_user_memory_tool(
     key: str | None = None,
@@ -693,6 +799,8 @@ def illustrate_concept_tool(
 TOOLS = [
     get_spending_tool,
     get_subscriptions_tool,
+    create_saving_goal_tool,
+    get_saving_goal_progress_tool,
     analyze_receipt_tool,
     explain_concept_tool,
     simulate_scenario_tool,

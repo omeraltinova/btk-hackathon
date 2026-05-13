@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 
 from app.agent.tools import (
     build_concept_illustration,
+    build_saving_goal_creation,
+    build_saving_goal_progress,
     build_spending_chart,
     build_spending_summary,
     build_subscriptions_summary,
@@ -15,6 +17,7 @@ from app.agent.tools import (
 )
 from app.models.category import Category
 from app.models.memory import AgentMemory
+from app.models.saving_goal import SavingGoal
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -48,11 +51,13 @@ class FakeSession:
         transactions: list[Transaction] | None = None,
         subscriptions: list[Subscription] | None = None,
         memories: list[AgentMemory] | None = None,
+        saving_goals: list[SavingGoal] | None = None,
     ) -> None:
         self.categories = categories or []
         self.transactions = transactions or []
         self.subscriptions = subscriptions or []
         self.memories = memories or []
+        self.saving_goals = saving_goals or []
 
     def execute(self, statement: object) -> FakeResult:
         descriptions = getattr(statement, "column_descriptions", [])
@@ -71,7 +76,24 @@ class FakeSession:
             return FakeResult(
                 [item for item in self.memories if self._matches_statement(statement, item)],
             )
+        if entity is SavingGoal:
+            return FakeResult(
+                [item for item in self.saving_goals if self._matches_statement(statement, item)],
+            )
         return FakeResult([])
+
+    def add(self, item: object) -> None:
+        if isinstance(item, SavingGoal):
+            if item.id is None:
+                item.id = uuid4()
+            self.saving_goals.append(item)
+
+    def commit(self) -> None:
+        return None
+
+    def refresh(self, item: object) -> None:
+        if isinstance(item, SavingGoal) and item.id is None:
+            item.id = uuid4()
 
     def _matches_statement(self, statement: object, row: object) -> bool:
         for criterion in getattr(statement, "_where_criteria", ()):
@@ -79,10 +101,19 @@ class FakeSession:
             value = getattr(getattr(criterion, "right", None), "value", None)
             if column_name == "user_id" and not self._matches_user_id(value, row):
                 return False
+            if column_name == "category_id" and getattr(row, "category_id", None) != value:
+                return False
             if column_name == "type" and getattr(row, "type", None) != value:
                 return False
-            if column_name == "occurred_at" and getattr(row, "occurred_at") < value:
+            if column_name == "status" and getattr(row, "status", None) != value:
                 return False
+            if column_name == "occurred_at":
+                operator_name = getattr(getattr(criterion, "operator", None), "__name__", "")
+                occurred_at = getattr(row, "occurred_at")
+                if operator_name == "ge" and occurred_at < value:
+                    return False
+                if operator_name == "lt" and occurred_at >= value:
+                    return False
             if column_name == "is_active":
                 requested = value if value is not None else str(getattr(criterion, "right", ""))
                 if bool(getattr(row, "is_active")) != (requested is True or requested == "true"):
@@ -132,6 +163,7 @@ def make_transaction(
     category_id: UUID | None,
     amount: str,
     tx_type: str = "expense",
+    occurred_at: datetime = datetime(2026, 5, 12, 10, 0, tzinfo=UTC),
 ) -> Transaction:
     return Transaction(
         id=uuid4(),
@@ -141,10 +173,34 @@ def make_transaction(
         category_id=category_id,
         description=None,
         merchant="Market",
-        occurred_at=datetime(2026, 5, 12, 10, 0, tzinfo=UTC),
+        occurred_at=occurred_at,
         source="manual",
         receipt_image_url=None,
         raw_ocr_data=None,
+    )
+
+
+def make_saving_goal(
+    *,
+    user_id: UUID,
+    category_id: UUID,
+    baseline: str = "600.00",
+    target: str = "510.00",
+    saving: str = "90.00",
+) -> SavingGoal:
+    return SavingGoal(
+        id=uuid4(),
+        user_id=user_id,
+        category_id=category_id,
+        title="Market harcamamı azalt",
+        baseline_amount=Decimal(baseline),
+        target_spending_amount=Decimal(target),
+        target_saving_amount=Decimal(saving),
+        start_date=datetime(2026, 5, 1, 0, 0, tzinfo=UTC),
+        end_date=datetime(2026, 6, 1, 0, 0, tzinfo=UTC),
+        status="active",
+        strategy={"tactics": ["Haftalık üst limitini takip et."]},
+        created_by="agent",
     )
 
 
@@ -321,3 +377,65 @@ def test_envelope_budget_summary_excludes_savings_goal_from_risky_category() -> 
     assert result.risky_category.slug == "market"
     savings_envelope = next(envelope for envelope in result.envelopes if envelope.slug == "birikim")
     assert savings_envelope.status == "safe"
+
+
+def test_build_saving_goal_creation_uses_decimal_category_spending() -> None:
+    user = make_user()
+    market = make_category("Market")
+    db = FakeSession(
+        categories=[market],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=market.id,
+                amount="600.00",
+                occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_creation(
+        db,
+        user,
+        category="Market",
+        target_reduction_percent=15,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert result["category_name"] == "Market"
+    assert result["baseline_amount"] == "600.00"
+    assert result["target_spending_amount"] == "510.00"
+    assert result["target_saving_amount_formatted"] == "90,00 ₺"
+    assert len(db.saving_goals) == 1
+    assert db.saving_goals[0].created_by == "agent"
+
+
+def test_build_saving_goal_progress_reads_active_scoped_goal() -> None:
+    user = make_user()
+    market = make_category("Market")
+    goal = make_saving_goal(user_id=user.id, category_id=market.id)
+    db = FakeSession(
+        categories=[market],
+        saving_goals=[goal],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=market.id,
+                amount="200.00",
+                occurred_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_progress(
+        db,
+        user,
+        category="Market",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["category_name"] == "Market"
+    assert result["actual_spending"] == "200.00"
+    assert result["remaining_limit_formatted"] == "310,00 ₺"
+    assert result["status_label"] == "on_track"

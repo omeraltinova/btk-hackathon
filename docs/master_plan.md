@@ -197,7 +197,7 @@ Agent ve takım bu terimleri tutarlı kullanır.
 | **Age status** | `minor` / `adult`; `birth_date` üzerinden dinamik hesaplanır, kullanıcıdan manuel yaş alınmaz |
 | **Individual** | Aileye bağlı olmayan tekil kullanıcı |
 | **Finance level** | beginner / intermediate / advanced / child |
-| **Tool** | Agent'ın çağırabildiği Python fonksiyonu (6 adet) |
+| **Tool** | Agent'ın çağırabildiği Python fonksiyonu |
 | **Memory** | `agent_memory` tablosu; kalıcı kullanıcı bilgisi |
 | **Insight type** | `low_activity` / `monthly_status` / `spending_spike` / `category_overspending` / `upcoming_recurring` / `savings_opportunity` / `receipt_activity` |
 | **Severity** | `info` / `warning` / `critical` |
@@ -329,7 +329,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 3. Fiş yükleme + Gemini Vision OCR + otomatik kategori
 4. Chat UI streaming
 5. Dashboard (özet, grafik, son işlemler)
-6. LangGraph agent + 6 tool
+6. LangGraph agent + scoped tool set
 7. Demo veri seeder (Yılmaz ailesi)
 
 ### 12.2 Derece için zorunlu
@@ -382,14 +382,22 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     çok dönemli hedef takibi stretch kapsamda kalır. Agent aynı scoped zarf
     özetini kullanarak kalan bütçe ve ay sonuna kadar güvenli günlük harcama
     yanıtı verir.
+19. **Kategori bazlı tasarruf hedefleri (MVP):** Kullanıcı belirli bir gider
+    kategorisindeki harcamayı bu ay azaltmak için hedef oluşturabilir. Bu,
+    klasik birikim hedefinden ayrıdır: hedef para biriktirme değil, örneğin
+    `Market` harcamasını geçen 30 gün bazına göre %10–15 düşürmektir. Agent
+    `create_saving_goal` ve `get_saving_goal_progress` araçlarıyla hedef
+    oluşturur/izler; taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe
+    önerisidir. Tutarlar `Decimal`, kapsam `user_id` filtresi ve aile görünürlük
+    kurallarıyla hesaplanır.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-19. Sesli giriş (Web Speech API)
-20. Çok dönemli tasarruf hedef takibi
-21. Quiz modu
-22. CSV export
-23. Magic link auth (email-only login, parola yok)
+20. Sesli giriş (Web Speech API)
+21. Çok dönemli birikim hedef takibi
+22. Quiz modu
+23. CSV export
+24. Magic link auth (email-only login, parola yok)
 
 ---
 
@@ -498,6 +506,27 @@ CREATE INDEX idx_tx_user_date ON transactions(user_id, occurred_at DESC);
 CREATE INDEX idx_tx_category ON transactions(category_id);
 CREATE INDEX idx_tx_merchant ON transactions(merchant);
 
+CREATE TABLE saving_goals (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category_id             UUID REFERENCES categories(id) ON DELETE SET NULL,
+  title                   TEXT NOT NULL,
+  baseline_amount         NUMERIC(12,2) NOT NULL,
+  target_spending_amount  NUMERIC(12,2) NOT NULL,
+  target_saving_amount    NUMERIC(12,2) NOT NULL,
+  start_date              TIMESTAMPTZ NOT NULL,
+  end_date                TIMESTAMPTZ NOT NULL,
+  status                  TEXT NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active','completed','paused')),
+  strategy                JSONB,
+  created_by              TEXT NOT NULL DEFAULT 'manual'
+                          CHECK (created_by IN ('manual','agent')),
+  created_at              TIMESTAMPTZ DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_saving_goals_user_status ON saving_goals(user_id, status);
+CREATE INDEX idx_saving_goals_category ON saving_goals(category_id);
+
 CREATE TABLE subscriptions (
   id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -582,7 +611,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from .tools import (
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
-    visualize_spending, illustrate_concept
+    visualize_spending, illustrate_concept,
+    create_saving_goal, get_saving_goal_progress
 )
 from .prompts import build_system_prompt
 
@@ -596,6 +626,7 @@ TOOLS = [
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
     visualize_spending, illustrate_concept,
+    create_saving_goal, get_saving_goal_progress,
 ]
 
 llm = ChatGoogleGenerativeAI(
@@ -981,8 +1012,13 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.16
+**Doküman versiyonu:** 0.17
 **Son güncelleme:** 13 Mayıs 2026
+**v0.17 değişiklikleri:** §12.2 ve §15'e kategori bazlı tasarruf hedefleri
+MVP kapsamı eklendi. Bu hedefler klasik birikim hedefi değil, belirli bir gider
+kategorisinde ay ay azaltma hedefidir; agent araçları hedef oluşturur ve
+ilerlemeyi transaction verisinden hesaplar. Çok dönemli birikim hedef takibi
+stretch kapsamda kalır.
 **v0.16 değişiklikleri:** §12.2'ye zarf bütçesi ve birikim hedefi MVP kapsamı
 eklendi. Yeni tablo eklenmeden `categories.budget_monthly` mevcut şema alanı
 zarf limiti/hedefi olarak kullanılır; Dashboard `Bu ay bütçelenen`, `Bu ay

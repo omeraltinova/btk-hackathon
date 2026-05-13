@@ -18,6 +18,7 @@ from app.routers import (
     insights,
     memory,
     receipts,
+    saving_goals,
     subscriptions,
     transactions,
 )
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(transactions.router)
     app.include_router(subscriptions.router)
     app.include_router(receipts.router)
+    app.include_router(saving_goals.router)
     app.include_router(chat.router)
     app.include_router(conversations.router)
     app.include_router(memory.router)

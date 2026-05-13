@@ -17,6 +17,8 @@ from app.agent.graph import build_agent_graph_from_settings
 from app.agent.tools import (
     build_concept_illustration,
     build_receipt_candidate,
+    build_saving_goal_creation,
+    build_saving_goal_progress,
     build_spending_chart,
     build_spending_summary,
     build_subscriptions_summary,
@@ -50,6 +52,15 @@ CONCEPT_HINTS = ("faiz", "enflasyon", "biriktir", "harçlık", "harclik")
 SCENARIO_HINTS = ("asgari", "kredi kart", "senaryo", "ödesem", "odesem")
 VISUALIZE_HINTS = ("grafik", "grafiğ", "chart", "görselle", "gorselle", "pasta", "bar grafik")
 MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")
+SAVING_GOAL_CREATE_HINTS = (
+    "azalt",
+    "düşür",
+    "dusur",
+    "tasarruf hedefi oluştur",
+    "tasarruf hedefi olustur",
+    "hedef koy",
+)
+SAVING_GOAL_PROGRESS_HINTS = ("hedefimde", "hedefim", "tasarruf hedef", "ilerleme", "durum")
 ENVELOPE_BUDGET_HINTS = (
     "zarf",
     "bütçe",
@@ -185,6 +196,16 @@ def _wants_visualization(message: str) -> bool:
 def _wants_memory(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in MEMORY_HINTS)
+
+
+def _wants_saving_goal_creation(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in SAVING_GOAL_CREATE_HINTS)
+
+
+def _wants_saving_goal_progress(message: str) -> bool:
+    normalized = message.casefold()
+    return "hedef" in normalized and any(hint in normalized for hint in SAVING_GOAL_PROGRESS_HINTS)
 
 
 def _wants_illustration(message: str) -> bool:
@@ -344,6 +365,41 @@ def _memory_answer(result: dict[str, object]) -> str:
     if labels:
         return f"Hafızamda bu profil için {count} kayıt var: {', '.join(labels)}."
     return f"Hafızamda bu profil için {count} kayıt var."
+
+
+def _saving_goal_answer(result: dict[str, object], *, created: bool) -> str:
+    if "error" in result:
+        category = result.get("category")
+        suffix = f" ({category})" if category else ""
+        return f"Tasarruf hedefi için veriyi netleştiremedim{suffix}: {result['error']}"
+    category_name = str(result.get("category_name", "Bu kategori"))
+    baseline = str(result.get("baseline_amount_formatted", "0,00 ₺"))
+    target = str(result.get("target_spending_amount_formatted", "0,00 ₺"))
+    saving = str(result.get("target_saving_amount_formatted", "0,00 ₺"))
+    actual = str(result.get("actual_spending_formatted", "0,00 ₺"))
+    remaining = str(result.get("remaining_limit_formatted", "0,00 ₺"))
+    tactics = result.get("tactics")
+    first_tactic = ""
+    if isinstance(tactics, list) and tactics:
+        first_tactic = f" İlk taktik: {tactics[0]}"
+    if created:
+        return (
+            f"{category_name} için tasarruf hedefini oluşturdum. Son 30 gün bazın {baseline}; "
+            f"bu ay {target} altında kalırsan yaklaşık {saving} tasarruf edebilirsin."
+            f"{first_tactic}"
+        )
+    status_label = str(result.get("status_label", "on_track"))
+    status_text = {
+        "on_track": "iyi gidiyor",
+        "at_risk": "riskte",
+        "over_limit": "limit aşılmış görünüyor",
+        "completed": "tamamlanmış görünüyor",
+    }.get(status_label, "takipte")
+    return (
+        f"{category_name} tasarruf hedefin {status_text}. Hedef limitin {target}; "
+        f"şu ana kadar {actual} harcadın. Kalan limit {remaining}."
+        f"{first_tactic}"
+    )
 
 
 def _image_event_from_result(
@@ -685,6 +741,67 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _subscription_answer(result)
+    elif _wants_saving_goal_creation(payload.message):
+        category = infer_category_from_text(db, current_user, payload.message)
+        if category is None:
+            answer = "Hangi kategoride tasarruf hedefi oluşturmak istediğini söyler misin?"
+        else:
+            saving_goal_input: dict[str, object] = {
+                "category": category,
+                "target_reduction_percent": 15,
+            }
+            yield {
+                "type": "tool_call",
+                "conversation_id": conversation_id,
+                "tool_name": "create_saving_goal",
+                "input": saving_goal_input,
+            }
+            result = build_saving_goal_creation(
+                db,
+                current_user,
+                category=category,
+                target_reduction_percent=15,
+            )
+            _persist_message(
+                db,
+                conversation,
+                role="tool",
+                content="Tasarruf hedefi oluşturuldu.",
+                tool_name="create_saving_goal",
+                tool_calls={"input": saving_goal_input, "result": result},
+            )
+            yield {
+                "type": "tool_result",
+                "conversation_id": conversation_id,
+                "tool_name": "create_saving_goal",
+                "result": result,
+            }
+            answer = _saving_goal_answer(result, created=True)
+    elif _wants_saving_goal_progress(payload.message):
+        category = infer_category_from_text(db, current_user, payload.message)
+        saving_goal_input = {"category": category}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "get_saving_goal_progress",
+            "input": saving_goal_input,
+        }
+        result = build_saving_goal_progress(db, current_user, category=category)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Tasarruf hedefi ilerlemesi alındı.",
+            tool_name="get_saving_goal_progress",
+            tool_calls={"input": saving_goal_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "get_saving_goal_progress",
+            "result": result,
+        }
+        answer = _saving_goal_answer(result, created=False)
     elif _wants_scenario(payload.message):
         scenario_input: dict[str, object] = {"scenario": payload.message}
         yield {

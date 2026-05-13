@@ -157,6 +157,33 @@ export type TransactionSummary = {
   envelopes: TransactionBudgetEnvelope[];
 };
 
+export type SavingGoal = {
+  id: string;
+  user_id: string;
+  category_id: string | null;
+  category_name: string;
+  title: string;
+  baseline_amount: string;
+  target_spending_amount: string;
+  target_saving_amount: string;
+  start_date: string;
+  end_date: string;
+  status: "active" | "completed" | "paused";
+  strategy: Record<string, unknown> | null;
+  created_by: "manual" | "agent";
+};
+
+export type SavingGoalProgress = {
+  goal: SavingGoal;
+  actual_spending: string;
+  saved_amount: string;
+  remaining_limit: string;
+  progress_percent: string;
+  expected_spending_to_date: string;
+  status_label: "on_track" | "at_risk" | "over_limit" | "completed";
+  tactics: string[];
+};
+
 export type BillingCycle = "weekly" | "monthly" | "yearly" | "custom";
 export type RecurrenceUnit = "day" | "week" | "month" | "year";
 
