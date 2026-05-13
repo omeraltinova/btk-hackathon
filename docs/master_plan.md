@@ -348,6 +348,30 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     veya yeni veri yoktur; kapsam/auth/aile kuralları değişmez. Tetikleyici
     sadece `age_status`'tür; `role='child'` aile ilişkisi olarak kalır (yetişkin
     çocuk klasik UI'yi görür).
+14. **Sohbet içi grafik (chart tool):** Yeni `visualize_spending` agent tool'u
+    kullanıcının kapsamı içindeki harcama verisinden bir grafik spec (`bar` /
+    `pie`) döner. Frontend tool_result event'inde `chart` alanı görürse Recharts
+    ile mesaj akışı içinde grafiği çizer. Veri kapsamı kuralları (İK-4..İK-8)
+    aynı `visible_user_ids` üzerinden uygulanır.
+15. **Sohbet geçmişi sayfası:** `GET /api/conversations` ve
+    `GET /api/conversations/{id}/messages` endpoint'leri kullanıcının kendi
+    `conversations`/`messages` kayıtlarını listeler (İK-4..İK-5). Frontend'de
+    `/chat/history` sayfası geçmiş sohbetleri ve mesajlarını gösterir; mesaj
+    içerikleri zaten DB'de var olduğundan ek migration yok.
+16. **Agent memory görüntüleyici:** `GET /api/memory` kullanıcının
+    `agent_memory` kayıtlarını döner; `DELETE /api/memory/{key}` ilgili anahtarı
+    siler. Frontend'de `/account/memory` (veya hesap sayfasında bir bölüm)
+    listeyi gösterir. Memory yalnızca o kullanıcıya aittir (İK-4'ün katı
+    biçimi); aile içi paylaşım yoktur.
+17. **Koç görsel anlatım (image generation):** `illustrate_concept` agent
+    tool'u finansal bir kavramı (faiz, kumbara, enflasyon vb.) Gemini'nin
+    görsel modelinden geçirerek bir illüstrasyon üretir. Sonuç MinIO'ya
+    `is_demo=false` bucket'a yazılır ve URL chat'te `image` event'i olarak
+    görünür. Sadece **Koç modunda kavram açıklama** akışı için kullanılır;
+    yatırım/ürün önerisi/fiyat görsellemesi YASAK — P7 (finansal danışman
+    değil) ve A-4 (tavsiye yasağı) ihlal edilemez. P5 (çocuk dilinde somut
+    örnek) ile uyumlu: çocuk modunda görsel anlatımı kuvvetlendirir. Maliyet
+    için her kullanıcıya günlük 10 görsel sınırı uygulanır.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
@@ -935,8 +959,15 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.11
+**Doküman versiyonu:** 0.12
 **Son güncelleme:** 13 Mayıs 2026
+**v0.12 değişiklikleri:** §12.2'ye 14–17 maddeleri eklendi: sohbet içi grafik
+(chart tool), sohbet geçmişi sayfası, agent memory görüntüleyici ve koç görsel
+anlatım (image generation) aracı. Image generation P7/A-4'ü ihlal etmemek için
+sadece kavram açıklama akışına bağlandı; kullanıcı başına günlük 10 görsel
+sınırı, sonuç MinIO'da `is_demo=false` bucket'ta saklanır. Yeni SSE event tipi
+`image`, chart için ise tool_result.result.chart şeması frontend tarafından
+algılanır. İK-4..İK-8 ve İK-15 değişmedi.
 **v0.11 değişiklikleri:** §12.2'ye 13. madde olarak "Çocuk lite mod (UI)" eklendi.
 `age_status='minor'` olan aktif kullanıcıda (kendisi giriş yapmış olsa da, ebeveynin
 family-switch ile geçtiği çocuk profili olsa da) arayüz otomatik olarak çocuk dostu
