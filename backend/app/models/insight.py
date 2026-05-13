@@ -24,7 +24,7 @@ class ProactiveInsight(TimestampMixin, Base):
         Index(
             "idx_insight_user",
             "user_id",
-            "created_at",
+            text("created_at DESC"),
             postgresql_where=text("is_dismissed = FALSE"),
         ),
     )

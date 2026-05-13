@@ -41,7 +41,7 @@ class Transaction(TimestampMixin, Base):
         ),
         # WHY: master_plan §15 specifies these 3 indexes for hot read paths
         # (recent transactions per user, by category, by merchant).
-        Index("idx_tx_user_date", "user_id", "occurred_at"),
+        Index("idx_tx_user_date", "user_id", text("occurred_at DESC")),
         Index("idx_tx_category", "category_id"),
         Index("idx_tx_merchant", "merchant"),
     )

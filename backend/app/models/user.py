@@ -6,7 +6,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, String, text
+from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +44,7 @@ class User(TimestampMixin, Base):
             "finance_level IN ('beginner','intermediate','advanced','child')",
             name="finance_level_valid",
         ),
+        Index("idx_users_family", "family_id"),
     )
 
     id: Mapped[UUID] = mapped_column(
