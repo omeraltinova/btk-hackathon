@@ -6,7 +6,10 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  PiggyBank,
   Receipt,
+  Sparkles,
+  Sticker,
   UserRound,
   Users,
   Wallet,
@@ -20,6 +23,7 @@ import { useEffect, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { useKidMode } from "@/lib/kid-mode";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -29,6 +33,14 @@ const NAV_ITEMS = [
   { href: "/receipts", label: "Fişler", section: "04", icon: Receipt },
   { href: "/family", label: "Aile", section: "05", icon: Users },
   { href: "/account", label: "Hesap", section: "06", icon: UserRound },
+] as const;
+
+const KID_NAV_ITEMS = [
+  { href: "/dashboard", label: "Cüzdanım", section: "01", icon: PiggyBank },
+  { href: "/dashboard/transactions", label: "Hareketler", section: "02", icon: WalletCards },
+  { href: "/chat", label: "Koç", section: "03", icon: Sparkles },
+  { href: "/receipts", label: "Fişlerim", section: "04", icon: Sticker },
+  { href: "/account", label: "Profilim", section: "05", icon: UserRound },
 ] as const;
 
 const ROLE_LABELS = {
@@ -53,10 +65,18 @@ type SidebarProps = {
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
+  const { isKid } = useKidMode();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const navItems =
-    user.role === "individual" ? NAV_ITEMS.filter((item) => item.href !== "/family") : NAV_ITEMS;
+  const baseNavItems = isKid
+    ? KID_NAV_ITEMS
+    : user.role === "individual"
+      ? NAV_ITEMS.filter((item) => item.href !== "/family")
+      : NAV_ITEMS;
+  const navItems = baseNavItems;
   const displayName = user.name ?? "Cüzdan Koçu";
+  const brandTitle = isKid ? "Mini Cüzdan" : "Cüzdan Koçu";
+  const brandSubtitle = isKid ? "Senin küçük cüzdanın" : "Ev bütçesi defteri";
+  const roleChip = user.isDemo ? "Demo" : isKid ? "Çocuk modu" : ROLE_LABELS[user.role];
 
   useEffect(() => {
     setIsCollapsed(window.localStorage.getItem("cuzdan-kocu.sidebar") === "collapsed");
@@ -90,9 +110,9 @@ export function Sidebar({ user }: SidebarProps) {
           </div>
           <div className={cn("min-w-0", isCollapsed && "lg:hidden")}>
             <span className="block truncate font-display text-xl font-bold tracking-tight">
-              Cüzdan Koçu
+              {brandTitle}
             </span>
-            <p className="text-xs text-muted-foreground">Ev bütçesi defteri</p>
+            <p className="text-xs text-muted-foreground">{brandSubtitle}</p>
           </div>
         </div>
         <Button
@@ -116,7 +136,7 @@ export function Sidebar({ user }: SidebarProps) {
             isCollapsed && "lg:hidden",
           )}
         >
-          {user.isDemo ? "Demo" : ROLE_LABELS[user.role]}
+          {roleChip}
         </span>
       </div>
 

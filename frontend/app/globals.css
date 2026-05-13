@@ -416,6 +416,170 @@
   }
 }
 
+/* Kid lite mode — softer, brighter, simpler. Triggered by `data-kid-mode="on"`
+   on <html>, set by KidModeProvider when the active profile is a minor. */
+:root[data-kid-mode="on"] {
+  --background: 0.985 0.025 105;
+  --foreground: 0.26 0.06 295;
+  --card: 0.995 0.018 105;
+  --card-foreground: 0.26 0.06 295;
+  --popover: 0.995 0.018 105;
+  --popover-foreground: 0.26 0.06 295;
+  --primary: 0.62 0.18 310;
+  --primary-foreground: 0.99 0.012 110;
+  --secondary: 0.93 0.08 180;
+  --secondary-foreground: 0.32 0.1 235;
+  --muted: 0.95 0.035 105;
+  --muted-foreground: 0.45 0.06 280;
+  --accent: 0.84 0.18 60;
+  --accent-foreground: 0.26 0.08 60;
+  --destructive: 0.65 0.21 25;
+  --destructive-foreground: 0.985 0.012 92;
+  --border: 0.85 0.05 280;
+  --input: 0.9 0.04 280;
+  --ring: 0.7 0.18 310;
+  --radius: 1.5rem;
+}
+
+:root[data-kid-mode="on"].dark {
+  --background: 0.24 0.06 290;
+  --foreground: 0.96 0.025 95;
+  --card: 0.3 0.07 295;
+  --card-foreground: 0.96 0.025 95;
+  --popover: 0.3 0.07 295;
+  --popover-foreground: 0.96 0.025 95;
+  --primary: 0.78 0.16 310;
+  --primary-foreground: 0.22 0.06 295;
+  --secondary: 0.35 0.09 235;
+  --secondary-foreground: 0.94 0.04 200;
+  --muted: 0.32 0.05 295;
+  --muted-foreground: 0.82 0.04 200;
+  --accent: 0.84 0.16 60;
+  --accent-foreground: 0.24 0.06 295;
+  --border: 0.4 0.06 295;
+  --input: 0.4 0.06 295;
+  --ring: 0.78 0.16 310;
+}
+
+:root[data-kid-mode="on"] body {
+  background-image:
+    radial-gradient(circle at 10% 12%, oklch(var(--accent) / 0.32), transparent 30rem),
+    radial-gradient(circle at 92% 18%, oklch(var(--primary) / 0.28), transparent 30rem),
+    radial-gradient(circle at 50% 100%, oklch(var(--secondary) / 0.4), transparent 32rem),
+    linear-gradient(160deg, oklch(var(--background)), oklch(var(--muted) / 0.6));
+  background-size: auto;
+}
+
+:root[data-kid-mode="on"].dark body {
+  background-image:
+    radial-gradient(circle at 10% 12%, oklch(var(--accent) / 0.22), transparent 30rem),
+    radial-gradient(circle at 92% 18%, oklch(var(--primary) / 0.22), transparent 30rem),
+    radial-gradient(circle at 50% 100%, oklch(var(--secondary) / 0.28), transparent 32rem),
+    linear-gradient(160deg, oklch(var(--background)), oklch(var(--muted) / 0.72));
+}
+
+/* Soften the strong ledger/receipt visuals so the kid view feels playful, not
+   bureaucratic. We keep the same components — just override their look. */
+:root[data-kid-mode="on"] .ledger-sheet {
+  border-radius: 2.25rem;
+  border: 2px solid oklch(var(--primary) / 0.35);
+  background:
+    radial-gradient(circle at 88% 12%, oklch(var(--accent) / 0.32), transparent 16rem),
+    radial-gradient(circle at 8% 100%, oklch(var(--secondary) / 0.4), transparent 18rem),
+    color-mix(in oklch, oklch(var(--card)) 90%, oklch(var(--primary)) 10%);
+  box-shadow:
+    0 26px 60px oklch(var(--primary) / 0.18),
+    0 0 0 6px oklch(var(--accent) / 0.18);
+}
+
+:root[data-kid-mode="on"] .ledger-sheet::after {
+  display: none;
+}
+
+:root[data-kid-mode="on"] .binder-holes {
+  background-image: none;
+}
+
+:root[data-kid-mode="on"] .receipt-tape {
+  clip-path: none;
+  border-radius: 1.75rem;
+  border: 2px dashed oklch(var(--primary) / 0.4);
+  background:
+    radial-gradient(circle at 12% 12%, oklch(var(--accent) / 0.28), transparent 12rem),
+    color-mix(in oklch, oklch(var(--card)) 88%, oklch(var(--secondary)) 12%);
+  box-shadow: 0 16px 40px oklch(var(--primary) / 0.18);
+}
+
+:root[data-kid-mode="on"] .cash-envelope {
+  border-radius: 1.85rem;
+  background:
+    radial-gradient(circle at 80% 110%, oklch(var(--primary) / 0.22), transparent 14rem),
+    color-mix(in oklch, oklch(var(--secondary)) 55%, oklch(var(--card)) 45%);
+}
+
+:root[data-kid-mode="on"] .stamp-label {
+  border-style: solid;
+  border-radius: 999px;
+  background: oklch(var(--accent) / 0.32);
+  color: oklch(var(--accent-foreground));
+  transform: none;
+  letter-spacing: 0.08em;
+}
+
+:root[data-kid-mode="on"] .tab-chip {
+  clip-path: none;
+  border-radius: 1.25rem;
+}
+
+:root[data-kid-mode="on"] .hard-shadow-accent {
+  box-shadow: 0 12px 0 oklch(var(--accent) / 0.45);
+}
+
+/* Buttons and inputs feel taller and friendlier in kid mode. */
+:root[data-kid-mode="on"] button,
+:root[data-kid-mode="on"] .button,
+:root[data-kid-mode="on"] [role="button"] {
+  border-radius: 1.25rem;
+}
+
+:root[data-kid-mode="on"] input,
+:root[data-kid-mode="on"] select,
+:root[data-kid-mode="on"] textarea {
+  border-radius: 1.25rem;
+}
+
+.kid-hero-title {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 900;
+  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: oklch(var(--primary));
+}
+
+.kid-balance-bubble {
+  border-radius: 2.5rem;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 12% 18%, oklch(var(--accent) / 0.38), transparent 18rem),
+    radial-gradient(circle at 88% 110%, oklch(var(--secondary) / 0.55), transparent 18rem),
+    color-mix(in oklch, oklch(var(--card)) 92%, oklch(var(--primary)) 8%);
+  border: 2px solid oklch(var(--primary) / 0.32);
+  box-shadow: 0 28px 60px oklch(var(--primary) / 0.18);
+}
+
+.kid-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: oklch(var(--accent) / 0.3);
+  color: oklch(var(--accent-foreground));
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

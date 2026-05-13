@@ -340,6 +340,14 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 11. **README + demo video**
 12. **Day 7 ürün polish ekleri** (tek işlem girişi ekranı, hesap bilgisi düzenleme,
     parent-only aile finans özeti, daraltılabilir sol menü)
+13. **Çocuk lite mod (UI):** `age_status='minor'` olan aktif kullanıcıda arayüz
+    otomatik olarak sadeleşir — daha sıcak renkler, büyük dokunma hedefleri,
+    Türkçe çocuk dili (Cüzdanım, Hareketler, Koç, Fişlerim, Profilim), karmaşık
+    bölümler (tekrarlayan ödeme yönetimi, kategori bütçesi, geçen ay
+    karşılaştırma çubukları, agent araç izi) gizlenir. Yeni endpoint, yeni route
+    veya yeni veri yoktur; kapsam/auth/aile kuralları değişmez. Tetikleyici
+    sadece `age_status`'tür; `role='child'` aile ilişkisi olarak kalır (yetişkin
+    çocuk klasik UI'yi görür).
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
@@ -927,8 +935,14 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.10
+**Doküman versiyonu:** 0.11
 **Son güncelleme:** 13 Mayıs 2026
+**v0.11 değişiklikleri:** §12.2'ye 13. madde olarak "Çocuk lite mod (UI)" eklendi.
+`age_status='minor'` olan aktif kullanıcıda (kendisi giriş yapmış olsa da, ebeveynin
+family-switch ile geçtiği çocuk profili olsa da) arayüz otomatik olarak çocuk dostu
+sade moda geçer. Yeni route, endpoint veya veri kolonu eklenmedi; tema, sidebar
+etiketleri, panel/sohbet/fiş ekranı sadeleştirildi. P5 (çocuk dilinde somut örnek)
+ilkesi UI katmanına taşındı. Backend kapsamı (İK-4..İK-8) değişmedi.
 **v0.10 değişiklikleri:** Aile modelinde ilişki rolü (`role`) ile yaş statüsü (`age_status`)
 ayrıldı; manuel `age` yerine `birth_date` tek kaynak oldu. `family_id` ile iki parent +
 birden çok child aynı aile kapsamına alınır. Tekrarlayan kayıtlar `custom` seçenekle her X

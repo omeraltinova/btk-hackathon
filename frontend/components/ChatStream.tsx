@@ -7,6 +7,7 @@ import { ChatMessage } from "@/components/ChatMessage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { amountToKurus, formatKurus } from "@/lib/format";
+import { useKidMode } from "@/lib/kid-mode";
 import { streamChat } from "@/lib/sse";
 import type { ChatStreamEvent, ChatToolPayload } from "@/lib/types";
 
@@ -86,6 +87,7 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 export function ChatStream() {
+  const { isKid } = useKidMode();
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [toolTrace, setToolTrace] = useState<ToolTraceItem[]>([]);
   const [draft, setDraft] = useState("");
@@ -228,10 +230,13 @@ export function ChatStream() {
         {messages.length === 0 ? (
           <div className="receipt-tape px-5 py-8">
             <Bot className="h-6 w-6 text-primary" />
-            <h3 className="mt-4 font-display text-2xl font-black">Koç akışı hazır</h3>
+            <h3 className="mt-4 font-display text-2xl font-black">
+              {isKid ? "Koçun seni dinliyor" : "Koç akışı hazır"}
+            </h3>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Harcama veya abonelik sorusu yazdığında Cüzdan Koçu güvenli oturum verinle araç
-              çağırır. Fiş görseli eklersen fiş analiz aracı da aynı akışta görünür.
+              {isKid
+                ? "Harçlığın, kumbaran veya merak ettiğin bir şey hakkında soru sorabilirsin. Örneğin: 'Faiz nedir?' ya da 'Harçlığımı nasıl biriktiririm?'"
+                : "Harcama veya abonelik sorusu yazdığında Cüzdan Koçu güvenli oturum verinle araç çağırır. Fiş görseli eklersen fiş analiz aracı da aynı akışta görünür."}
             </p>
           </div>
         ) : (
@@ -246,34 +251,36 @@ export function ChatStream() {
         )}
       </div>
 
-      <div className="cash-envelope p-4">
-        <div className="relative z-10 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm font-bold">
-            <Wrench className="h-4 w-4" />
-            Araç izi
+      {isKid ? null : (
+        <div className="cash-envelope p-4">
+          <div className="relative z-10 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-bold">
+              <Wrench className="h-4 w-4" />
+              Araç izi
+            </div>
+            {isStreaming ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
           </div>
-          {isStreaming ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
+          {toolTrace.length === 0 ? (
+            <p className="relative z-10 mt-2 text-sm leading-6 text-muted-foreground">
+              İlk araç çağrısı burada görünecek.
+            </p>
+          ) : (
+            <div className="relative z-10 mt-3 space-y-2">
+              {toolTrace.slice(0, 4).map((item) => (
+                <div
+                  key={item.id}
+                  className="flex flex-col gap-1 rounded-2xl bg-background/65 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                >
+                  <span className="font-bold">{item.name}</span>
+                  <span className="break-words text-muted-foreground sm:text-right">
+                    {item.detail}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        {toolTrace.length === 0 ? (
-          <p className="relative z-10 mt-2 text-sm leading-6 text-muted-foreground">
-            İlk araç çağrısı burada görünecek.
-          </p>
-        ) : (
-          <div className="relative z-10 mt-3 space-y-2">
-            {toolTrace.slice(0, 4).map((item) => (
-              <div
-                key={item.id}
-                className="flex flex-col gap-1 rounded-2xl bg-background/65 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-              >
-                <span className="font-bold">{item.name}</span>
-                <span className="break-words text-muted-foreground sm:text-right">
-                  {item.detail}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
       <form
         className="bg-muted/62 space-y-2 rounded-[1.75rem] border border-border/70 p-2"
@@ -317,7 +324,11 @@ export function ChatStream() {
             <span className="sr-only">Fiş ekle</span>
           </label>
           <Input
-            placeholder="Bu ay markete ne kadar harcadım?"
+            placeholder={
+              isKid
+                ? "Faiz nedir? Harçlığımı nasıl biriktiririm?"
+                : "Bu ay markete ne kadar harcadım?"
+            }
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             disabled={isStreaming}

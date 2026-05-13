@@ -5,6 +5,7 @@ import { ActiveProfileBanner } from "@/components/ActiveProfileBanner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Sidebar } from "@/components/sidebar";
 import { authOptions } from "@/lib/auth";
+import { KidModeProvider } from "@/lib/kid-mode";
 
 /**
  * Shell layout for authenticated app pages.
@@ -19,28 +20,30 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session?.backendToken) redirect("/login");
 
   return (
-    <div className="min-h-screen lg:flex">
-      <Sidebar user={session.user} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="bg-background/88 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border/70 px-3 py-3 backdrop-blur sm:flex-nowrap sm:gap-4 sm:px-6 lg:px-8">
-          <div className="hidden min-w-0 sm:block">
-            <p className="eyebrow">Canlı kapsam</p>
-            <p className="truncate text-sm text-muted-foreground">
-              Panel, fiş, sohbet ve proaktif notlar aynı veri kapsamını kullanıyor.
-            </p>
-          </div>
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-xs text-muted-foreground sm:ml-auto">
-            <ActiveProfileBanner />
-            <span className="stamp-label hidden bg-card/70 text-muted-foreground sm:inline-flex">
-              Canlı MVP
-            </span>
-            <ThemeToggle />
-          </div>
-        </header>
-        <main className="w-full min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8 lg:py-8 2xl:px-10">
-          {children}
-        </main>
+    <KidModeProvider>
+      <div className="min-h-screen lg:flex">
+        <Sidebar user={session.user} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="bg-background/88 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border/70 px-3 py-3 backdrop-blur sm:flex-nowrap sm:gap-4 sm:px-6 lg:px-8">
+            <div className="hidden min-w-0 sm:block">
+              <p className="eyebrow">Canlı kapsam</p>
+              <p className="truncate text-sm text-muted-foreground">
+                Panel, fiş, sohbet ve proaktif notlar aynı veri kapsamını kullanıyor.
+              </p>
+            </div>
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-xs text-muted-foreground sm:ml-auto">
+              <ActiveProfileBanner />
+              <span className="stamp-label hidden bg-card/70 text-muted-foreground sm:inline-flex">
+                Canlı MVP
+              </span>
+              <ThemeToggle />
+            </div>
+          </header>
+          <main className="w-full min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8 lg:py-8 2xl:px-10">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </KidModeProvider>
   );
 }

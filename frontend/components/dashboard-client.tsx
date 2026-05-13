@@ -6,10 +6,12 @@ import {
   ArrowUpRight,
   CalendarDays,
   Loader2,
+  PiggyBank,
   Plus,
   ReceiptText,
   RefreshCw,
   Repeat2,
+  Sparkles,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -22,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
 import { api, ApiError } from "@/lib/api";
+import { useKidMode } from "@/lib/kid-mode";
 import {
   amountToKurus,
   formatDateTR,
@@ -342,6 +345,7 @@ function DashboardTabs({ activeView }: { activeView: DashboardView }) {
 }
 
 export function DashboardClient({ view = "overview" }: DashboardClientProps) {
+  const { isKid } = useKidMode();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
@@ -665,6 +669,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
+  // In kid lite mode we always force the simple one-off entry — recurring
+  // payments belong to the parent surface. We sync the local entryMode so the
+  // form below renders the simpler path even if previous state carried over.
+  useEffect(() => {
+    if (isKid && entryMode !== "one_time") {
+      setEntryMode("one_time");
+    }
+  }, [isKid, entryMode]);
+
   function handleSubscriptionCycleChange(nextCycle: BillingCycle) {
     setSubscriptionCycle(nextCycle);
     if (nextCycle === "weekly") {
@@ -686,20 +699,50 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       {view === "overview" ? (
         <>
           <section className="grid min-w-0 gap-5 2xl:grid-cols-[1.15fr_0.85fr] 2xl:items-stretch">
-            <div className="ledger-sheet binder-holes p-5 pl-8 sm:p-9 sm:pl-20">
-              <div className="relative z-10 max-w-4xl space-y-6">
-                <span className="stamp-label bg-background/70">Gerçek veri defteri</span>
-                <div className="space-y-4">
-                  <h1 className="font-display text-[2.7rem] font-black leading-[0.92] sm:text-5xl lg:text-6xl 2xl:text-7xl">
-                    Bütçe sayfası artık kategorili.
-                  </h1>
-                  <p className="text-foreground/78 max-w-[62ch] text-base leading-7 sm:text-lg sm:leading-8">
-                    Özet burada kalır; tek seferlik işlem ve tekrarlayan ödeme girişi aynı İşlemler
-                    ekranından yönetilir. Böylece kayıt ekleme akışı tek yerde kalır.
-                  </p>
+            {isKid ? (
+              <div className="kid-balance-bubble flex flex-col gap-4">
+                <span className="kid-chip">
+                  <PiggyBank className="h-4 w-4" />
+                  Kumbaranın özeti
+                </span>
+                <p className="kid-hero-title">Merhaba! Cüzdanın bugün nasıl görünüyor?</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-3xl bg-background/70 p-4">
+                    <p className="text-sm font-bold text-muted-foreground">Bu ay kumbarana giren</p>
+                    <p className="mt-2 font-display text-3xl font-black tabular-nums text-primary">
+                      {formatKurus(monthlyIncome)}
+                    </p>
+                  </div>
+                  <div className="rounded-3xl bg-background/70 p-4">
+                    <p className="text-sm font-bold text-muted-foreground">
+                      Bu ay kumbarandan çıkan
+                    </p>
+                    <p className="mt-2 font-display text-3xl font-black tabular-nums text-accent-foreground">
+                      {formatKurus(monthlyExpense)}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Yeni bir harçlık ya da gider eklemek için aşağıdaki Hareketler kartını
+                  kullanabilirsin.
+                </p>
+              </div>
+            ) : (
+              <div className="ledger-sheet binder-holes p-5 pl-8 sm:p-9 sm:pl-20">
+                <div className="relative z-10 max-w-4xl space-y-6">
+                  <span className="stamp-label bg-background/70">Gerçek veri defteri</span>
+                  <div className="space-y-4">
+                    <h1 className="font-display text-[2.7rem] font-black leading-[0.92] sm:text-5xl lg:text-6xl 2xl:text-7xl">
+                      Bütçe sayfası artık kategorili.
+                    </h1>
+                    <p className="text-foreground/78 max-w-[62ch] text-base leading-7 sm:text-lg sm:leading-8">
+                      Özet burada kalır; tek seferlik işlem ve tekrarlayan ödeme girişi aynı
+                      İşlemler ekranından yönetilir. Böylece kayıt ekleme akışı tek yerde kalır.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <InsightBanner
               title={
@@ -788,12 +831,23 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
           </section>
 
           <div className="grid min-w-0 gap-4 md:grid-cols-2 2xl:grid-cols-4">
-            {[
-              ["Bu ay gider", formatKurus(monthlyExpense), "Kategorili gider toplamı"],
-              ["Bu ay gelir", formatKurus(monthlyIncome), "Veritabanındaki gelir toplamı"],
-              ["Net durum", formatKurus(balance), "Gelir eksi gider"],
-              ["Aylık tekrar", formatKurus(recurringMonthlyTotal), "Aktif abonelik ve faturalar"],
-            ].map(([label, value, detail], index) => (
+            {(isKid
+              ? ([
+                  ["Bu ay biriktirdiğin", formatKurus(monthlyIncome), "Harçlık ve hediye toplamı"],
+                  ["Bu ay harcadığın", formatKurus(monthlyExpense), "Alışveriş ve eğlence"],
+                  ["Cüzdanda kalan", formatKurus(balance), "Biriktirebileceğin tutar"],
+                ] as const)
+              : ([
+                  ["Bu ay gider", formatKurus(monthlyExpense), "Kategorili gider toplamı"],
+                  ["Bu ay gelir", formatKurus(monthlyIncome), "Veritabanındaki gelir toplamı"],
+                  ["Net durum", formatKurus(balance), "Gelir eksi gider"],
+                  [
+                    "Aylık tekrar",
+                    formatKurus(recurringMonthlyTotal),
+                    "Aktif abonelik ve faturalar",
+                  ],
+                ] as const)
+            ).map(([label, value, detail], index) => (
               <div key={label} className="cash-envelope min-h-40 p-4 sm:min-h-44 sm:p-5">
                 <div className="relative z-10 flex h-full flex-col justify-between gap-6">
                   <p className="text-sm font-bold text-secondary-foreground/80">{label}</p>
@@ -804,17 +858,41 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p>
                   </div>
                   <span className="font-display text-xs font-bold text-primary/70">
-                    ZARF {index + 1}
+                    {isKid ? `KART ${index + 1}` : `ZARF ${index + 1}`}
                   </span>
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
-            <SummaryStatus summary={summary} />
-            <SpendingChart summary={summary} />
-          </div>
+          {isKid ? (
+            <div className="ledger-sheet p-5 sm:p-7">
+              <div className="relative z-10 flex flex-col gap-3">
+                <span className="kid-chip">
+                  <Sparkles className="h-4 w-4" />
+                  Koçun mini önerisi
+                </span>
+                <p className="font-display text-2xl font-black leading-tight">
+                  Para biriktirmek aslında oyun gibi.
+                </p>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Bir sonraki harçlığında kumbaranın için küçük bir hedef seçmek ister misin? Koç
+                  sekmesinden sorabilirsin.
+                </p>
+                <Button asChild className="w-fit">
+                  <Link href="/chat">
+                    Koçla sohbet et
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
+              <SummaryStatus summary={summary} />
+              <SpendingChart summary={summary} />
+            </div>
+          )}
         </>
       ) : null}
 
@@ -823,43 +901,52 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
           <section className="ledger-sheet p-5 sm:p-8">
             <div className="relative z-10 space-y-6">
               <div>
-                <p className="eyebrow">Kayıt girişi</p>
+                <p className="eyebrow">{isKid ? "Yeni hareket" : "Kayıt girişi"}</p>
                 <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
-                  Yeni kayıt ekle
+                  {isKid ? "Bir şey ekleyelim mi?" : "Yeni kayıt ekle"}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Tek seferlik gelir/gider veya tekrarlayan ödeme aynı ekrandan eklenir.
+                  {isKid
+                    ? "Aldığın harçlığı veya yaptığın bir alışverişi buraya yazabilirsin."
+                    : "Tek seferlik gelir/gider veya tekrarlayan ödeme aynı ekrandan eklenir."}
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 rounded-[1.5rem] border border-border/70 bg-background/70 p-2">
-                {(
-                  [
-                    ["one_time", "Tek seferlik", ReceiptText],
-                    ["recurring", "Tekrarlayan", Repeat2],
-                  ] as const
-                ).map(([mode, label, Icon]) => {
-                  const isActive = entryMode === mode;
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      className={cn(
-                        "flex min-h-12 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-bold transition-all duration-200 ease-quint",
-                        isActive
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                      )}
-                      onClick={() => setEntryMode(mode)}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
+              {isKid ? null : (
+                <div className="grid grid-cols-2 gap-2 rounded-[1.5rem] border border-border/70 bg-background/70 p-2">
+                  {(
+                    [
+                      ["one_time", "Tek seferlik", ReceiptText],
+                      ["recurring", "Tekrarlayan", Repeat2],
+                    ] as const
+                  ).map(([mode, label, Icon]) => {
+                    const isActive = entryMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={cn(
+                          "flex min-h-12 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-bold transition-all duration-200 ease-quint",
+                          isActive
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        )}
+                        onClick={() => setEntryMode(mode)}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
-              <div className="bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-3">
+              <div
+                className={cn(
+                  "bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-3",
+                  isKid && "hidden",
+                )}
+              >
                 <label htmlFor="new-category-name" className="text-sm font-medium">
                   Yeni kategori
                 </label>
@@ -901,8 +988,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         value={type}
                         onChange={(event) => setType(event.target.value as TransactionType)}
                       >
-                        <option value="expense">Gider</option>
-                        <option value="income">Gelir</option>
+                        <option value="expense">{isKid ? "Harcadım" : "Gider"}</option>
+                        <option value="income">{isKid ? "Aldım" : "Gelir"}</option>
                       </select>
                     </div>
                     <div className="space-y-2">
@@ -1125,20 +1212,22 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
           <section className="space-y-6">
             {error ? <ErrorNote>{error}</ErrorNote> : null}
 
-            <div className="receipt-tape p-6 pt-9">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="eyebrow">Tekrarlayan aylık etki</p>
-                  <h3 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
-                    {formatKurus(recurringMonthlyTotal)}
-                  </h3>
+            {isKid ? null : (
+              <div className="receipt-tape p-6 pt-9">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="eyebrow">Tekrarlayan aylık etki</p>
+                    <h3 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+                      {formatKurus(recurringMonthlyTotal)}
+                    </h3>
+                  </div>
+                  <span className="stamp-label bg-background/80">Toplam</span>
                 </div>
-                <span className="stamp-label bg-background/80">Toplam</span>
+                <div className="mt-6">
+                  <RecurringBars subscriptions={subscriptions} />
+                </div>
               </div>
-              <div className="mt-6">
-                <RecurringBars subscriptions={subscriptions} />
-              </div>
-            </div>
+            )}
 
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-4">
@@ -1213,90 +1302,93 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
               )}
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="eyebrow">Yenilenen kayıtlar</p>
-                  <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
-                    Tekrarlayan ödemeler
-                  </h2>
-                </div>
-                <Repeat2 className="h-6 w-6 text-primary" />
-              </div>
-
-              {subscriptions.length === 0 ? (
-                <div className="receipt-tape px-5 py-8">
+            {isKid ? null : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="eyebrow">Yenilenen kayıtlar</p>
+                    <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+                      Tekrarlayan ödemeler
+                    </h2>
+                  </div>
                   <Repeat2 className="h-6 w-6 text-primary" />
-                  <h3 className="mt-4 font-display text-2xl font-black">Tekrarlayan ödeme yok</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Abonelik veya fatura eklediğinde tekil tutarlar ve aylık toplam burada görünür.
-                  </p>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {subscriptions.map((subscription) => {
-                    const categoryName = subscription.category_id
-                      ? (categoryNameById.get(subscription.category_id) ?? "Kategori")
-                      : "Kategorisiz";
-                    const isUpdating = updatingSubscriptionId === subscription.id;
-                    return (
-                      <div key={subscription.id} className="receipt-tape px-5 py-6">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0">
-                            <p className="font-display text-lg font-black">{subscription.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {subscription.recurrence_label ||
-                                billingCycleLabels[subscription.billing_cycle]}{" "}
-                              / {categoryName}
-                              {subscription.next_billing_date
-                                ? ` / ${formatDateTR(subscription.next_billing_date)}`
-                                : ""}
-                            </p>
-                            {subscription.merchant ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {subscription.merchant}
+
+                {subscriptions.length === 0 ? (
+                  <div className="receipt-tape px-5 py-8">
+                    <Repeat2 className="h-6 w-6 text-primary" />
+                    <h3 className="mt-4 font-display text-2xl font-black">Tekrarlayan ödeme yok</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Abonelik veya fatura eklediğinde tekil tutarlar ve aylık toplam burada
+                      görünür.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {subscriptions.map((subscription) => {
+                      const categoryName = subscription.category_id
+                        ? (categoryNameById.get(subscription.category_id) ?? "Kategori")
+                        : "Kategorisiz";
+                      const isUpdating = updatingSubscriptionId === subscription.id;
+                      return (
+                        <div key={subscription.id} className="receipt-tape px-5 py-6">
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="font-display text-lg font-black">{subscription.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {subscription.recurrence_label ||
+                                  billingCycleLabels[subscription.billing_cycle]}{" "}
+                                / {categoryName}
+                                {subscription.next_billing_date
+                                  ? ` / ${formatDateTR(subscription.next_billing_date)}`
+                                  : ""}
                               </p>
-                            ) : null}
+                              {subscription.merchant ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {subscription.merchant}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="shrink-0 sm:text-right">
+                              <p className="break-words font-display text-xl font-black tabular-nums">
+                                {formatKurus(amountToKurus(subscription.amount))}
+                              </p>
+                              <p className="text-xs font-bold text-muted-foreground">
+                                Aylık etki{" "}
+                                {formatKurus(amountToKurus(subscription.monthly_equivalent))}
+                              </p>
+                            </div>
                           </div>
-                          <div className="shrink-0 sm:text-right">
-                            <p className="break-words font-display text-xl font-black tabular-nums">
-                              {formatKurus(amountToKurus(subscription.amount))}
-                            </p>
-                            <p className="text-xs font-bold text-muted-foreground">
-                              Aylık etki{" "}
-                              {formatKurus(amountToKurus(subscription.monthly_equivalent))}
-                            </p>
+                          <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                            <Button
+                              type="button"
+                              variant={subscription.is_active ? "secondary" : "outline"}
+                              size="sm"
+                              className="min-h-11"
+                              disabled={isUpdating}
+                              onClick={() => void handleToggleSubscription(subscription)}
+                            >
+                              {subscription.is_active ? "Pasifleştir" : "Aktifleştir"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="min-h-11"
+                              disabled={isUpdating}
+                              onClick={() => void handleDeleteSubscription(subscription.id)}
+                            >
+                              Sil
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
-                        <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                          <Button
-                            type="button"
-                            variant={subscription.is_active ? "secondary" : "outline"}
-                            size="sm"
-                            className="min-h-11"
-                            disabled={isUpdating}
-                            onClick={() => void handleToggleSubscription(subscription)}
-                          >
-                            {subscription.is_active ? "Pasifleştir" : "Aktifleştir"}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="min-h-11"
-                            disabled={isUpdating}
-                            onClick={() => void handleDeleteSubscription(subscription.id)}
-                          >
-                            Sil
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         </div>
       ) : null}
