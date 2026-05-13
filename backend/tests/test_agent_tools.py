@@ -9,6 +9,7 @@ from app.agent.tools import (
     build_concept_illustration,
     build_saving_goal_creation,
     build_saving_goal_progress,
+    build_smart_saving_plan,
     build_spending_chart,
     build_spending_summary,
     build_subscriptions_summary,
@@ -439,3 +440,41 @@ def test_build_saving_goal_progress_reads_active_scoped_goal() -> None:
     assert result["actual_spending"] == "200.00"
     assert result["remaining_limit_formatted"] == "310,00 ₺"
     assert result["status_label"] == "on_track"
+
+
+def test_build_smart_saving_plan_creates_top_category_goals() -> None:
+    user = make_user()
+    market = make_category("Market")
+    transport = make_category("Ulaşım")
+    db = FakeSession(
+        categories=[market, transport],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=market.id,
+                amount="900.00",
+                occurred_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+            ),
+            make_transaction(
+                user_id=user.id,
+                category_id=transport.id,
+                amount="400.00",
+                occurred_at=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
+            ),
+        ],
+        subscriptions=[make_subscription(user_id=user.id, amount="120.00")],
+    )
+
+    result = build_smart_saving_plan(
+        db,
+        user,
+        message="Bu yaz tatile gitmek istiyorum, giderlerimi kısmam lazım.",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["target_label"] == "Tatil"
+    assert result["total_expense_formatted"] == "1.300,00 ₺"
+    assert result["created_goal_count"] == 2
+    assert result["expected_monthly_saving_formatted"] == "195,00 ₺"
+    assert result["subscription_monthly_total_formatted"] == "120,00 ₺"
+    assert len(db.saving_goals) == 2

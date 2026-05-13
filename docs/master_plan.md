@@ -390,14 +390,22 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     oluşturur/izler; taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe
     önerisidir. Tutarlar `Decimal`, kapsam `user_id` filtresi ve aile görünürlük
     kurallarıyla hesaplanır.
+20. **Akıllı hedef planı:** Kullanıcı “Tatile gitmek istiyorum, giderlerimi
+    kısmam lazım” gibi amaç odaklı bir mesaj yazarsa agent `get_spending`,
+    `get_subscriptions` ve `create_smart_saving_plan` akışıyla son 30 günün
+    yüksek harcama kategorilerini ve aktif abonelik etkisini inceler. Yeni tablo
+    eklemeden mevcut `saving_goals` yapısında 1–2 kategori bazlı tasarruf hedefi
+    oluşturur, haftalık limit/taktik verir ve `Birikim zarfı`nı aylık hedef
+    olarak konumlandırır. Bu akış da yatırım tavsiyesi vermez; sadece bütçe ve
+    alışkanlık koçluğu yapar.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-20. Sesli giriş (Web Speech API)
-21. Çok dönemli birikim hedef takibi
-22. Quiz modu
-23. CSV export
-24. Magic link auth (email-only login, parola yok)
+21. Sesli giriş (Web Speech API)
+22. Çok dönemli birikim hedef takibi
+23. Quiz modu
+24. CSV export
+25. Magic link auth (email-only login, parola yok)
 
 ---
 
@@ -1012,8 +1020,12 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.17
+**Doküman versiyonu:** 0.18
 **Son güncelleme:** 13 Mayıs 2026
+**v0.18 değişiklikleri:** §12.2'ye Akıllı Hedef Planı eklendi. Amaç odaklı
+mesajlarda agent mevcut harcama/abonelik araçlarını kullanır, mevcut kategori
+tasarruf hedeflerinden 1–2 tane oluşturur ve taktik verir. Video generation,
+gerçek zamanlı sesli görüşme ve yatırım ürünü tavsiyesi kapsam dışı kalır.
 **v0.17 değişiklikleri:** §12.2 ve §15'e kategori bazlı tasarruf hedefleri
 MVP kapsamı eklendi. Bu hedefler klasik birikim hedefi değil, belirli bir gider
 kategorisinde ay ay azaltma hedefidir; agent araçları hedef oluşturur ve

@@ -33,6 +33,7 @@ from app.models.message import Message
 from app.models.user import User
 from app.schemas.chat import ChatStreamRequest
 from app.services.envelopes import resolve_envelope_category
+from app.services.smart_plans import build_smart_saving_plan
 
 
 class ChatStreamEvent(TypedDict, total=False):
@@ -61,6 +62,17 @@ SAVING_GOAL_CREATE_HINTS = (
     "hedef koy",
 )
 SAVING_GOAL_PROGRESS_HINTS = ("hedefimde", "hedefim", "tasarruf hedef", "ilerleme", "durum")
+SMART_PLAN_HINTS = (
+    "tatil",
+    "giderlerimi kısm",
+    "giderlerimi kism",
+    "nereden kısm",
+    "nereden kism",
+    "para biriktiremiyorum",
+    "birikim plan",
+    "akıllı hedef",
+    "akilli hedef",
+)
 ENVELOPE_BUDGET_HINTS = (
     "zarf",
     "bütçe",
@@ -179,6 +191,8 @@ def _wants_subscriptions(message: str) -> bool:
 def _wants_concept(message: str) -> bool:
     if _wants_envelope_budget(message):
         return False
+    if _wants_smart_saving_plan(message):
+        return False
     normalized = message.casefold()
     return any(hint in normalized for hint in CONCEPT_HINTS)
 
@@ -206,6 +220,11 @@ def _wants_saving_goal_creation(message: str) -> bool:
 def _wants_saving_goal_progress(message: str) -> bool:
     normalized = message.casefold()
     return "hedef" in normalized and any(hint in normalized for hint in SAVING_GOAL_PROGRESS_HINTS)
+
+
+def _wants_smart_saving_plan(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in SMART_PLAN_HINTS)
 
 
 def _wants_illustration(message: str) -> bool:
@@ -400,6 +419,40 @@ def _saving_goal_answer(result: dict[str, object], *, created: bool) -> str:
         f"şu ana kadar {actual} harcadın. Kalan limit {remaining}."
         f"{first_tactic}"
     )
+
+
+def _smart_saving_plan_answer(result: dict[str, object]) -> str:
+    goals = result.get("goals")
+    if not isinstance(goals, list) or not goals:
+        return (
+            "Akıllı hedef planı için son 30 günde yeterli kategori harcaması bulamadım. "
+            "Birkaç işlem eklediğinde nereden kısabileceğini birlikte çıkarabilirim."
+        )
+    target = str(result.get("target_label") or "hedef")
+    expense = str(result.get("total_expense_formatted") or "0,00 ₺")
+    saving = str(result.get("expected_monthly_saving_formatted") or "0,00 ₺")
+    parts = [
+        f"{target} hedefin için son 30 gün verine baktım; toplam gider {expense}.",
+        f"İlk aşamada yaklaşık {saving} aylık tasarruf potansiyeli olan hedefler oluşturdum.",
+    ]
+    goal_lines: list[str] = []
+    for item in goals[:2]:
+        if not isinstance(item, dict):
+            continue
+        category = str(item.get("category_name") or "Kategori")
+        target_spending = str(item.get("target_spending_amount_formatted") or "0,00 ₺")
+        target_saving = str(item.get("target_saving_amount_formatted") or "0,00 ₺")
+        goal_lines.append(
+            f"{category}: bu ay {target_spending} altında kal, yaklaşık {target_saving} kazan."
+        )
+    if goal_lines:
+        parts.append(" ".join(goal_lines))
+    subscription_note = result.get("subscription_note")
+    if isinstance(subscription_note, str):
+        monthly = str(result.get("subscription_monthly_total_formatted") or "0,00 ₺")
+        parts.append(f"Aboneliklerin aylık etkisi {monthly}; {subscription_note}")
+    parts.append("Birikim tarafını aylık Birikim zarfı ile takip edebilirsin.")
+    return " ".join(parts)
 
 
 def _image_event_from_result(
@@ -741,6 +794,30 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _subscription_answer(result)
+    elif _wants_smart_saving_plan(payload.message):
+        smart_plan_input: dict[str, object] = {"message": payload.message}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "create_smart_saving_plan",
+            "input": smart_plan_input,
+        }
+        result = build_smart_saving_plan(db, current_user, message=payload.message)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Akıllı hedef planı oluşturuldu.",
+            tool_name="create_smart_saving_plan",
+            tool_calls={"input": smart_plan_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "create_smart_saving_plan",
+            "result": result,
+        }
+        answer = _smart_saving_plan_answer(result)
     elif _wants_saving_goal_creation(payload.message):
         category = infer_category_from_text(db, current_user, payload.message)
         if category is None:

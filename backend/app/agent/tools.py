@@ -34,6 +34,7 @@ from app.services.saving_goals import (
     create_saving_goal,
     find_active_saving_goal,
 )
+from app.services.smart_plans import build_smart_saving_plan
 from app.utils.date_format import format_tr_date
 from app.utils.recurrence import monthly_equivalent, recurrence_label
 from app.utils.tl_format import format_tl
@@ -714,6 +715,16 @@ def get_saving_goal_progress_tool(
         return build_saving_goal_progress(db, _load_current_user(db, user_id), category=category)
 
 
+@tool("create_smart_saving_plan")
+def create_smart_saving_plan_tool(
+    message: str,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Amaç odaklı mesajdan harcama azaltma planı ve hedefleri oluşturur."""
+    with SessionLocal() as db:
+        return build_smart_saving_plan(db, _load_current_user(db, user_id), message=message)
+
+
 @tool("get_user_memory")
 def get_user_memory_tool(
     key: str | None = None,
@@ -801,6 +812,7 @@ TOOLS = [
     get_subscriptions_tool,
     create_saving_goal_tool,
     get_saving_goal_progress_tool,
+    create_smart_saving_plan_tool,
     analyze_receipt_tool,
     explain_concept_tool,
     simulate_scenario_tool,
