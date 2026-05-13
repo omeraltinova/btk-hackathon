@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConversationListItem(BaseModel):
@@ -17,6 +17,13 @@ class ConversationListItem(BaseModel):
     preview: str | None
 
 
+class ConversationAttachment(BaseModel):
+    type: Literal["chart", "image"]
+    chart: dict[str, Any] | None = None
+    image_url: str | None = None
+    alt_text: str | None = None
+
+
 class ConversationMessage(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -25,6 +32,7 @@ class ConversationMessage(BaseModel):
     content: str
     tool_name: str | None
     created_at: datetime
+    attachments: list[ConversationAttachment] = Field(default_factory=list)
 
 
 class ConversationMessages(BaseModel):

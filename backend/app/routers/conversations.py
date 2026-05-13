@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
 from app.schemas.conversation import (
+    ConversationAttachment,
     ConversationListItem,
     ConversationMessage,
     ConversationMessages,
@@ -30,6 +31,49 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
 MAX_CONVERSATIONS = 100
 MAX_MESSAGES = 200
+
+
+def _conversation_or_404(
+    db: Session,
+    current_user: User,
+    conversation_id: UUID,
+) -> Conversation:
+    conversation = db.execute(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id,
+        ),
+    ).scalar_one_or_none()
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sohbet bulunamadı.",
+        )
+    return conversation
+
+
+def _message_attachments(message: Message) -> list[ConversationAttachment]:
+    tool_calls = message.tool_calls or {}
+    result = tool_calls.get("result")
+    if not isinstance(result, dict):
+        return []
+
+    attachments: list[ConversationAttachment] = []
+    chart = result.get("chart")
+    if isinstance(chart, dict):
+        attachments.append(ConversationAttachment(type="chart", chart=chart))
+
+    image_url = result.get("image_url")
+    if isinstance(image_url, str) and image_url:
+        alt_text = result.get("alt_text")
+        attachments.append(
+            ConversationAttachment(
+                type="image",
+                image_url=image_url,
+                alt_text=alt_text if isinstance(alt_text, str) else "Finansal kavram görseli",
+            ),
+        )
+    return attachments
 
 
 @router.get("", response_model=list[ConversationListItem])
@@ -92,17 +136,7 @@ def get_conversation_messages(
     current_user: User = Depends(get_current_user),
     limit: int = Query(default=200, ge=1, le=MAX_MESSAGES),
 ) -> ConversationMessages:
-    conversation = db.execute(
-        select(Conversation).where(
-            Conversation.id == conversation_id,
-            Conversation.user_id == current_user.id,
-        ),
-    ).scalar_one_or_none()
-    if conversation is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sohbet bulunamadı.",
-        )
+    conversation = _conversation_or_404(db, current_user, conversation_id)
 
     rows = list(
         db.execute(
@@ -121,6 +155,7 @@ def get_conversation_messages(
             content=row.content,
             tool_name=row.tool_name,
             created_at=row.created_at,
+            attachments=_message_attachments(row),
         )
         for row in rows
     ]
@@ -130,3 +165,15 @@ def get_conversation_messages(
         message_count=len(messages),
         messages=messages,
     )
+
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(
+    conversation_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    conversation = _conversation_or_404(db, current_user, conversation_id)
+    db.delete(conversation)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

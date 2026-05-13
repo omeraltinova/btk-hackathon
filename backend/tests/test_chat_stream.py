@@ -18,6 +18,7 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.transaction import Transaction
 from app.models.user import User
+from app.services.agent_runner import _graph_context_messages
 
 
 class FakeScalars:
@@ -72,6 +73,13 @@ class FakeSession:
                     if self._matches_transaction(statement, transaction)
                 ],
             )
+        if entity is Message:
+            messages = [
+                message for message in self.messages if self._matches_message(statement, message)
+            ]
+            limit_clause = getattr(statement, "_limit_clause", None)
+            limit_value = getattr(limit_clause, "value", None)
+            return FakeResult(list(reversed(messages))[:limit_value])
         return FakeResult([])
 
     def add(self, item: object) -> None:
@@ -112,11 +120,27 @@ class FakeSession:
                 return False
         return True
 
+    def _matches_message(self, statement: object, message: Message) -> bool:
+        for criterion in getattr(statement, "_where_criteria", ()):
+            column_name = getattr(getattr(criterion, "left", None), "name", None)
+            value = getattr(getattr(criterion, "right", None), "value", None)
+            if column_name == "conversation_id" and message.conversation_id != value:
+                return False
+            if column_name == "role" and not self._matches_role(value, message.role):
+                return False
+        return True
+
     @staticmethod
     def _matches_user_id(value: object, user_id: UUID) -> bool:
         if isinstance(value, list | tuple | set):
             return user_id in value
         return user_id == value
+
+    @staticmethod
+    def _matches_role(value: object, role: str) -> bool:
+        if isinstance(value, list | tuple | set):
+            return role in value
+        return role == value
 
 
 def make_user() -> User:
@@ -133,6 +157,53 @@ def make_user() -> User:
     )
     user.children = []
     return user
+
+
+def test_graph_context_includes_recent_user_and_assistant_messages() -> None:
+    user = make_user()
+    conversation = Conversation(id=uuid4(), user_id=user.id)
+    fake_session = FakeSession(user, [], [])
+    fake_session.conversations.append(conversation)
+    old_user = Message(
+        id=uuid4(),
+        conversation_id=conversation.id,
+        role="user",
+        content="Geçen mesajda hedefim kumbara demiştim.",
+    )
+    old_tool = Message(
+        id=uuid4(),
+        conversation_id=conversation.id,
+        role="tool",
+        content="Araç sonucu alındı.",
+        tool_name="get_user_memory",
+    )
+    old_assistant = Message(
+        id=uuid4(),
+        conversation_id=conversation.id,
+        role="assistant",
+        content="Kumbara hedefini not aldım.",
+    )
+    current_user = Message(
+        id=uuid4(),
+        conversation_id=conversation.id,
+        role="user",
+        content="Bunu hatırlıyor musun?",
+    )
+    fake_session.messages.extend([old_user, old_tool, old_assistant, current_user])
+
+    context = _graph_context_messages(
+        fake_session,
+        conversation,
+        current_user_message=current_user,
+        current_user_content="Bunu hatırlıyor musun?\n\nFiş OCR sonucu: yok",
+    )
+
+    assert [message.type for message in context] == ["human", "ai", "human"]
+    assert [str(message.content) for message in context] == [
+        "Geçen mesajda hedefim kumbara demiştim.",
+        "Kumbara hedefini not aldım.",
+        "Bunu hatırlıyor musun?\n\nFiş OCR sonucu: yok",
+    ]
 
 
 def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:

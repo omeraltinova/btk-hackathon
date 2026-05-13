@@ -353,11 +353,14 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     `pie`) döner. Frontend tool_result event'inde `chart` alanı görürse Recharts
     ile mesaj akışı içinde grafiği çizer. Veri kapsamı kuralları (İK-4..İK-8)
     aynı `visible_user_ids` üzerinden uygulanır.
-15. **Sohbet geçmişi sayfası:** `GET /api/conversations` ve
-    `GET /api/conversations/{id}/messages` endpoint'leri kullanıcının kendi
-    `conversations`/`messages` kayıtlarını listeler (İK-4..İK-5). Frontend'de
-    `/chat/history` sayfası geçmiş sohbetleri ve mesajlarını gösterir; mesaj
-    içerikleri zaten DB'de var olduğundan ek migration yok.
+15. **Sohbet geçmişi sayfası:** `GET /api/conversations`,
+    `GET /api/conversations/{id}/messages` ve scoped
+    `DELETE /api/conversations/{id}` endpoint'leri kullanıcının kendi
+    `conversations`/`messages` kayıtlarını listeler/siler (İK-4..İK-5).
+    Frontend'de `/chat/history` sayfası geçmiş sohbetleri ve mesajlarını
+    kompakt gösterir, seçili bir sohbeti `/chat` içinde sürdürmeye izin verir
+    ve geçmiş tool eklerini (grafik/görsel) tekrar çizer; mesaj içerikleri ve
+    tool sonuçları zaten DB'de var olduğundan ek migration yok.
 16. **Agent memory görüntüleyici:** `GET /api/memory` kullanıcının
     `agent_memory` kayıtlarını döner; `DELETE /api/memory/{key}` ilgili anahtarı
     siler. Frontend'de `/account/memory` (veya hesap sayfasında bir bölüm)
@@ -971,8 +974,13 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.14
+**Doküman versiyonu:** 0.15
 **Son güncelleme:** 13 Mayıs 2026
+**v0.15 değişiklikleri:** Sohbet geçmişi kapsamı genişletildi: kullanıcı kendi
+sohbetini silebilir (`DELETE /api/conversations/{id}`), geçmiş sohbeti `/chat`
+içinde sürdürebilir ve geçmiş tool ekleri (grafik/görsel) tekrar render edilir.
+Veri kapsamı `Conversation.user_id == current_user.id` olarak kalır; yeni
+migration yoktur.
 **v0.14 değişiklikleri:** OpenRouter varsayılan modelleri güncellendi:
 sohbet için `google/gemini-3.1-flash-lite`, koç görsel anlatımı için
 `google/gemini-3.1-flash-image-preview`. Görsel anlatım OpenRouter modunda

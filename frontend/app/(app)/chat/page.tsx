@@ -11,16 +11,16 @@ export const metadata = {
 
 export default function ChatPage() {
   return (
-    <div className="page-enter grid min-w-0 gap-6 lg:grid-cols-[0.7fr_1.3fr]">
+    <div className="page-enter flex h-[calc(100svh-9.5rem)] min-h-0 min-w-0 flex-col gap-3 overflow-hidden sm:h-[calc(100svh-8.5rem)] lg:h-[calc(100svh-8rem)]">
       <ChatHero />
 
-      <section className="ledger-sheet p-4 sm:p-6">
-        <div className="relative z-10 space-y-5">
-          <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border/80 pb-4">
+      <section className="ledger-sheet flex min-h-0 flex-1 p-3 sm:p-4">
+        <div className="relative z-10 flex min-h-0 w-full flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">
             <div>
               <p className="eyebrow">Canlı koç</p>
-              <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.04em]">
-                Cüzdan Koçu ile konuşma alanı
+              <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.04em] sm:text-3xl">
+                Konuşma masası
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -34,7 +34,9 @@ export default function ChatPage() {
             </div>
           </div>
 
-          <ChatStream />
+          <div className="min-h-0 flex-1">
+            <ChatStream />
+          </div>
         </div>
       </section>
     </div>

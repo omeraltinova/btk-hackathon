@@ -282,12 +282,27 @@ export type ConversationListItem = {
   preview: string | null;
 };
 
+export type ConversationAttachment =
+  | {
+      type: "chart";
+      chart: Record<string, unknown>;
+      image_url?: null;
+      alt_text?: null;
+    }
+  | {
+      type: "image";
+      chart?: null;
+      image_url: string;
+      alt_text: string | null;
+    };
+
 export type ConversationMessage = {
   id: string;
   role: "user" | "assistant" | "tool";
   content: string;
   tool_name: string | null;
   created_at: string;
+  attachments: ConversationAttachment[];
 };
 
 export type ConversationMessages = {

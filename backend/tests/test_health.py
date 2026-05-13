@@ -20,6 +20,7 @@ def test_day_7_chat_support_routes_are_registered() -> None:
     paths = {getattr(route, "path", "") for route in app.routes}
 
     assert "/api/conversations" in paths
+    assert "/api/conversations/{conversation_id}" in paths
     assert "/api/conversations/{conversation_id}/messages" in paths
     assert "/api/memory" in paths
     assert "/api/memory/{key}" in paths

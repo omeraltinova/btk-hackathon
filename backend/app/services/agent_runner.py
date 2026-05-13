@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.agent.graph import build_agent_graph_from_settings
@@ -60,6 +60,7 @@ ILLUSTRATION_HINTS = (
     "çiz",
     "ciz",
 )
+MAX_CONTEXT_MESSAGES = 20
 
 
 def _get_or_create_conversation(
@@ -96,17 +97,17 @@ def _persist_message(
     content: str,
     tool_name: str | None = None,
     tool_calls: dict[str, object] | None = None,
-) -> None:
-    db.add(
-        Message(
-            conversation_id=conversation.id,
-            role=role,
-            content=content,
-            tool_name=tool_name,
-            tool_calls=tool_calls,
-        ),
+) -> Message:
+    message = Message(
+        conversation_id=conversation.id,
+        role=role,
+        content=content,
+        tool_name=tool_name,
+        tool_calls=tool_calls,
     )
+    db.add(message)
     db.commit()
+    return message
 
 
 def _sanitize_payload(value: object) -> object:
@@ -345,12 +346,46 @@ def _tool_call_args(call: dict[str, Any]) -> dict[str, object]:
     return _json_payload(args if isinstance(args, dict) else {})
 
 
+def _graph_context_messages(
+    db: Session,
+    conversation: Conversation,
+    *,
+    current_user_message: Message,
+    current_user_content: str,
+) -> list[BaseMessage]:
+    rows = list(
+        db.execute(
+            select(Message)
+            .where(
+                Message.conversation_id == conversation.id,
+                Message.role.in_(("user", "assistant")),
+            )
+            .order_by(desc(Message.created_at))
+            .limit(MAX_CONTEXT_MESSAGES),
+        )
+        .scalars()
+        .all(),
+    )
+    messages: list[BaseMessage] = []
+    for row in reversed(rows):
+        is_current_user_message = row is current_user_message or row.id == current_user_message.id
+        content = current_user_content if is_current_user_message else row.content
+        if row.role == "user":
+            messages.append(HumanMessage(content=content))
+        elif row.role == "assistant":
+            messages.append(AIMessage(content=content))
+    if not messages:
+        messages.append(HumanMessage(content=current_user_content))
+    return messages
+
+
 def _stream_live_graph(
     db: Session,
     current_user: User,
     payload: ChatStreamRequest,
     conversation: Conversation,
     *,
+    current_user_message: Message,
     receipt_context: str | None = None,
     settings: Settings | None = None,
 ) -> Iterator[ChatStreamEvent]:
@@ -358,10 +393,16 @@ def _stream_live_graph(
     user_content = (
         payload.message if receipt_context is None else f"{payload.message}\n\n{receipt_context}"
     )
+    graph_messages = _graph_context_messages(
+        db,
+        conversation,
+        current_user_message=current_user_message,
+        current_user_content=user_content,
+    )
     final_answer = ""
     for update in graph.stream(
         {
-            "messages": [HumanMessage(content=user_content)],
+            "messages": graph_messages,
             "user_id": str(current_user.id),
             "user_role": current_user.role,
             "finance_level": current_user.finance_level,
@@ -431,7 +472,7 @@ def stream_chat_turn(
     conversation = _get_or_create_conversation(db, current_user, payload.conversation_id)
     conversation_id = str(conversation.id)
     yield {"type": "message_start", "conversation_id": conversation_id, "role": "assistant"}
-    _persist_message(db, conversation, role="user", content=payload.message)
+    current_user_message = _persist_message(db, conversation, role="user", content=payload.message)
 
     receipt_result: dict[str, object] | None = None
     if payload.receipt_image_base64 is not None:
@@ -475,6 +516,7 @@ def stream_chat_turn(
                 current_user,
                 payload,
                 conversation,
+                current_user_message=current_user_message,
                 receipt_context=_receipt_context(receipt_result) if receipt_result else None,
                 settings=settings,
             )

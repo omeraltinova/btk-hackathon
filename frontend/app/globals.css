@@ -346,6 +346,10 @@
   .pulse-soft {
     animation: pulse-soft 3.6s ease-in-out infinite;
   }
+
+  .suggestion-rotate {
+    animation: suggestion-rise 420ms var(--ease-out-quint) both;
+  }
 }
 
 @media (max-width: 640px) {
@@ -445,6 +449,17 @@
   50% {
     opacity: 0.9;
     transform: scale(1.035);
+  }
+}
+
+@keyframes suggestion-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
   }
 }
 

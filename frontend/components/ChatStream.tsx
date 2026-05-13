@@ -1,16 +1,40 @@
 "use client";
 
-import { Bot, ImagePlus, Loader2, Send, Wrench, X } from "lucide-react";
-import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
+import {
+  Bot,
+  ImagePlus,
+  Loader2,
+  MessageSquareText,
+  Plus,
+  Send,
+  Sparkles,
+  Wrench,
+  X,
+} from "lucide-react";
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
 
 import { ChatChart } from "@/components/ChatChart";
 import { ChatMessage } from "@/components/ChatMessage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
+import { api, ApiError } from "@/lib/api";
+import {
+  chatAttachmentsFromHistory,
+  extractChart,
+  type ChatAttachmentItem,
+} from "@/lib/chat-attachments";
+import { readActiveConversationId, rememberActiveConversationId } from "@/lib/chat-session";
 import { amountToKurus, formatKurus } from "@/lib/format";
 import { useKidMode } from "@/lib/kid-mode";
 import { streamChat } from "@/lib/sse";
-import type { ChatChartSpec, ChatStreamEvent, ChatToolPayload } from "@/lib/types";
+import type {
+  ChatStreamEvent,
+  ChatToolPayload,
+  ConversationListItem,
+  ConversationMessages,
+} from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type ChatMessageItem = {
   id: string;
@@ -19,6 +43,8 @@ type ChatMessageItem = {
   isStreaming?: boolean;
   attachments?: ChatAttachmentItem[];
 };
+
+type ChatPanel = "chat" | "tools";
 
 type ToolTraceItem = {
   id: string;
@@ -33,57 +59,20 @@ type ReceiptAttachment = {
   base64: string;
 };
 
-type ChatAttachmentItem =
-  | {
-      id: string;
-      type: "chart";
-      spec: ChatChartSpec;
-    }
-  | {
-      id: string;
-      type: "image";
-      imageUrl: string;
-      altText: string;
-    };
+const ADULT_SUGGESTIONS = [
+  "Bu ay markete ne kadar harcadım?",
+  "Harcamalarımı grafik olarak gösterir misin?",
+  "Aktif aboneliklerimi özetler misin?",
+  "Kredi kartı asgarisini ödersem ne olur?",
+  "Enflasyonu aile bütçesiyle açıklar mısın?",
+] as const;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function extractChart(result: ChatToolPayload): ChatChartSpec | null {
-  const candidate = (result as Record<string, unknown>).chart;
-  if (!isRecord(candidate)) return null;
-  const type = candidate.type === "pie" ? "pie" : candidate.type === "bar" ? "bar" : null;
-  if (!type) return null;
-  if (typeof candidate.title !== "string") return null;
-  if (!Array.isArray(candidate.data)) return null;
-  const points: ChatChartSpec["data"] = [];
-  for (const entry of candidate.data) {
-    if (!isRecord(entry)) continue;
-    const label = typeof entry.label === "string" ? entry.label : null;
-    const rawValue = entry.value;
-    const value =
-      typeof rawValue === "number"
-        ? rawValue
-        : typeof rawValue === "string"
-          ? Number(rawValue)
-          : null;
-    const valueFormatted = typeof entry.value_formatted === "string" ? entry.value_formatted : null;
-    if (label === null || value === null || !Number.isFinite(value) || valueFormatted === null) {
-      continue;
-    }
-    points.push({ label, value, value_formatted: valueFormatted });
-  }
-  if (points.length === 0) return null;
-  return {
-    type,
-    title: candidate.title,
-    subtitle: typeof candidate.subtitle === "string" ? candidate.subtitle : null,
-    data: points,
-    value_label: typeof candidate.value_label === "string" ? candidate.value_label : null,
-    currency: typeof candidate.currency === "string" ? candidate.currency : null,
-  };
-}
+const KID_SUGGESTIONS = [
+  "Harçlığımı nasıl biriktiririm?",
+  "Faiz nedir, kumbarayla anlatır mısın?",
+  "Bu ay nereye para harcamışım?",
+  "Bayram paramı nasıl saklamalıyım?",
+] as const;
 
 function describeToolInput(input: ChatToolPayload): string {
   if ("chart_type" in input) {
@@ -175,20 +164,135 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
+function friendlyError(err: unknown, fallback: string): string {
+  return err instanceof ApiError ? err.detail : fallback;
+}
+
+function messagesFromThread(thread: ConversationMessages): ChatMessageItem[] {
+  const pendingAttachments: ChatAttachmentItem[] = [];
+  return thread.messages.flatMap((message) => {
+    const attachments = chatAttachmentsFromHistory(message.attachments).map((attachment) => ({
+      ...attachment,
+      id: `${message.id}-${attachment.id}`,
+    }));
+    if (message.role === "tool") {
+      pendingAttachments.push(...attachments);
+      return [];
+    }
+    if (message.role !== "user" && message.role !== "assistant") return [];
+    const messageAttachments = message.role === "assistant" ? pendingAttachments.splice(0) : [];
+    messageAttachments.push(...attachments);
+    return [
+      {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
+      },
+    ];
+  });
+}
+
 export function ChatStream() {
   const { isKid } = useKidMode();
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [toolTrace, setToolTrace] = useState<ToolTraceItem[]>([]);
+  const [activePanel, setActivePanel] = useState<ChatPanel>("chat");
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<ReceiptAttachment | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isHydrating, setIsHydrating] = useState(true);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const suggestions = isKid ? KID_SUGGESTIONS : ADULT_SUGGESTIONS;
+  const activeSuggestion =
+    suggestions[suggestionIndex % suggestions.length] ?? ADULT_SUGGESTIONS[0];
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadConversation() {
+      setIsHydrating(true);
+      setHistoryError(null);
+      try {
+        let targetId = readActiveConversationId();
+        if (!targetId) {
+          const conversations = await api<ConversationListItem[]>("/api/conversations?limit=1", {
+            silent: true,
+          });
+          targetId = conversations[0]?.id ?? null;
+        }
+
+        if (!targetId) {
+          if (!cancelled) {
+            setConversationId(null);
+            setMessages([]);
+            setToolTrace([]);
+            rememberActiveConversationId(null);
+          }
+          return;
+        }
+
+        const thread = await api<ConversationMessages>(`/api/conversations/${targetId}/messages`, {
+          silent: true,
+        });
+        if (cancelled) return;
+        setConversationId(thread.conversation_id);
+        setMessages(messagesFromThread(thread));
+        setToolTrace([]);
+        rememberActiveConversationId(thread.conversation_id);
+      } catch (err) {
+        if (!cancelled) {
+          setConversationId(null);
+          setMessages([]);
+          setToolTrace([]);
+          rememberActiveConversationId(null);
+          setHistoryError(friendlyError(err, "Son sohbetin yüklenemedi."));
+        }
+      } finally {
+        if (!cancelled) setIsHydrating(false);
+      }
+    }
+
+    void loadConversation();
+    function reloadForProfile() {
+      rememberActiveConversationId(null);
+      void loadConversation();
+    }
+    window.addEventListener(ACTIVE_PROFILE_EVENT, reloadForProfile);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(ACTIVE_PROFILE_EVENT, reloadForProfile);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activePanel !== "chat") return;
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollTo({ top: node.scrollHeight, behavior: isStreaming ? "auto" : "smooth" });
+  }, [activePanel, isStreaming, messages]);
+
+  useEffect(() => {
+    if (isKid && activePanel === "tools") setActivePanel("chat");
+  }, [activePanel, isKid]);
+
+  useEffect(() => {
+    setSuggestionIndex(0);
+    const intervalId = window.setInterval(() => {
+      setSuggestionIndex((current) => current + 1);
+    }, 4200);
+    return () => window.clearInterval(intervalId);
+  }, [isKid]);
 
   function applyStreamEvent(event: ChatStreamEvent, assistantId: string) {
     if (event.type === "message_start") {
       setConversationId(event.conversation_id);
+      rememberActiveConversationId(event.conversation_id);
       return;
     }
     if (event.type === "tool_call") {
@@ -286,7 +390,7 @@ export function ChatStream() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming || isHydrating) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -301,6 +405,8 @@ export function ChatStream() {
     setDraft("");
     setAttachment(null);
     setFileError(null);
+    setHistoryError(null);
+    setActivePanel("chat");
     setIsStreaming(true);
 
     try {
@@ -350,68 +456,180 @@ export function ChatStream() {
     }
   }
 
+  function handleNewConversation() {
+    if (isStreaming || isHydrating) return;
+    abortRef.current?.abort();
+    setConversationId(null);
+    setMessages([]);
+    setToolTrace([]);
+    setAttachment(null);
+    setFileError(null);
+    setHistoryError(null);
+    setDraft("");
+    setActivePanel("chat");
+    rememberActiveConversationId(null);
+  }
+
   return (
-    <div className="space-y-5">
-      <div className="min-h-72 space-y-4">
-        {messages.length === 0 ? (
-          <div className="receipt-tape px-5 py-8">
-            <Bot className="h-6 w-6 text-primary" />
-            <h3 className="mt-4 font-display text-2xl font-black">
-              {isKid ? "Koçun seni dinliyor" : "Koç akışı hazır"}
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {isKid
-                ? "Harçlığın, kumbaran veya merak ettiğin bir şey hakkında soru sorabilirsin. Örneğin: 'Faiz nedir?' ya da 'Harçlığımı nasıl biriktiririm?'"
-                : "Harcama veya abonelik sorusu yazdığında Cüzdan Koçu güvenli oturum verinle araç çağırır. Fiş görseli eklersen fiş analiz aracı da aynı akışta görünür."}
-            </p>
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div
+          role="tablist"
+          aria-label="Sohbet çalışma alanı"
+          className="inline-flex rounded-[1.25rem] border border-border/70 bg-card/80 p-1 shadow-sm"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activePanel === "chat"}
+            aria-controls="chat-panel"
+            onClick={() => setActivePanel("chat")}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-[1rem] px-3 py-2 text-sm font-bold transition-colors",
+              activePanel === "chat"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+            )}
+          >
+            <MessageSquareText className="h-4 w-4" />
+            Sohbet
+          </button>
+          {isKid ? null : (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activePanel === "tools"}
+              aria-controls="tools-panel"
+              onClick={() => setActivePanel("tools")}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-[1rem] px-3 py-2 text-sm font-bold transition-colors",
+                activePanel === "tools"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+              )}
+            >
+              <Wrench className="h-4 w-4" />
+              Araç izi
+              {toolTrace.length > 0 ? (
+                <span className="rounded-full bg-background/85 px-1.5 py-0.5 text-[0.68rem] text-foreground">
+                  {toolTrace.length}
+                </span>
+              ) : null}
+            </button>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleNewConversation}
+          disabled={isStreaming || isHydrating}
+          className="rounded-[1rem]"
+        >
+          <Plus className="h-4 w-4" />
+          Yeni sohbet
+        </Button>
+      </div>
+
+      {historyError ? (
+        <p className="bg-destructive/14 rounded-2xl border border-destructive/35 px-4 py-2 text-sm font-semibold text-foreground">
+          {historyError}
+        </p>
+      ) : null}
+
+      <div className="bg-background/58 min-h-0 flex-1 overflow-hidden rounded-[1.75rem] border border-border/70">
+        {activePanel === "chat" ? (
+          <div
+            id="chat-panel"
+            role="tabpanel"
+            ref={scrollRef}
+            className="h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4"
+          >
+            <div className="space-y-4">
+              {isHydrating ? (
+                <div className="receipt-tape flex items-center gap-2 px-5 py-6 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Son sohbet yükleniyor...
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="receipt-tape px-5 py-7">
+                  <Bot className="h-6 w-6 text-primary" />
+                  <h3 className="mt-4 font-display text-2xl font-black">
+                    {isKid ? "Koçun seni dinliyor" : "Koç akışı hazır"}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {isKid
+                      ? "Harçlığın, kumbaran veya merak ettiğin bir şey hakkında soru sorabilirsin. Örneğin: 'Faiz nedir?' ya da 'Harçlığımı nasıl biriktiririm?'"
+                      : "Son sohbetin varsa burada açılır; yeni konuşma başlatmak için üstteki düğmeyi kullanabilirsin."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setDraft(activeSuggestion)}
+                    className="mt-4 w-full rounded-2xl border border-border/70 bg-background/75 px-4 py-3 text-left transition-colors hover:border-primary/45 hover:bg-card"
+                  >
+                    <span className="flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                      <Sparkles className="h-3.5 w-3.5 text-primary" />
+                      Deneyebileceğin soru
+                    </span>
+                    <span
+                      key={activeSuggestion}
+                      className="suggestion-rotate mt-2 block text-sm font-bold text-foreground"
+                    >
+                      {activeSuggestion}
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                messages.map((message) => (
+                  <ChatMessage
+                    key={message.id}
+                    role={message.role}
+                    content={message.content}
+                    isStreaming={message.isStreaming}
+                  >
+                    {message.attachments?.map(renderAttachment)}
+                  </ChatMessage>
+                ))
+              )}
+            </div>
           </div>
         ) : (
-          messages.map((message) => (
-            <ChatMessage
-              key={message.id}
-              role={message.role}
-              content={message.content}
-              isStreaming={message.isStreaming}
-            >
-              {message.attachments?.map(renderAttachment)}
-            </ChatMessage>
-          ))
+          <div id="tools-panel" role="tabpanel" className="h-full overflow-y-auto p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow">Kanıt defteri</p>
+                <h3 className="mt-1 font-display text-2xl font-black tracking-[-0.04em]">
+                  Araç izi
+                </h3>
+              </div>
+              {isStreaming ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
+            </div>
+            {toolTrace.length === 0 ? (
+              <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                İlk araç çağrısı burada görünecek. Sohbet sekmesi kalabalıklaşmadan yanıtın hangi
+                veriye dayandığını izleyebilirsin.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-2">
+                {toolTrace.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-col gap-1 rounded-2xl border border-border/60 bg-card/70 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                  >
+                    <span className="font-bold">{item.name}</span>
+                    <span className="break-words text-muted-foreground sm:text-right">
+                      {item.detail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      {isKid ? null : (
-        <div className="cash-envelope p-4">
-          <div className="relative z-10 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-bold">
-              <Wrench className="h-4 w-4" />
-              Araç izi
-            </div>
-            {isStreaming ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
-          </div>
-          {toolTrace.length === 0 ? (
-            <p className="relative z-10 mt-2 text-sm leading-6 text-muted-foreground">
-              İlk araç çağrısı burada görünecek.
-            </p>
-          ) : (
-            <div className="relative z-10 mt-3 space-y-2">
-              {toolTrace.slice(0, 4).map((item) => (
-                <div
-                  key={item.id}
-                  className="flex flex-col gap-1 rounded-2xl bg-background/65 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-                >
-                  <span className="font-bold">{item.name}</span>
-                  <span className="break-words text-muted-foreground sm:text-right">
-                    {item.detail}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       <form
-        className="bg-muted/62 space-y-2 rounded-[1.75rem] border border-border/70 p-2"
+        className="bg-muted/62 shrink-0 space-y-2 rounded-[1.75rem] border border-border/70 p-2"
         onSubmit={handleSubmit}
       >
         {attachment || fileError ? (
@@ -445,27 +663,23 @@ export function ChatStream() {
               type="file"
               accept="image/jpeg,image/png,image/webp"
               className="sr-only"
-              disabled={isStreaming}
+              disabled={isStreaming || isHydrating}
               onChange={handleFileChange}
             />
             <ImagePlus className="h-4 w-4" />
             <span className="sr-only">Fiş ekle</span>
           </label>
           <Input
-            placeholder={
-              isKid
-                ? "Faiz nedir? Harçlığımı nasıl biriktiririm?"
-                : "Bu ay markete ne kadar harcadım?"
-            }
+            placeholder={activeSuggestion}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            disabled={isStreaming}
+            disabled={isStreaming || isHydrating}
           />
           <Button
             type="submit"
             className="min-h-11"
             aria-label="Mesaj gönder"
-            disabled={isStreaming || !draft.trim()}
+            disabled={isStreaming || isHydrating || !draft.trim()}
           >
             {isStreaming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
