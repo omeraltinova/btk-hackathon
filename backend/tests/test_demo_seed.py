@@ -114,12 +114,18 @@ def test_demo_seed_creates_parent_logins_child_and_refreshes_insights(
     assert users_by_name["Ayşe Yılmaz"].role == "parent"
     assert users_by_name["Mehmet Yılmaz"].role == "parent"
     assert users_by_name["Elif Yılmaz"].role == "child"
+    assert users_by_name["Deniz Yılmaz"].role == "child"
+    assert users_by_name["Zeynep Yılmaz"].role == "child"
     assert users_by_name["Elif Yılmaz"].parent_id == users_by_name["Ayşe Yılmaz"].id
+    assert users_by_name["Zeynep Yılmaz"].age_status == "adult"
+    assert users_by_name["Deniz Yılmaz"].age_status == "minor"
+    assert users_by_name["Ayşe Yılmaz"].family_id == users_by_name["Mehmet Yılmaz"].family_id
     assert all(user.is_demo for user in db.users)
-    assert len(db.users) == 3
-    assert len(db.transactions) == 8
+    assert len(db.users) == 5
+    assert len(db.transactions) == 12
     assert any(transaction.source == "receipt_ocr" for transaction in db.transactions)
-    assert len(db.subscriptions) == 2
+    assert len(db.subscriptions) == 3
+    assert any(subscription.billing_cycle == "custom" for subscription in db.subscriptions)
     assert [user.name for user in db.refreshed_users] == [
         "Ayşe Yılmaz",
         "Mehmet Yılmaz",

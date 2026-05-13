@@ -191,9 +191,10 @@ Agent ve takım bu terimleri tutarlı kullanır.
 | **Asistan modu** | Harcama/abonelik/fiş tool çağrıları yapan davranış |
 | **Koç modu** | Finansal kavram açıklayan, senaryo simüle eden davranış |
 | **Proaktif insight** | Kullanıcı sormadan veya manuel yenilemeyle worker tarafından üretilen içgörü |
-| **Aile** | Bir parent ve 0+ child kullanıcılardan oluşan grup |
+| **Aile** | Aynı `family_id` altında 1+ parent ve 0+ child kullanıcılardan oluşan grup |
 | **Parent** | Aile yöneticisi; ailenin tümünü görür |
-| **Child** | Çocuk hesabı; sadece kendi verisini görür |
+| **Child** | Aile ilişkisi rolü; parent'ın çocuğu olan hesap. Reşit olabilir, sadece kendi verisini görür |
+| **Age status** | `minor` / `adult`; `birth_date` üzerinden dinamik hesaplanır, kullanıcıdan manuel yaş alınmaz |
 | **Individual** | Aileye bağlı olmayan tekil kullanıcı |
 | **Finance level** | beginner / intermediate / advanced / child |
 | **Tool** | Agent'ın çağırabildiği Python fonksiyonu (6 adet) |
@@ -203,6 +204,7 @@ Agent ve takım bu terimleri tutarlı kullanır.
 | **Transaction source** | `manual` / `receipt_ocr` / `recurring` |
 | **Usage score** | 0–1 arası, abonelik kullanım yoğunluğu tahmini |
 | **Recurring detection** | Aynı merchant'tan 2+ sabit tutar = abonelik tahmini |
+| **Custom recurrence** | `recurrence_interval` + `recurrence_unit` ile her X gün/hafta/ay/yıl tekrarı |
 
 ---
 
@@ -218,7 +220,7 @@ Bu kurallar şemaya ve mantığa kazınmıştır; bozulmaları bug'dır.
 
 **İK-4.** `child` yalnızca kendi `user_id`'sine ait veriyi görür. Backend her sorguda `user_id` filtresi uygular.
 
-**İK-5.** `parent` kendi + `parent_id = self.id` olan tüm child'ların verisini görür.
+**İK-5.** `parent` kendi `family_id` kapsamındaki parent/child üyelerin verisini görür. Eski veride `family_id` yoksa fallback: kendi + `parent_id = self.id` olan child'lar.
 
 **İK-6.** `individual` yalnızca kendi verisini görür. Aile UI'da gizli.
 
@@ -239,6 +241,10 @@ Bu kurallar şemaya ve mantığa kazınmıştır; bozulmaları bug'dır.
 **İK-14.** Chat mesajları `messages` tablosunda kalır. Context window son N mesaj (N=20).
 
 **İK-15.** API anahtarları, fiş base64'leri, ham OCR çıktıları log'a düşmez. Sadece event tipi + user_id loglanır.
+
+**İK-16.** Yaş manuel saklanmaz. Kullanıcı/ailenin yaşa bağlı mantığı `birth_date` üzerinden dinamik `age` ve `age_status` hesaplar. `role='child'` aile ilişkisidir; kişinin reşit olup olmaması `age_status` ile ayrıdır.
+
+**İK-17.** Tekrarlayan kayıtlar yalnızca haftalık/aylık/yıllık seçeneklerine bağlı değildir. `billing_cycle='custom'` için `recurrence_interval >= 1` ve `recurrence_unit IN ('day','week','month','year')` zorunludur.
 
 ---
 
@@ -332,14 +338,16 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 9. **Aile modu** (parent + child + family switch)
 10. **Agent memory** (`agent_memory` tablosu)
 11. **README + demo video**
+12. **Day 7 ürün polish ekleri** (tek işlem girişi ekranı, hesap bilgisi düzenleme,
+    parent-only aile finans özeti, daraltılabilir sol menü)
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-12. Sesli giriş (Web Speech API)
-13. Tasarruf hedef takibi
-14. Quiz modu
-15. CSV export
-16. Magic link auth (email-only login, parola yok)
+13. Sesli giriş (Web Speech API)
+14. Tasarruf hedef takibi
+15. Quiz modu
+16. CSV export
+17. Magic link auth (email-only login, parola yok)
 
 ---
 
@@ -370,13 +378,15 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 ```
 ┌────────────────────────────────────────────────┐
 │ Next.js Frontend (port 3000)                    │
-│  /dashboard  /chat  /receipts  /family          │
+│  /dashboard  /dashboard/transactions  /chat      │
+│  /receipts  /family  /account                    │
 └──────────────────┬──────────────────────────────┘
                    │ HTTPS
 ┌──────────────────▼──────────────────────────────┐
 │ FastAPI Backend (port 8000)                     │
 │  /api/auth/*  /api/transactions  /api/chat/stream│
 │  /api/receipts/upload  /api/insights  /api/family│
+│  /api/subscriptions                              │
 └──────────┬───────────────────┬──────────────────┘
            │                   │
   ┌───────▼─────────┐   ┌─────▼──────────────┐
@@ -404,8 +414,9 @@ CREATE TABLE users (
   name            TEXT NOT NULL,
   role            TEXT NOT NULL CHECK (role IN ('parent','child','individual')),
   parent_id       UUID REFERENCES users(id) ON DELETE CASCADE,
+  family_id       UUID,
   password_hash   TEXT,  -- NULL for child accounts; NOT NULL enforced at app layer for parent/individual
-  age             INT,
+  birth_date      DATE,
   finance_level   TEXT DEFAULT 'beginner'
                   CHECK (finance_level IN ('beginner','intermediate','advanced','child')),
   is_demo         BOOLEAN DEFAULT FALSE,
@@ -452,7 +463,10 @@ CREATE TABLE subscriptions (
   merchant                    TEXT,
   amount                      NUMERIC(12,2) NOT NULL,
   billing_cycle               TEXT NOT NULL
-                              CHECK (billing_cycle IN ('weekly','monthly','yearly')),
+                              CHECK (billing_cycle IN ('weekly','monthly','yearly','custom')),
+  recurrence_interval         INT NOT NULL DEFAULT 1 CHECK (recurrence_interval >= 1),
+  recurrence_unit             TEXT NOT NULL DEFAULT 'month'
+                              CHECK (recurrence_unit IN ('day','week','month','year')),
   next_billing_date           DATE,
   category_id                 UUID REFERENCES categories(id),
   is_active                   BOOLEAN DEFAULT TRUE,
@@ -913,8 +927,16 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.8
-**Son güncelleme:** 12 Mayıs 2026
+**Doküman versiyonu:** 0.10
+**Son güncelleme:** 13 Mayıs 2026
+**v0.10 değişiklikleri:** Aile modelinde ilişki rolü (`role`) ile yaş statüsü (`age_status`)
+ayrıldı; manuel `age` yerine `birth_date` tek kaynak oldu. `family_id` ile iki parent +
+birden çok child aynı aile kapsamına alınır. Tekrarlayan kayıtlar `custom` seçenekle her X
+gün/hafta/ay/yıl destekler.
+**v0.9 değişiklikleri:** Day 7 ürün polish kapsamı eklendi: işlem ve tekrarlayan ödeme
+girişi tek `İşlemler` ekranında birleşir; kullanıcı hesap bilgilerini düzenleyebilir;
+ebeveynler parent-only aile finans özetini görebilir; geniş ekran için sol menü
+daraltılabilir. Bu ekler mevcut aile/veri kapsamı kurallarını değiştirmez.
 **v0.8 değişiklikleri:** Proaktif insight kapsamı mevcut implementasyona göre güncellendi: manuel refresh endpoint'i, scheduler-ready worker, `low_activity`, `monthly_status`, `spending_spike`, `category_overspending`, `upcoming_recurring`, `savings_opportunity`, `receipt_activity` tipleri ve cron/APScheduler bağlama notu eklendi.
 **v0.7 değişiklikleri:** LLM sağlayıcı seçimi eklendi: doğrudan Gemini varsayılan kalır, OpenRouter `LLM_PROVIDER=openrouter` ile yedek yol olarak desteklenir; §10 gizlilik ifadesi sağlayıcı bağımsız hale getirildi, §13 stack satırı ve §22 risk planı güncellendi.
 **Sonraki güncelleme:** Handoff/ownership planı değişirse ya da yeni varsayım onayı geldiğinde.

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from os import getenv
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +22,8 @@ SEED_DESCRIPTION = "demo-family-seed"
 LEGACY_PARENT_EMAILS = ("demo.aile@cuzdan-kocu.local",)
 LEGACY_MEHMET_EMAILS = ("demo.mehmet@cuzdan-kocu.local",)
 LEGACY_ELIF_EMAILS = ("demo.elif@cuzdan-kocu.local",)
+LEGACY_DENIZ_EMAILS: tuple[str, ...] = ()
+LEGACY_ZEYNEP_EMAILS: tuple[str, ...] = ()
 
 
 def _env(name: str, default: str) -> str:
@@ -48,6 +50,14 @@ def elif_email() -> str:
     return _env("DEMO_ELIF_EMAIL", "elif@demo.cuzdan-kocu.app")
 
 
+def deniz_email() -> str:
+    return _env("DEMO_DENIZ_EMAIL", "deniz@demo.cuzdan-kocu.app")
+
+
+def zeynep_email() -> str:
+    return _env("DEMO_ZEYNEP_EMAIL", "zeynep@demo.cuzdan-kocu.app")
+
+
 def _find_user(db: Session, email: str) -> User | None:
     return db.execute(select(User).where(User.email == email)).scalar_one_or_none()
 
@@ -70,21 +80,28 @@ def _upsert_user(
     name: str,
     role: str,
     parent: User | None = None,
-    age: int | None = None,
+    family_id: UUID | None = None,
+    birth_date: date | None = None,
     finance_level: str = "beginner",
     password_hash: str | None = None,
     legacy_emails: tuple[str, ...] = (),
 ) -> User:
     user = _find_user_with_legacy(db, email, legacy_emails)
     if user is None:
-        user = User(email=email, name=name, role=role)
+        user = User(id=uuid4(), email=email, name=name, role=role)
         db.add(user)
+    resolved_family_id = family_id
+    if resolved_family_id is None and parent is not None:
+        resolved_family_id = parent.family_id or parent.id
+    if resolved_family_id is None and role == "parent":
+        resolved_family_id = user.id
     user.email = email
     user.name = name
     user.role = role
     user.parent_id = parent.id if parent else None
+    user.family_id = resolved_family_id
     user.password_hash = password_hash
-    user.age = age
+    user.birth_date = birth_date
     user.finance_level = finance_level
     user.is_demo = True
     db.commit()
@@ -137,11 +154,24 @@ def _ensure_transaction(
     )
 
 
-def _ensure_subscription(db: Session, *, user: User) -> None:
+def _ensure_subscription(
+    db: Session,
+    *,
+    user: User,
+    name: str,
+    merchant: str,
+    amount: str,
+    category_name: str,
+    days_until_billing: int,
+    billing_cycle: str = "monthly",
+    recurrence_interval: int = 1,
+    recurrence_unit: str = "month",
+    usage_score: str = "0.80",
+) -> None:
     existing = db.execute(
         select(Subscription).where(
             Subscription.user_id == user.id,
-            Subscription.name == "Ev interneti",
+            Subscription.name == name,
         ),
     ).scalar_one_or_none()
     if existing is not None:
@@ -149,15 +179,17 @@ def _ensure_subscription(db: Session, *, user: User) -> None:
     db.add(
         Subscription(
             user_id=user.id,
-            name="Ev interneti",
-            merchant="TurkNet",
-            amount=Decimal("499.90"),
-            billing_cycle="monthly",
-            next_billing_date=(datetime.now(UTC) + timedelta(days=5)).date(),
-            category_id=_category_id(db, "Fatura"),
+            name=name,
+            merchant=merchant,
+            amount=Decimal(amount),
+            billing_cycle=billing_cycle,
+            recurrence_interval=recurrence_interval,
+            recurrence_unit=recurrence_unit,
+            next_billing_date=(datetime.now(UTC) + timedelta(days=days_until_billing)).date(),
+            category_id=_category_id(db, category_name),
             is_active=True,
             detected_from_transactions=False,
-            usage_score=Decimal("0.80"),
+            usage_score=Decimal(usage_score),
         ),
     )
 
@@ -168,7 +200,7 @@ def seed_demo_family(db: Session) -> None:
         email=parent_email(),
         name="Ayşe Yılmaz",
         role="parent",
-        age=38,
+        birth_date=date(1988, 3, 12),
         finance_level="beginner",
         password_hash=hash_password(parent_password()),
         legacy_emails=LEGACY_PARENT_EMAILS,
@@ -178,7 +210,8 @@ def seed_demo_family(db: Session) -> None:
         email=mehmet_email(),
         name="Mehmet Yılmaz",
         role="parent",
-        age=42,
+        family_id=ayse.family_id or ayse.id,
+        birth_date=date(1984, 11, 6),
         finance_level="intermediate",
         password_hash=hash_password(mehmet_password()),
         legacy_emails=LEGACY_MEHMET_EMAILS,
@@ -189,10 +222,32 @@ def seed_demo_family(db: Session) -> None:
         name="Elif Yılmaz",
         role="child",
         parent=ayse,
-        age=12,
+        birth_date=date(2014, 9, 5),
         finance_level="child",
         password_hash=None,
         legacy_emails=LEGACY_ELIF_EMAILS,
+    )
+    deniz_profile = _upsert_user(
+        db,
+        email=deniz_email(),
+        name="Deniz Yılmaz",
+        role="child",
+        parent=ayse,
+        birth_date=date(2018, 4, 20),
+        finance_level="child",
+        password_hash=None,
+        legacy_emails=LEGACY_DENIZ_EMAILS,
+    )
+    zeynep_profile = _upsert_user(
+        db,
+        email=zeynep_email(),
+        name="Zeynep Yılmaz",
+        role="child",
+        parent=ayse,
+        birth_date=date(2004, 11, 18),
+        finance_level="beginner",
+        password_hash=None,
+        legacy_emails=LEGACY_ZEYNEP_EMAILS,
     )
 
     _ensure_transaction(
@@ -270,8 +325,73 @@ def seed_demo_family(db: Session) -> None:
         category_name="Eğitim",
         days_ago=1,
     )
-    _ensure_subscription(db, user=ayse)
-    _ensure_subscription(db, user=mehmet)
+    _ensure_transaction(
+        db,
+        user=deniz_profile,
+        amount="150.00",
+        tx_type="income",
+        merchant="Haftalık harçlık",
+        category_name="Maaş",
+        days_ago=5,
+    )
+    _ensure_transaction(
+        db,
+        user=deniz_profile,
+        amount="38.50",
+        tx_type="expense",
+        merchant="Okul kantini",
+        category_name="Eğitim",
+        days_ago=2,
+    )
+    _ensure_transaction(
+        db,
+        user=zeynep_profile,
+        amount="8500.00",
+        tx_type="income",
+        merchant="Staj ödemesi",
+        category_name="Maaş",
+        days_ago=3,
+    )
+    _ensure_transaction(
+        db,
+        user=zeynep_profile,
+        amount="1250.00",
+        tx_type="expense",
+        merchant="Üniversite kitapları",
+        category_name="Eğitim",
+        days_ago=1,
+    )
+    _ensure_subscription(
+        db,
+        user=ayse,
+        name="Ev interneti",
+        merchant="TurkNet",
+        amount="499.90",
+        category_name="Fatura",
+        days_until_billing=5,
+    )
+    _ensure_subscription(
+        db,
+        user=mehmet,
+        name="Netflix aile paketi",
+        merchant="Netflix",
+        amount="229.90",
+        category_name="Eğlence",
+        days_until_billing=7,
+    )
+    _ensure_subscription(
+        db,
+        user=zeynep_profile,
+        name="Yurt ödemesi",
+        merchant="Üniversite yurdu",
+        amount="6000.00",
+        category_name="Eğitim",
+        days_until_billing=14,
+        billing_cycle="custom",
+        recurrence_interval=3,
+        recurrence_unit="month",
+        usage_score="1.00",
+    )
     db.flush()
     refresh_insights_for_user(db, ayse)
     refresh_insights_for_user(db, mehmet)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -93,7 +93,7 @@ def make_user(*, role: str = "individual") -> User:
         role=role,
         parent_id=None,
         password_hash="hash",
-        age=35,
+        birth_date=date(1991, 1, 1),
         finance_level="beginner",
         is_demo=False,
     )

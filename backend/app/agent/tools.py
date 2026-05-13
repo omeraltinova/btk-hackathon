@@ -23,6 +23,7 @@ from app.models.user import User
 from app.routers._scoping import visible_user_ids
 from app.services.ocr import ReceiptOcrError, ReceiptOcrService, ReceiptOcrUnavailableError
 from app.utils.date_format import format_tr_date
+from app.utils.recurrence import monthly_equivalent, recurrence_label
 from app.utils.tl_format import format_tl
 
 MONEY_QUANT = Decimal("0.01")
@@ -45,16 +46,6 @@ def _aware_utc(value: datetime) -> datetime:
 
 def _normalized_days(days: int) -> int:
     return max(1, min(days, MAX_SPENDING_DAYS))
-
-
-def _monthly_equivalent(amount: Decimal, billing_cycle: str) -> Decimal:
-    if billing_cycle == "weekly":
-        monthly = amount * Decimal("4")
-    elif billing_cycle == "yearly":
-        monthly = amount / Decimal("12")
-    else:
-        monthly = amount
-    return _money(monthly)
 
 
 def _load_current_user(db: Session, user_id: str) -> User:
@@ -190,7 +181,12 @@ def build_subscriptions_summary(
     rows: list[dict[str, object]] = []
     monthly_total = Decimal("0")
     for subscription in subscriptions:
-        monthly = _monthly_equivalent(Decimal(subscription.amount), subscription.billing_cycle)
+        monthly = monthly_equivalent(
+            Decimal(subscription.amount),
+            subscription.recurrence_interval,
+            subscription.recurrence_unit,
+            subscription.billing_cycle,
+        )
         monthly_total += monthly
         rows.append(
             {
@@ -200,6 +196,13 @@ def build_subscriptions_summary(
                 "amount": _decimal_text(Decimal(subscription.amount)),
                 "amount_formatted": format_tl(Decimal(subscription.amount)),
                 "billing_cycle": subscription.billing_cycle,
+                "recurrence_interval": subscription.recurrence_interval,
+                "recurrence_unit": subscription.recurrence_unit,
+                "recurrence_label": recurrence_label(
+                    subscription.recurrence_interval,
+                    subscription.recurrence_unit,
+                    subscription.billing_cycle,
+                ),
                 "next_billing_date": (
                     subscription.next_billing_date.isoformat()
                     if subscription.next_billing_date

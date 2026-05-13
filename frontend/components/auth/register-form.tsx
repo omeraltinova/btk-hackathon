@@ -21,6 +21,7 @@ export function RegisterForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [birthDate, setBirthDate] = useState("");
   const [role, setRole] = useState<RegisterRole>("individual");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,7 +34,7 @@ export function RegisterForm() {
     try {
       await api<RegisterResponse>("/api/auth/register", {
         method: "POST",
-        body: { name, email, password, role },
+        body: { name, email, password, role, birth_date: birthDate || null },
         silent: true,
       });
       const result = await signIn("credentials", {
@@ -112,6 +113,20 @@ export function RegisterForm() {
           <option value="individual">Bireysel</option>
           <option value="parent">Ebeveyn</option>
         </select>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="birth-date" className="text-sm font-medium">
+          Doğum tarihi
+        </label>
+        <Input
+          id="birth-date"
+          type="date"
+          value={birthDate}
+          onChange={(event) => setBirthDate(event.target.value)}
+        />
+        <p className="text-xs font-medium text-muted-foreground">
+          Yaş bilgisi buradan otomatik hesaplanır.
+        </p>
       </div>
 
       {error ? (

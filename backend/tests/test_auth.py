@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import date
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import create_token, hash_password, verify_token
+from app.auth import create_token, hash_password, verify_password, verify_token
 from app.db import get_db
 from app.main import app
 from app.models.user import User
@@ -94,7 +95,7 @@ def make_user(
         role=role,
         parent_id=None,
         password_hash=password_hash,
-        age=38 if role != "child" else 12,
+        birth_date=date(1988, 1, 1) if role != "child" else date(2014, 1, 1),
         finance_level="child" if role == "child" else "beginner",
         is_demo=False,
     )
@@ -207,6 +208,69 @@ def test_me_returns_current_user(
 
     assert response.status_code == 200
     assert response.json()["email"] == "ayse@example.com"
+
+
+def test_update_me_changes_profile_info(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    user = make_user(password_hash=hash_password("guvenli-sifre-123"))
+    fake_session.users.append(user)
+
+    response = client.patch(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {create_token(user.id)}"},
+        json={
+            "email": "AYSE.YENI@example.com",
+            "name": "  Ayşe   Yeni  ",
+            "birth_date": "1987-01-01",
+            "finance_level": "intermediate",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == "ayse.yeni@example.com"
+    assert body["name"] == "Ayşe Yeni"
+    assert body["birth_date"] == "1987-01-01"
+    assert body["age"] is not None
+    assert body["finance_level"] == "intermediate"
+
+
+def test_update_me_rejects_duplicate_email(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    user = make_user(email="ayse@example.com", password_hash=hash_password("guvenli-sifre-123"))
+    other = make_user(email="mehmet@example.com", password_hash=hash_password("guvenli-sifre-123"))
+    fake_session.users.extend([user, other])
+
+    response = client.patch(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {create_token(user.id)}"},
+        json={"email": "mehmet@example.com"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Bu e-posta adresiyle kayıtlı bir hesap var."
+
+
+def test_update_me_changes_password_when_current_password_matches(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    user = make_user(password_hash=hash_password("eski-sifre-123"))
+    fake_session.users.append(user)
+
+    response = client.patch(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {create_token(user.id)}"},
+        json={"current_password": "eski-sifre-123", "new_password": "yeni-sifre-123"},
+    )
+
+    assert response.status_code == 200
+    assert user.password_hash is not None
+    assert verify_password("yeni-sifre-123", user.password_hash)
 
 
 def test_me_requires_bearer_token(client: TestClient) -> None:

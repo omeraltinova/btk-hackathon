@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -11,11 +14,22 @@ from sqlalchemy.orm import Session
 from app.auth import create_token, get_current_user
 from app.config import get_settings
 from app.db import get_db
+from app.models.subscription import Subscription
+from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.auth import AuthUser, TokenResponse
-from app.schemas.family import ChildCreate, ChildUpdate, FamilyMemberRead
+from app.schemas.family import (
+    ChildCreate,
+    ChildUpdate,
+    FamilyMemberFinanceRead,
+    FamilyMemberRead,
+    FamilyOverviewRead,
+)
+from app.utils.recurrence import monthly_equivalent
 
 router = APIRouter(prefix="/api/family", tags=["family"])
+ISTANBUL = ZoneInfo("Europe/Istanbul")
+MONEY_QUANT = Decimal("0.01")
 
 
 def _ensure_parent(current_user: User) -> None:
@@ -27,12 +41,16 @@ def _ensure_parent(current_user: User) -> None:
 
 
 def _get_child(child_id: UUID, current_user: User, db: Session) -> User:
+    criteria = [
+        User.id == child_id,
+        User.role == "child",
+    ]
+    if current_user.family_id is not None:
+        criteria.append(User.family_id == current_user.family_id)
+    else:
+        criteria.append(User.parent_id == current_user.id)
     child = db.execute(
-        select(User).where(
-            User.id == child_id,
-            User.parent_id == current_user.id,
-            User.role == "child",
-        ),
+        select(User).where(*criteria),
     ).scalar_one_or_none()
     if child is None:
         raise HTTPException(
@@ -54,15 +72,8 @@ def _token_response(user: User) -> TokenResponse:
     )
 
 
-@router.get("", response_model=list[FamilyMemberRead])
-def list_family_members(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> list[User]:
-    if current_user.role == "child":
-        return [current_user]
-    _ensure_parent(current_user)
-    children = (
+def _list_children(current_user: User, db: Session) -> list[User]:
+    return list(
         db.execute(
             select(User)
             .where(User.parent_id == current_user.id, User.role == "child")
@@ -71,7 +82,141 @@ def list_family_members(
         .scalars()
         .all()
     )
-    return [current_user, *children]
+
+
+def _ensure_family_id(current_user: User) -> UUID:
+    if current_user.family_id is None:
+        current_user.family_id = current_user.id
+    return current_user.family_id
+
+
+def _list_family_members(current_user: User, db: Session) -> list[User]:
+    if current_user.family_id is None:
+        return [current_user, *_list_children(current_user, db)]
+    return list(
+        db.execute(
+            select(User)
+            .where(
+                User.family_id == current_user.family_id,
+                User.role.in_(("parent", "child")),
+            )
+            .order_by(User.role.desc(), User.created_at, User.name),
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _month_start(value: datetime) -> datetime:
+    return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _as_aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+@router.get("", response_model=list[FamilyMemberRead])
+def list_family_members(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[User]:
+    if current_user.role == "child":
+        return [current_user]
+    _ensure_parent(current_user)
+    return _list_family_members(current_user, db)
+
+
+@router.get("/overview", response_model=FamilyOverviewRead)
+def family_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FamilyOverviewRead:
+    _ensure_parent(current_user)
+    members = _list_family_members(current_user, db)
+    user_ids = [member.id for member in members]
+    now = datetime.now(ISTANBUL)
+    period_start = _month_start(now)
+
+    transactions = (
+        db.execute(
+            select(Transaction).where(
+                Transaction.user_id.in_(user_ids),
+                Transaction.occurred_at >= period_start.astimezone(UTC),
+            ),
+        )
+        .scalars()
+        .all()
+    )
+    subscriptions = (
+        db.execute(
+            select(Subscription).where(
+                Subscription.user_id.in_(user_ids),
+                Subscription.is_active.is_(True),
+            ),
+        )
+        .scalars()
+        .all()
+    )
+
+    income_by_user = dict.fromkeys(user_ids, Decimal("0"))
+    expense_by_user = dict.fromkeys(user_ids, Decimal("0"))
+    recurring_by_user = dict.fromkeys(user_ids, Decimal("0"))
+    count_by_user = dict.fromkeys(user_ids, 0)
+
+    for transaction in transactions:
+        occurred_at = _as_aware_utc(transaction.occurred_at).astimezone(ISTANBUL)
+        if occurred_at < period_start:
+            continue
+        amount = Decimal(transaction.amount)
+        count_by_user[transaction.user_id] += 1
+        if transaction.type == "income":
+            income_by_user[transaction.user_id] += amount
+        else:
+            expense_by_user[transaction.user_id] += amount
+
+    for subscription in subscriptions:
+        recurring_by_user[subscription.user_id] += monthly_equivalent(
+            Decimal(subscription.amount),
+            subscription.recurrence_interval,
+            subscription.recurrence_unit,
+            subscription.billing_cycle,
+        )
+
+    member_rows = [
+        FamilyMemberFinanceRead(
+            user_id=member.id,
+            name=member.name,
+            role="parent" if member.role == "parent" else "child",
+            birth_date=member.birth_date,
+            age=member.age,
+            age_status=member.age_status,
+            income=_money(income_by_user[member.id]),
+            expense=_money(expense_by_user[member.id]),
+            balance=_money(income_by_user[member.id] - expense_by_user[member.id]),
+            recurring_monthly=_money(recurring_by_user[member.id]),
+            transaction_count=count_by_user[member.id],
+        )
+        for member in members
+    ]
+
+    total_income = sum((row.income for row in member_rows), Decimal("0"))
+    total_expense = sum((row.expense for row in member_rows), Decimal("0"))
+    total_recurring = sum((row.recurring_monthly for row in member_rows), Decimal("0"))
+    return FamilyOverviewRead(
+        period_start=period_start,
+        period_end=now,
+        total_income=_money(total_income),
+        total_expense=_money(total_expense),
+        total_balance=_money(total_income - total_expense),
+        total_recurring_monthly=_money(total_recurring),
+        members=member_rows,
+    )
 
 
 @router.post("/children", response_model=FamilyMemberRead, status_code=status.HTTP_201_CREATED)
@@ -81,13 +226,15 @@ def create_child(
     current_user: User = Depends(get_current_user),
 ) -> User:
     _ensure_parent(current_user)
+    family_id = _ensure_family_id(current_user)
     child = User(
         email=_child_email(current_user),
         name=payload.name,
         role="child",
         parent_id=current_user.id,
+        family_id=family_id,
         password_hash=None,
-        age=payload.age,
+        birth_date=payload.birth_date,
         finance_level=payload.finance_level,
         is_demo=current_user.is_demo,
     )

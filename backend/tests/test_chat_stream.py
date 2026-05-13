@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -126,7 +126,7 @@ def make_user() -> User:
         role="parent",
         parent_id=None,
         password_hash="hash",
-        age=38,
+        birth_date=date(1988, 1, 1),
         finance_level="beginner",
         is_demo=False,
     )

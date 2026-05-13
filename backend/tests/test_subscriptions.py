@@ -121,7 +121,7 @@ def make_user(*, role: str = "individual") -> User:
         role=role,
         parent_id=None,
         password_hash="hash",
-        age=35,
+        birth_date=date(1991, 1, 1),
         finance_level="beginner",
         is_demo=False,
     )
@@ -139,6 +139,8 @@ def make_subscription(
         merchant="Hizmet",
         amount=Decimal(amount),
         billing_cycle=cycle,
+        recurrence_interval=1,
+        recurrence_unit={"weekly": "week", "yearly": "year"}.get(cycle, "month"),
         next_billing_date=date(2026, 6, 1),
         category_id=None,
         is_active=True,
@@ -196,6 +198,30 @@ def test_create_subscription_assigns_current_user_and_validates_category() -> No
     assert result.category_id == category.id
     assert result.monthly_equivalent == Decimal("450.25")
     assert db.committed is True
+
+
+def test_create_custom_subscription_stores_interval_and_monthly_equivalent() -> None:
+    user = make_user()
+    db = FakeSession(user_ids=[user.id])
+
+    result = create_subscription(
+        SubscriptionCreate(
+            name="Üç ayda bir yurt",
+            merchant="Yurt",
+            amount=Decimal("6000.00"),
+            billing_cycle="custom",
+            recurrence_interval=3,
+            recurrence_unit="month",
+        ),
+        db=db,
+        current_user=user,
+    )
+
+    assert result.billing_cycle == "custom"
+    assert result.recurrence_interval == 3
+    assert result.recurrence_unit == "month"
+    assert result.recurrence_label == "Her 3 ayda bir"
+    assert result.monthly_equivalent == Decimal("2000.00")
 
 
 def test_update_subscription_rejects_other_user_row() -> None:

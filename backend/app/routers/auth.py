@@ -1,5 +1,7 @@
 """Auth router: email/password registration, login, and current user lookup."""
 
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -9,7 +11,13 @@ from app.auth import create_token, get_current_user, hash_password, verify_passw
 from app.config import get_settings
 from app.db import get_db
 from app.models.user import User
-from app.schemas.auth import AuthUser, LoginRequest, RegisterRequest, TokenResponse
+from app.schemas.auth import (
+    AccountUpdateRequest,
+    AuthUser,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -35,12 +43,15 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenRe
             detail="Bu e-posta adresiyle kayıtlı bir hesap var.",
         )
 
+    user_id = uuid4()
     user = User(
+        id=user_id,
         email=payload.email,
         name=payload.name,
         role=payload.role,
         password_hash=hash_password(payload.password),
-        age=payload.age,
+        family_id=user_id if payload.role == "parent" else None,
+        birth_date=payload.birth_date,
         finance_level=payload.finance_level,
     )
     db.add(user)
@@ -74,4 +85,52 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 
 @router.get("/me", response_model=AuthUser)
 def me(current_user: User = Depends(get_current_user)) -> AuthUser:
+    return AuthUser.model_validate(current_user)
+
+
+@router.patch("/me", response_model=AuthUser)
+def update_me(
+    payload: AccountUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AuthUser:
+    if payload.email is not None and payload.email != current_user.email:
+        existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+        if existing is not None and existing.id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bu e-posta adresiyle kayıtlı bir hesap var.",
+            )
+        current_user.email = payload.email
+
+    if payload.name is not None:
+        current_user.name = payload.name
+    if "birth_date" in payload.model_fields_set:
+        current_user.birth_date = payload.birth_date
+    if payload.finance_level is not None:
+        if current_user.role == "child":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Çocuk profili finans seviyesi aile ekranından yönetilir.",
+            )
+        current_user.finance_level = payload.finance_level
+
+    if payload.new_password is not None:
+        if current_user.password_hash is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bu profil için şifre değiştirilemez.",
+            )
+        if payload.current_password is None or not verify_password(
+            payload.current_password,
+            current_user.password_hash,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mevcut şifre hatalı.",
+            )
+        current_user.password_hash = hash_password(payload.new_password)
+
+    db.commit()
+    db.refresh(current_user)
     return AuthUser.model_validate(current_user)

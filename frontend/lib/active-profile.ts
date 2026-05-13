@@ -24,7 +24,10 @@ function isAuthUser(value: unknown): value is AuthUser {
     typeof value.name === "string" &&
     (value.role === "parent" || value.role === "child" || value.role === "individual") &&
     (typeof value.parent_id === "string" || value.parent_id === null) &&
+    (typeof value.family_id === "string" || value.family_id === null) &&
+    (typeof value.birth_date === "string" || value.birth_date === null) &&
     (typeof value.age === "number" || value.age === null) &&
+    (value.age_status === "minor" || value.age_status === "adult" || value.age_status === null) &&
     (value.finance_level === "beginner" ||
       value.finance_level === "intermediate" ||
       value.finance_level === "advanced" ||

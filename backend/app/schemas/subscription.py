@@ -5,9 +5,12 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-BillingCycle = Literal["weekly", "monthly", "yearly"]
+from app.utils.recurrence import recurrence_from_billing_cycle
+
+BillingCycle = Literal["weekly", "monthly", "yearly", "custom"]
+RecurrenceUnit = Literal["day", "week", "month", "year"]
 
 
 class SubscriptionCreate(BaseModel):
@@ -15,6 +18,8 @@ class SubscriptionCreate(BaseModel):
     merchant: str | None = Field(default=None, max_length=120)
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     billing_cycle: BillingCycle = "monthly"
+    recurrence_interval: int | None = Field(default=None, ge=1, le=3650)
+    recurrence_unit: RecurrenceUnit | None = None
     next_billing_date: date | None = None
     category_id: UUID | None = None
     is_active: bool = True
@@ -35,12 +40,25 @@ class SubscriptionCreate(BaseModel):
         normalized = " ".join(value.split())
         return normalized or None
 
+    @model_validator(mode="after")
+    def validate_recurrence(self) -> SubscriptionCreate:
+        if self.billing_cycle == "custom":
+            if self.recurrence_interval is None or self.recurrence_unit is None:
+                raise ValueError("Özel tekrar için aralık ve birim gerekli.")
+            return self
+        interval, unit = recurrence_from_billing_cycle(self.billing_cycle)
+        self.recurrence_interval = interval
+        self.recurrence_unit = unit
+        return self
+
 
 class SubscriptionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     merchant: str | None = Field(default=None, max_length=120)
     amount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
     billing_cycle: BillingCycle | None = None
+    recurrence_interval: int | None = Field(default=None, ge=1, le=3650)
+    recurrence_unit: RecurrenceUnit | None = None
     next_billing_date: date | None = None
     category_id: UUID | None = None
     is_active: bool | None = None
@@ -71,6 +89,9 @@ class SubscriptionRead(BaseModel):
     merchant: str | None
     amount: Decimal
     billing_cycle: BillingCycle
+    recurrence_interval: int
+    recurrence_unit: RecurrenceUnit
+    recurrence_label: str
     next_billing_date: date | None
     category_id: UUID | None
     is_active: bool

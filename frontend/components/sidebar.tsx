@@ -4,8 +4,10 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Receipt,
-  Repeat2,
+  UserRound,
   Users,
   Wallet,
   WalletCards,
@@ -14,6 +16,7 @@ import type { Session } from "next-auth";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -22,10 +25,10 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
   { href: "/dashboard/transactions", label: "İşlemler", section: "02", icon: WalletCards },
-  { href: "/dashboard/recurring", label: "Tekrarlar", section: "03", icon: Repeat2 },
-  { href: "/chat", label: "Sohbet", section: "04", icon: MessageSquare },
-  { href: "/receipts", label: "Fişler", section: "05", icon: Receipt },
-  { href: "/family", label: "Aile", section: "06", icon: Users },
+  { href: "/chat", label: "Sohbet", section: "03", icon: MessageSquare },
+  { href: "/receipts", label: "Fişler", section: "04", icon: Receipt },
+  { href: "/family", label: "Aile", section: "05", icon: Users },
+  { href: "/account", label: "Hesap", section: "06", icon: UserRound },
 ] as const;
 
 const ROLE_LABELS = {
@@ -50,31 +53,79 @@ type SidebarProps = {
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const navItems =
     user.role === "individual" ? NAV_ITEMS.filter((item) => item.href !== "/family") : NAV_ITEMS;
   const displayName = user.name ?? "Cüzdan Koçu";
 
+  useEffect(() => {
+    setIsCollapsed(window.localStorage.getItem("cuzdan-kocu.sidebar") === "collapsed");
+  }, []);
+
+  function handleToggleSidebar() {
+    setIsCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem("cuzdan-kocu.sidebar", next ? "collapsed" : "expanded");
+      return next;
+    });
+  }
+
   return (
-    <aside className="sticky top-0 z-40 flex w-full shrink-0 flex-col border-b border-border/80 bg-card/95 backdrop-blur-xl lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:bg-card">
+    <aside
+      className={cn(
+        "sticky top-0 z-40 flex w-full shrink-0 flex-col border-b border-border/80 bg-card/95 backdrop-blur-xl transition-[width] duration-300 ease-quint lg:h-screen lg:border-b-0 lg:border-r lg:bg-card",
+        isCollapsed ? "lg:w-20" : "lg:w-72",
+      )}
+    >
       {/* Brand */}
-      <div className="binder-holes relative flex items-center justify-between gap-3 px-3 py-3 sm:px-4 sm:py-4 lg:block lg:px-8 lg:py-7">
+      <div
+        className={cn(
+          "binder-holes relative flex items-center justify-between gap-3 px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-6",
+          isCollapsed ? "lg:flex-col" : "lg:block lg:px-8 lg:py-7",
+        )}
+      >
         <div className="flex min-w-0 items-center gap-3">
           <div className="hard-shadow-accent grid h-11 w-11 place-items-center rounded-[1rem_1rem_0.55rem_1rem] border border-primary/30 bg-primary text-primary-foreground">
             <Wallet className="h-5 w-5" />
           </div>
-          <div className="min-w-0">
+          <div className={cn("min-w-0", isCollapsed && "lg:hidden")}>
             <span className="block truncate font-display text-xl font-bold tracking-tight">
               Cüzdan Koçu
             </span>
             <p className="text-xs text-muted-foreground">Ev bütçesi defteri</p>
           </div>
         </div>
-        <span className="stamp-label shrink-0 bg-background/65 text-primary lg:mt-6 lg:inline-flex">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="hidden rounded-[1rem] lg:inline-flex"
+          aria-label={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
+          title={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
+          onClick={handleToggleSidebar}
+        >
+          {isCollapsed ? (
+            <PanelLeftOpen className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
+        </Button>
+        <span
+          className={cn(
+            "stamp-label shrink-0 bg-background/65 text-primary lg:mt-6 lg:inline-flex",
+            isCollapsed && "lg:hidden",
+          )}
+        >
           {user.isDemo ? "Demo" : ROLE_LABELS[user.role]}
         </span>
       </div>
 
-      <div className="mx-4 hidden rotate-[-1deg] items-center gap-3 rounded-[1.4rem_1.4rem_0.8rem_1.4rem] border border-border/80 bg-muted/70 px-3 py-3 lg:flex">
+      <div
+        className={cn(
+          "mx-4 hidden rotate-[-1deg] items-center gap-3 rounded-[1.4rem_1.4rem_0.8rem_1.4rem] border border-border/80 bg-muted/70 px-3 py-3 lg:flex",
+          isCollapsed && "lg:hidden",
+        )}
+      >
         <Avatar className="h-9 w-9">
           <AvatarFallback>{initials(displayName)}</AvatarFallback>
         </Avatar>
@@ -100,16 +151,20 @@ export function Sidebar({ user }: SidebarProps) {
               key={item.href}
               href={item.href}
               aria-current={isActive ? "page" : undefined}
+              title={item.label}
               className={cn(
                 "tab-chip flex min-h-11 shrink-0 items-center gap-2 px-3 py-2.5 pr-5 text-sm font-bold transition-all duration-200 ease-quint sm:gap-3 sm:px-4 sm:pr-6 lg:w-full",
+                isCollapsed && "lg:justify-center lg:px-3 lg:pr-3",
                 isActive
                   ? "hard-shadow-accent bg-primary text-primary-foreground"
                   : "bg-muted/45 text-muted-foreground hover:bg-accent/45 hover:text-accent-foreground motion-safe:hover:-translate-y-0.5",
               )}
             >
-              <span className="font-display text-xs opacity-70">{item.section}</span>
+              <span className={cn("font-display text-xs opacity-70", isCollapsed && "lg:hidden")}>
+                {item.section}
+              </span>
               <Icon className="h-4 w-4" />
-              <span>{item.label}</span>
+              <span className={cn(isCollapsed && "lg:hidden")}>{item.label}</span>
             </Link>
           );
         })}
@@ -126,11 +181,15 @@ export function Sidebar({ user }: SidebarProps) {
       <div className="hidden border-t border-border/70 p-4 lg:block">
         <Button
           variant="ghost"
-          className="w-full justify-start rounded-[1.1rem] text-muted-foreground"
+          className={cn(
+            "w-full rounded-[1.1rem] text-muted-foreground",
+            isCollapsed ? "justify-center px-0" : "justify-start",
+          )}
+          title="Çıkış"
           onClick={() => void signOut({ callbackUrl: "/login" })}
         >
           <LogOut className="h-4 w-4" />
-          Çıkış
+          <span className={cn(isCollapsed && "lg:hidden")}>Çıkış</span>
         </Button>
       </div>
     </aside>

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -75,7 +75,7 @@ def make_user() -> User:
         role="individual",
         parent_id=None,
         password_hash="hash",
-        age=35,
+        birth_date=date(1991, 1, 1),
         finance_level="beginner",
         is_demo=False,
     )

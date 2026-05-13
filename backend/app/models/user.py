@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, text
+from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+from app.utils.age import age_status, calculate_age
 
 if TYPE_CHECKING:
     # Avoid circular imports at runtime; only used for type hints.
@@ -58,8 +60,9 @@ class User(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=True,
     )
+    family_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
-    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     finance_level: Mapped[str] = mapped_column(
         String,
         nullable=False,
@@ -87,3 +90,11 @@ class User(TimestampMixin, Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+
+    @property
+    def age(self) -> int | None:
+        return calculate_age(self.birth_date)
+
+    @property
+    def age_status(self) -> str | None:
+        return age_status(self.birth_date)

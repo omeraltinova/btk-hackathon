@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 from uuid import uuid4
 
@@ -41,7 +42,7 @@ def make_user(role: str) -> User:
         role=role,
         parent_id=None,
         password_hash="hash",
-        age=35,
+        birth_date=date(1991, 1, 1),
         finance_level="beginner",
         is_demo=False,
     )

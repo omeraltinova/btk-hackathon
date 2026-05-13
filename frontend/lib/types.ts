@@ -1,6 +1,7 @@
 export type UserRole = "parent" | "child" | "individual";
 
 export type FinanceLevel = "beginner" | "intermediate" | "advanced" | "child";
+export type AgeStatus = "minor" | "adult";
 
 export type TransactionType = "income" | "expense";
 
@@ -12,7 +13,10 @@ export type AuthUser = {
   name: string;
   role: UserRole;
   parent_id: string | null;
+  family_id: string | null;
+  birth_date: string | null;
   age: number | null;
+  age_status: AgeStatus | null;
   finance_level: FinanceLevel;
   is_demo: boolean;
 };
@@ -22,6 +26,15 @@ export type TokenResponse = {
   token_type: "bearer";
   expires_in_days: number;
   user: AuthUser;
+};
+
+export type AccountUpdateInput = {
+  email?: string;
+  name?: string;
+  birth_date?: string | null;
+  finance_level?: Exclude<FinanceLevel, "child">;
+  current_password?: string;
+  new_password?: string;
 };
 
 export type Category = {
@@ -103,7 +116,8 @@ export type TransactionSummary = {
   category_totals: TransactionCategoryTotal[];
 };
 
-export type BillingCycle = "weekly" | "monthly" | "yearly";
+export type BillingCycle = "weekly" | "monthly" | "yearly" | "custom";
+export type RecurrenceUnit = "day" | "week" | "month" | "year";
 
 export type Subscription = {
   id: string;
@@ -112,6 +126,9 @@ export type Subscription = {
   merchant: string | null;
   amount: string;
   billing_cycle: BillingCycle;
+  recurrence_interval: number;
+  recurrence_unit: RecurrenceUnit;
+  recurrence_label: string;
   next_billing_date: string | null;
   category_id: string | null;
   is_active: boolean;
@@ -125,6 +142,8 @@ export type SubscriptionCreateInput = {
   merchant?: string | null;
   amount: string;
   billing_cycle: BillingCycle;
+  recurrence_interval?: number | null;
+  recurrence_unit?: RecurrenceUnit | null;
   next_billing_date?: string | null;
   category_id?: string | null;
   is_active?: boolean;
@@ -173,10 +192,34 @@ export type FamilyMember = AuthUser & {
   updated_at: string;
 };
 
+export type FamilyMemberFinance = {
+  user_id: string;
+  name: string;
+  role: "parent" | "child";
+  birth_date: string | null;
+  age: number | null;
+  age_status: AgeStatus | null;
+  income: string;
+  expense: string;
+  balance: string;
+  recurring_monthly: string;
+  transaction_count: number;
+};
+
+export type FamilyOverview = {
+  period_start: string;
+  period_end: string;
+  total_income: string;
+  total_expense: string;
+  total_balance: string;
+  total_recurring_monthly: string;
+  members: FamilyMemberFinance[];
+};
+
 export type ChildCreateInput = {
   name: string;
-  age: number;
-  finance_level: "child" | "beginner";
+  birth_date: string;
+  finance_level: FinanceLevel;
 };
 
 export type ChildUpdateInput = Partial<ChildCreateInput>;

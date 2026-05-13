@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -16,20 +15,13 @@ from app.models.subscription import Subscription
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
 from app.schemas.subscription import SubscriptionCreate, SubscriptionRead, SubscriptionUpdate
+from app.utils.recurrence import (
+    monthly_equivalent,
+    recurrence_from_billing_cycle,
+    recurrence_label,
+)
 
 router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"])
-
-MONEY_QUANT = Decimal("0.01")
-
-
-def _monthly_equivalent(amount: Decimal, billing_cycle: str) -> Decimal:
-    if billing_cycle == "weekly":
-        value = amount * Decimal("4")
-    elif billing_cycle == "yearly":
-        value = amount / Decimal("12")
-    else:
-        value = amount
-    return value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
 def _to_read(subscription: Subscription) -> SubscriptionRead:
@@ -40,13 +32,43 @@ def _to_read(subscription: Subscription) -> SubscriptionRead:
         merchant=subscription.merchant,
         amount=subscription.amount,
         billing_cycle=subscription.billing_cycle,
+        recurrence_interval=subscription.recurrence_interval,
+        recurrence_unit=subscription.recurrence_unit,
+        recurrence_label=recurrence_label(
+            subscription.recurrence_interval,
+            subscription.recurrence_unit,
+            subscription.billing_cycle,
+        ),
         next_billing_date=subscription.next_billing_date,
         category_id=subscription.category_id,
         is_active=subscription.is_active,
         detected_from_transactions=subscription.detected_from_transactions,
         usage_score=subscription.usage_score,
-        monthly_equivalent=_monthly_equivalent(subscription.amount, subscription.billing_cycle),
+        monthly_equivalent=monthly_equivalent(
+            subscription.amount,
+            subscription.recurrence_interval,
+            subscription.recurrence_unit,
+            subscription.billing_cycle,
+        ),
     )
+
+
+def _validate_subscription_recurrence(subscription: Subscription) -> None:
+    if subscription.billing_cycle == "custom":
+        if subscription.recurrence_interval < 1 or subscription.recurrence_unit not in {
+            "day",
+            "week",
+            "month",
+            "year",
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Özel tekrar için geçerli aralık ve birim gerekli.",
+            )
+        return
+    interval, unit = recurrence_from_billing_cycle(subscription.billing_cycle)
+    subscription.recurrence_interval = interval
+    subscription.recurrence_unit = unit
 
 
 def _get_scoped_subscription(
@@ -123,12 +145,15 @@ def create_subscription(
         merchant=payload.merchant,
         amount=payload.amount,
         billing_cycle=payload.billing_cycle,
+        recurrence_interval=payload.recurrence_interval or 1,
+        recurrence_unit=payload.recurrence_unit or "month",
         next_billing_date=payload.next_billing_date,
         category_id=payload.category_id,
         is_active=payload.is_active,
         detected_from_transactions=False,
         usage_score=None,
     )
+    _validate_subscription_recurrence(subscription)
     db.add(subscription)
     db.commit()
     db.refresh(subscription)
@@ -148,6 +173,7 @@ def update_subscription(
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(subscription, field, value)
+    _validate_subscription_recurrence(subscription)
 
     db.commit()
     db.refresh(subscription)

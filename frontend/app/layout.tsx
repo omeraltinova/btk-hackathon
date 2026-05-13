@@ -3,6 +3,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { Afacad, Commissioner } from "next/font/google";
 
+import { SessionProvider } from "@/components/session-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -31,10 +32,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     // attribute differs server vs. client until the theme mounts.
     <html lang="tr" suppressHydrationWarning>
       <body className={`${afacad.variable} ${commissioner.variable} font-sans`}>
-        <ThemeProvider>
-          {children}
-          <Toaster />
-        </ThemeProvider>
+        <SessionProvider>
+          <ThemeProvider>
+            {children}
+            <Toaster />
+          </ThemeProvider>
+        </SessionProvider>
       </body>
     </html>
   );

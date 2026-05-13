@@ -117,7 +117,7 @@ def make_user(*, role: str = "individual", parent_id: UUID | None = None) -> Use
         role=role,
         parent_id=parent_id,
         password_hash="hash",
-        age=35,
+        birth_date=date(1991, 1, 1),
         finance_level="beginner",
         is_demo=False,
     )
@@ -168,6 +168,8 @@ def make_subscription(*, user_id: UUID, amount: str, next_date: date) -> Subscri
         merchant="Servis",
         amount=Decimal(amount),
         billing_cycle="monthly",
+        recurrence_interval=1,
+        recurrence_unit="month",
         next_billing_date=next_date,
         category_id=None,
         is_active=True,

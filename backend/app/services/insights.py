@@ -17,6 +17,7 @@ from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
+from app.utils.recurrence import monthly_equivalent
 from app.utils.tl_format import format_tl
 
 ISTANBUL = ZoneInfo("Europe/Istanbul")
@@ -46,14 +47,6 @@ def _previous_month_start(value: datetime) -> datetime:
     if value.month == 1:
         return value.replace(year=value.year - 1, month=12)
     return value.replace(month=value.month - 1)
-
-
-def _monthly_equivalent(amount: Decimal, cycle: str) -> Decimal:
-    if cycle == "weekly":
-        return amount * Decimal("4")
-    if cycle == "yearly":
-        return amount / Decimal("12")
-    return amount
 
 
 def _category_names(categories: list[Category]) -> dict[UUID | None, str]:
@@ -219,7 +212,15 @@ def build_insight_candidates(
         )
 
     monthly_subscriptions = sum(
-        (_monthly_equivalent(Decimal(item.amount), item.billing_cycle) for item in subscriptions),
+        (
+            monthly_equivalent(
+                Decimal(item.amount),
+                item.recurrence_interval,
+                item.recurrence_unit,
+                item.billing_cycle,
+            )
+            for item in subscriptions
+        ),
         Decimal("0"),
     )
     if current_income > 0 and monthly_subscriptions > current_income * Decimal("0.10"):

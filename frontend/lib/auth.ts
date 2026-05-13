@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 
 type UserRole = "parent" | "child" | "individual";
 type FinanceLevel = "beginner" | "intermediate" | "advanced" | "child";
+type AgeStatus = "minor" | "adult";
 
 type BackendAuthUser = {
   id: string;
@@ -10,7 +11,10 @@ type BackendAuthUser = {
   name: string;
   role: UserRole;
   parent_id: string | null;
+  family_id: string | null;
+  birth_date: string | null;
   age: number | null;
+  age_status: AgeStatus | null;
   finance_level: FinanceLevel;
   is_demo: boolean;
 };
@@ -39,6 +43,10 @@ function isFinanceLevel(value: unknown): value is FinanceLevel {
   );
 }
 
+function isAgeStatus(value: unknown): value is AgeStatus {
+  return value === "minor" || value === "adult";
+}
+
 function isBackendAuthUser(value: unknown): value is BackendAuthUser {
   if (!isRecord(value)) return false;
   return (
@@ -47,7 +55,10 @@ function isBackendAuthUser(value: unknown): value is BackendAuthUser {
     typeof value.name === "string" &&
     isUserRole(value.role) &&
     (typeof value.parent_id === "string" || value.parent_id === null) &&
+    (typeof value.family_id === "string" || value.family_id === null) &&
+    (typeof value.birth_date === "string" || value.birth_date === null) &&
     (typeof value.age === "number" || value.age === null) &&
+    (isAgeStatus(value.age_status) || value.age_status === null) &&
     isFinanceLevel(value.finance_level) &&
     typeof value.is_demo === "boolean"
   );
@@ -116,7 +127,10 @@ export const authOptions: NextAuthOptions = {
           role: payload.user.role,
           backendToken: payload.access_token,
           parentId: payload.user.parent_id,
+          familyId: payload.user.family_id,
+          birthDate: payload.user.birth_date,
           age: payload.user.age,
+          ageStatus: payload.user.age_status,
           financeLevel: payload.user.finance_level,
           isDemo: payload.user.is_demo,
         };
@@ -124,7 +138,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
+    jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.email = user.email;
@@ -132,9 +146,37 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role;
         token.backendToken = user.backendToken;
         token.parentId = user.parentId;
+        token.familyId = user.familyId;
+        token.birthDate = user.birthDate;
         token.age = user.age;
+        token.ageStatus = user.ageStatus;
         token.financeLevel = user.financeLevel;
         token.isDemo = user.isDemo;
+      }
+      if (trigger === "update" && isRecord(session) && isRecord(session.user)) {
+        const updatedUser = session.user;
+        if (typeof updatedUser.email === "string") token.email = updatedUser.email;
+        if (typeof updatedUser.name === "string") token.name = updatedUser.name;
+        if (isUserRole(updatedUser.role)) token.role = updatedUser.role;
+        if (typeof updatedUser.parentId === "string" || updatedUser.parentId === null) {
+          token.parentId = updatedUser.parentId;
+        }
+        if (typeof updatedUser.familyId === "string" || updatedUser.familyId === null) {
+          token.familyId = updatedUser.familyId;
+        }
+        if (typeof updatedUser.birthDate === "string" || updatedUser.birthDate === null) {
+          token.birthDate = updatedUser.birthDate;
+        }
+        if (typeof updatedUser.age === "number" || updatedUser.age === null) {
+          token.age = updatedUser.age;
+        }
+        if (isAgeStatus(updatedUser.ageStatus) || updatedUser.ageStatus === null) {
+          token.ageStatus = updatedUser.ageStatus;
+        }
+        if (isFinanceLevel(updatedUser.financeLevel)) {
+          token.financeLevel = updatedUser.financeLevel;
+        }
+        if (typeof updatedUser.isDemo === "boolean") token.isDemo = updatedUser.isDemo;
       }
       return token;
     },
@@ -148,7 +190,12 @@ export const authOptions: NextAuthOptions = {
         role: isUserRole(token.role) ? token.role : "individual",
         parentId:
           typeof token.parentId === "string" || token.parentId === null ? token.parentId : null,
+        familyId:
+          typeof token.familyId === "string" || token.familyId === null ? token.familyId : null,
+        birthDate:
+          typeof token.birthDate === "string" || token.birthDate === null ? token.birthDate : null,
         age: typeof token.age === "number" ? token.age : null,
+        ageStatus: isAgeStatus(token.ageStatus) ? token.ageStatus : null,
         financeLevel: isFinanceLevel(token.financeLevel) ? token.financeLevel : "beginner",
         isDemo: token.isDemo === true,
       };
