@@ -24,6 +24,7 @@ from app.schemas.transaction import (
     TransactionSummaryRead,
     TransactionUpdate,
 )
+from app.services.envelopes import build_envelope_budget_summary
 from app.services.recurring_materializer import materialize_due_subscriptions
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
@@ -225,6 +226,11 @@ def get_transaction_summary(
             reverse=True,
         )
     ]
+    budget_summary = build_envelope_budget_summary(
+        categories=list(categories),
+        current_category_totals=category_totals,
+        now=now,
+    )
 
     return TransactionSummaryRead(
         period_start=current_start,
@@ -237,6 +243,38 @@ def get_transaction_summary(
         income_change_percent=_change_percent(income, previous_income),
         expense_change_percent=_change_percent(expense, previous_expense),
         category_totals=category_rows,
+        budgeted_month=budget_summary.budgeted_month,
+        spent_month=_money(expense),
+        remaining_budget=_money(budget_summary.budgeted_month - expense),
+        risky_category=(
+            None
+            if budget_summary.risky_category is None
+            else {
+                "slug": budget_summary.risky_category.slug,
+                "label": budget_summary.risky_category.label,
+                "category_name": budget_summary.risky_category.category_name,
+                "budget": budget_summary.risky_category.budget,
+                "spent": budget_summary.risky_category.spent,
+                "remaining": budget_summary.risky_category.remaining,
+                "used_percent": budget_summary.risky_category.used_percent,
+            }
+        ),
+        envelopes=[
+            {
+                "slug": envelope.slug,
+                "label": envelope.label,
+                "category_name": envelope.category_name,
+                "budget": envelope.budget,
+                "spent": envelope.spent,
+                "remaining": envelope.remaining,
+                "days_left_in_month": envelope.days_left_in_month,
+                "safe_daily_amount": envelope.safe_daily_amount,
+                "used_percent": envelope.used_percent,
+                "status": envelope.status,
+                "is_savings_goal": envelope.is_savings_goal,
+            }
+            for envelope in budget_summary.envelopes
+        ],
     )
 
 

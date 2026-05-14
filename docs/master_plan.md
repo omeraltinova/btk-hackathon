@@ -197,7 +197,7 @@ Agent ve takım bu terimleri tutarlı kullanır.
 | **Age status** | `minor` / `adult`; `birth_date` üzerinden dinamik hesaplanır, kullanıcıdan manuel yaş alınmaz |
 | **Individual** | Aileye bağlı olmayan tekil kullanıcı |
 | **Finance level** | beginner / intermediate / advanced / child |
-| **Tool** | Agent'ın çağırabildiği Python fonksiyonu (6 adet) |
+| **Tool** | Agent'ın çağırabildiği Python fonksiyonu |
 | **Memory** | `agent_memory` tablosu; kalıcı kullanıcı bilgisi |
 | **Insight type** | `low_activity` / `monthly_status` / `spending_spike` / `category_overspending` / `upcoming_recurring` / `savings_opportunity` / `receipt_activity` |
 | **Severity** | `info` / `warning` / `critical` |
@@ -331,7 +331,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 3. Fiş yükleme + Gemini Vision OCR + otomatik kategori
 4. Chat UI streaming
 5. Dashboard (özet, grafik, son işlemler)
-6. LangGraph agent + 6 tool
+6. LangGraph agent + scoped tool set
 7. Demo veri seeder (Yılmaz ailesi)
 
 ### 12.2 Derece için zorunlu
@@ -400,14 +400,44 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     Gelecek ay tahmini, aktif abonelik/faturalardan hesaplanan yaklaşık değerdir;
     kesinleşmiş borç veya finansal taahhüt değildir ve UI'da bu belirsizlik açık
     yazılır.
+20. **Zarf bütçesi ve birikim hedefi (MVP):** Dashboard, mevcut
+    `categories.budget_monthly` alanını kullanarak Türk aile bütçesine uygun
+    `Market`, `Fatura`, `Okul`, `Ulaşım`, `Harçlık` ve `Birikim` zarflarını
+    gösterir. Yeni tablo yoktur; `Birikim zarfı` aylık hedef olarak yorumlanır,
+    çok dönemli hedef takibi stretch kapsamda kalır. Agent aynı scoped zarf
+    özetini kullanarak kalan bütçe ve ay sonuna kadar güvenli günlük harcama
+    yanıtı verir.
+21. **Kategori bazlı tasarruf hedefleri (MVP):** Kullanıcı belirli bir gider
+    kategorisindeki harcamayı bu ay azaltmak için hedef oluşturabilir. Bu,
+    klasik birikim hedefinden ayrıdır: hedef para biriktirme değil, örneğin
+    `Market` harcamasını geçen 30 gün bazına göre %10–15 düşürmektir. Agent
+    `create_saving_goal` ve `get_saving_goal_progress` araçlarıyla hedef
+    oluşturur/izler; taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe
+    önerisidir. Tutarlar `Decimal`, kapsam `user_id` filtresi ve aile görünürlük
+    kurallarıyla hesaplanır.
+22. **Akıllı hedef planı:** Kullanıcı “Tatile gitmek istiyorum, giderlerimi
+    kısmam lazım” gibi amaç odaklı bir mesaj yazarsa agent `get_spending`,
+    `get_subscriptions` ve `create_smart_saving_plan` akışıyla son 30 günün
+    yüksek harcama kategorilerini ve aktif abonelik etkisini inceler. Yeni tablo
+    eklemeden mevcut `saving_goals` yapısında 1–2 kategori bazlı tasarruf hedefi
+    oluşturur, haftalık limit/taktik verir ve `Birikim zarfı`nı aylık hedef
+    olarak konumlandırır. Bu akış da yatırım tavsiyesi vermez; sadece bütçe ve
+    alışkanlık koçluğu yapar.
+23. **Finans Okulu (hazır AI dersleri):** Frontend, kontrollü bir başlık
+    listesiyle (`Faiz`, `Enflasyon`, `Bütçe`, `Tasarruf`, `Kredi kartı asgari
+    ödeme`, `Para piyasası fonu nedir?`) kısa ders akışı sunar. Kullanıcı başlığa
+    tıklayınca mevcut `/api/chat/stream` üzerinden `explain_concept` ve gerekirse
+    `illustrate_concept` kullanılır; sonuç sayfada okunur, tarayıcı
+    text-to-speech ile sesli okutulabilir. Fon/ürün başlıkları yalnızca eğitim
+    amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-13. Sesli giriş (Web Speech API)
-14. Tasarruf hedef takibi
-15. Quiz modu
-16. CSV export
-17. Magic link auth (email-only login, parola yok)
+24. Sesli giriş (Web Speech API)
+25. Çok dönemli birikim hedef takibi
+26. Quiz modu
+27. CSV export
+28. Magic link auth (email-only login, parola yok)
 
 ---
 
@@ -516,6 +546,27 @@ CREATE INDEX idx_tx_user_date ON transactions(user_id, occurred_at DESC);
 CREATE INDEX idx_tx_category ON transactions(category_id);
 CREATE INDEX idx_tx_merchant ON transactions(merchant);
 
+CREATE TABLE saving_goals (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category_id             UUID REFERENCES categories(id) ON DELETE SET NULL,
+  title                   TEXT NOT NULL,
+  baseline_amount         NUMERIC(12,2) NOT NULL,
+  target_spending_amount  NUMERIC(12,2) NOT NULL,
+  target_saving_amount    NUMERIC(12,2) NOT NULL,
+  start_date              TIMESTAMPTZ NOT NULL,
+  end_date                TIMESTAMPTZ NOT NULL,
+  status                  TEXT NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active','completed','paused')),
+  strategy                JSONB,
+  created_by              TEXT NOT NULL DEFAULT 'manual'
+                          CHECK (created_by IN ('manual','agent')),
+  created_at              TIMESTAMPTZ DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_saving_goals_user_status ON saving_goals(user_id, status);
+CREATE INDEX idx_saving_goals_category ON saving_goals(category_id);
+
 CREATE TABLE subscriptions (
   id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -600,7 +651,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from .tools import (
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
-    visualize_spending, illustrate_concept
+    visualize_spending, illustrate_concept,
+    create_saving_goal, get_saving_goal_progress
 )
 from .prompts import build_system_prompt
 
@@ -614,6 +666,7 @@ TOOLS = [
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
     visualize_spending, illustrate_concept,
+    create_saving_goal, get_saving_goal_progress,
 ]
 
 llm = ChatGoogleGenerativeAI(
@@ -1008,18 +1061,33 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.18
-**Son güncelleme:** 13 Mayıs 2026
-**v0.18 değişiklikleri:** §12.2 madde 14 genişletildi: `visualize_spending`
-artık kategori ve abonelik/satıcı eşleşmeleri için aylık trend (`monthly`) grafik
-spec'i dönebilir. Kapsam kuralları ve schema değişmedi.
-**v0.17 değişiklikleri:** İK-18 ve §12.2 madde 19 eklendi: aktif tekrarlayan
-ödemeler günü geldiğinde otomatik gider işlemine materialize edilir; gelir/gider
-ay bazında ayrılır; gelecek ay tahmini aktif aboneliklerden yaklaşık hesaplanır.
-**v0.16 değişiklikleri:** §12.2'ye 18. madde eklendi: ayrı gelir/gider detay
-sayfası, transaction edit yüzeyi, gelir/gider kategori ayrımı ve abonelik
-detay özetleri. Yeni backend scope/schema yok; mevcut endpoint'ler kullanılır,
-abonelik geçmişi kesin ilişki olmadığı için heuristiktir.
+**Doküman versiyonu:** 0.20
+**Son güncelleme:** 14 Mayıs 2026
+**v0.20 değişiklikleri:** `day-1-bootstrap` ve `semih/zarf-budget-goals`
+branchlerindeki paralel Day 7 scope kararları tek planda birleştirildi.
+§12.2 yeniden numaralandırıldı; gelir/gider detayları, tekrarlayan ödeme
+materializer'ı, zarf bütçesi, kategori tasarruf hedefleri, akıllı hedef planı
+ve Finans Okulu birlikte core demo kapsamındadır. Scope çıkarılmadı.
+**v0.19 değişiklikleri:** §12.2'ye Finans Okulu eklendi. Hazır ve kontrollü
+ders başlıkları mevcut chat/concept araçlarıyla açıklanır, istenirse görselle
+anlatılır ve tarayıcı TTS ile sesli okutulur. Video generation, gerçek zamanlı
+sesli görüşme ve yatırım tavsiyesi kapsam dışı kalır.
+**v0.18 değişiklikleri:** Paralel branchlerde iki ek kapsam oluştu:
+`visualize_spending` kategori ve abonelik/satıcı eşleşmeleri için aylık trend
+(`monthly`) grafik spec'i dönebilir; ayrıca Akıllı Hedef Planı amaç odaklı
+mesajlarda harcama/abonelik verisine bakıp mevcut kategori tasarruf
+hedeflerinden 1–2 tane oluşturur. Video generation, gerçek zamanlı sesli
+görüşme ve yatırım ürünü tavsiyesi kapsam dışı kalır.
+**v0.17 değişiklikleri:** Paralel branchlerde İK-18/tekrarlayan ödeme
+materializer'ı ve kategori bazlı tasarruf hedefleri eklendi. Aktif
+abonelik/faturalar günü geldiğinde gider işlemine materialize edilir; kategori
+hedefleri klasik birikim hedefi değil, belirli bir gider kategorisinde ay ay
+azaltma hedefidir.
+**v0.16 değişiklikleri:** Paralel branchlerde ayrı gelir/gider detay sayfası
+ve zarf bütçesi eklendi. `/dashboard/income-expense` mevcut scoped
+transaction/subscription endpoint'lerini kullanır; zarf bütçesi yeni tablo
+eklemeden `categories.budget_monthly` alanını `Market`, `Fatura`, `Okul`,
+`Ulaşım`, `Harçlık` ve `Birikim` zarfları için yorumlar.
 **v0.15 değişiklikleri:** Sohbet geçmişi kapsamı genişletildi: kullanıcı kendi
 sohbetini silebilir (`DELETE /api/conversations/{id}`), geçmiş sohbeti `/chat`
 içinde sürdürebilir ve geçmiş tool ekleri (grafik/görsel) tekrar render edilir.

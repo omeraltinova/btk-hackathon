@@ -124,6 +124,30 @@ export type TransactionCategoryTotal = {
   percentage: string;
 };
 
+export type TransactionRiskyCategory = {
+  slug: string;
+  label: string;
+  category_name: string;
+  budget: string;
+  spent: string;
+  remaining: string;
+  used_percent: string;
+};
+
+export type TransactionBudgetEnvelope = {
+  slug: string;
+  label: string;
+  category_name: string;
+  budget: string;
+  spent: string;
+  remaining: string;
+  days_left_in_month: number;
+  safe_daily_amount: string;
+  used_percent: string | null;
+  status: "safe" | "watch" | "over";
+  is_savings_goal: boolean;
+};
+
 export type TransactionSummary = {
   period_start: string;
   period_end: string;
@@ -135,6 +159,38 @@ export type TransactionSummary = {
   income_change_percent: string | null;
   expense_change_percent: string | null;
   category_totals: TransactionCategoryTotal[];
+  budgeted_month: string;
+  spent_month: string;
+  remaining_budget: string;
+  risky_category: TransactionRiskyCategory | null;
+  envelopes: TransactionBudgetEnvelope[];
+};
+
+export type SavingGoal = {
+  id: string;
+  user_id: string;
+  category_id: string | null;
+  category_name: string;
+  title: string;
+  baseline_amount: string;
+  target_spending_amount: string;
+  target_saving_amount: string;
+  start_date: string;
+  end_date: string;
+  status: "active" | "completed" | "paused";
+  strategy: Record<string, unknown> | null;
+  created_by: "manual" | "agent";
+};
+
+export type SavingGoalProgress = {
+  goal: SavingGoal;
+  actual_spending: string;
+  saved_amount: string;
+  remaining_limit: string;
+  progress_percent: string;
+  expected_spending_to_date: string;
+  status_label: "on_track" | "at_risk" | "over_limit" | "completed";
+  tactics: string[];
 };
 
 export type BillingCycle = "weekly" | "monthly" | "yearly" | "custom";

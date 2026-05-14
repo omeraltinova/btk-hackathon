@@ -56,6 +56,7 @@ import type {
   Subscription,
   SubscriptionCreateInput,
   SubscriptionUpdateInput,
+  TransactionBudgetEnvelope,
   Transaction,
   TransactionCreateInput,
   TransactionUpdateInput,
@@ -208,6 +209,12 @@ function percentValue(value: string | null): number | null {
   if (value === null) return null;
   const parsed = Number(value.replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatUsedPercent(value: string | null): string {
+  const parsed = percentValue(value);
+  if (parsed === null) return "Hedef yok";
+  return `%${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 }).format(parsed)} kullanıldı`;
 }
 
 function TrendBadge({
@@ -1186,6 +1193,124 @@ function RecurringManagerDialog({
   );
 }
 
+const envelopeStatusLabels: Record<TransactionBudgetEnvelope["status"], string> = {
+  safe: "Rahat",
+  watch: "Dikkat",
+  over: "Aşıldı",
+};
+
+function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }) {
+  const envelopes = summary?.envelopes ?? [];
+  const savingsEnvelope = envelopes.find((envelope) => envelope.is_savings_goal) ?? null;
+
+  return (
+    <section className="ledger-sheet p-5 sm:p-8">
+      <div className="relative z-10 space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="eyebrow">Zarf bütçesi</p>
+            <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+              Aile bütçesi zarflara ayrıldı
+            </h2>
+            <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
+              Market, fatura, okul, ulaşım, harçlık ve birikim hedefi aynı aylık bütçe penceresinde
+              izlenir.
+            </p>
+          </div>
+          {savingsEnvelope ? (
+            <div className="cash-envelope min-w-64 p-4">
+              <div className="relative z-10">
+                <p className="flex items-center gap-2 text-sm font-bold text-secondary-foreground/80">
+                  <PiggyBank className="h-4 w-4" />
+                  Birikim hedefi
+                </p>
+                <p className="mt-3 font-display text-2xl font-black tabular-nums">
+                  {formatKurus(amountToKurus(savingsEnvelope.budget))}
+                </p>
+                <p className="mt-1 text-xs font-bold text-muted-foreground">
+                  Kalan {formatKurus(amountToKurus(savingsEnvelope.remaining))}
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+          {envelopes.map((envelope) => {
+            const budget = amountToKurus(envelope.budget);
+            const spent = amountToKurus(envelope.spent);
+            const remaining = amountToKurus(envelope.remaining);
+            const progress = budget > 0 ? Math.min(100, Math.max(0, (spent / budget) * 100)) : 0;
+            return (
+              <div key={envelope.slug} className="cash-envelope min-h-56 p-5">
+                <div className="relative z-10 flex h-full flex-col justify-between gap-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-display text-xl font-black">{envelope.label}</p>
+                      <p className="mt-1 text-xs font-bold text-muted-foreground">
+                        {formatUsedPercent(envelope.used_percent)}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        "rounded-full px-3 py-1 text-xs font-black",
+                        envelope.is_savings_goal
+                          ? "bg-background/75 text-primary"
+                          : envelope.status === "over"
+                            ? "bg-destructive text-destructive-foreground"
+                            : envelope.status === "watch"
+                              ? "bg-accent text-accent-foreground"
+                              : "bg-background/75 text-primary",
+                      )}
+                    >
+                      {envelope.is_savings_goal ? "Hedef" : envelopeStatusLabels[envelope.status]}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="h-3 overflow-hidden rounded-full bg-background/75">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-2xl bg-background/60 p-3">
+                        <p className="font-bold text-muted-foreground">Bütçe</p>
+                        <p className="mt-1 font-display text-lg font-black tabular-nums">
+                          {formatKurus(budget)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-background/60 p-3">
+                        <p className="font-bold text-muted-foreground">Harcanan</p>
+                        <p className="mt-1 font-display text-lg font-black tabular-nums">
+                          {formatKurus(spent)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-bold text-muted-foreground">Kalan</p>
+                    <p className="mt-1 font-display text-3xl font-black tabular-nums">
+                      {formatKurus(remaining)}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Ay sonuna {envelope.days_left_in_month} gün var;{" "}
+                      {envelope.is_savings_goal ? "günlük hedef" : "günlük güvenli tutar"} yaklaşık{" "}
+                      {formatKurus(amountToKurus(envelope.safe_daily_amount))}.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function DashboardTabs({ activeView }: { activeView: DashboardView }) {
   return (
     <nav
@@ -1767,7 +1892,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
             </InsightBanner>
           </section>
 
-          <div className="grid min-w-0 gap-4 md:grid-cols-2 2xl:grid-cols-4">
+          <div className="grid min-w-0 gap-4 md:grid-cols-2 2xl:grid-cols-5">
             {(isKid
               ? ([
                   ["Bu ay biriktirdiğin", formatKurus(monthlyIncome), "Harçlık ve hediye toplamı"],
@@ -1775,13 +1900,34 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   ["Cüzdanda kalan", formatKurus(balance), "Biriktirebileceğin tutar"],
                 ] as const)
               : ([
-                  ["Bu ay gider", formatKurus(monthlyExpense), "Kategorili gider toplamı"],
-                  ["Bu ay gelir", formatKurus(monthlyIncome), "Veritabanındaki gelir toplamı"],
-                  ["Net durum", formatKurus(balance), "Gelir eksi gider"],
+                  [
+                    "Bu ay bütçelenen",
+                    formatKurus(amountToKurus(summary?.budgeted_month ?? "0")),
+                    "Zarf limitlerinin toplamı",
+                  ],
+                  [
+                    "Bu ay harcanan",
+                    formatKurus(amountToKurus(summary?.spent_month ?? "0")),
+                    "Toplam aylık gider",
+                  ],
+                  [
+                    "Kalan bütçe",
+                    formatKurus(amountToKurus(summary?.remaining_budget ?? "0")),
+                    "Ay sonuna kadar kullanılabilir",
+                  ],
                   [
                     "Gelecek ay tahmini",
                     formatKurus(recurringMonthlyTotal),
                     "Aktif tekrarlar; kesinleşmiş borç değildir",
+                  ],
+                  [
+                    "Riskli kategori",
+                    summary?.risky_category?.label ?? "Riskli zarf yok",
+                    summary?.risky_category
+                      ? `${formatKurus(amountToKurus(summary.risky_category.spent))} / ${formatKurus(
+                          amountToKurus(summary.risky_category.budget),
+                        )}`
+                      : "Bütçe aşımı görünmüyor",
                   ],
                 ] as const)
             ).map(([label, value, detail], index) => (
@@ -1825,10 +1971,13 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
               </div>
             </div>
           ) : (
-            <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
-              <SummaryStatus summary={summary} />
-              <SpendingChart summary={summary} />
-            </div>
+            <>
+              <BudgetEnvelopeBoard summary={summary} />
+              <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
+                <SummaryStatus summary={summary} />
+                <SpendingChart summary={summary} />
+              </div>
+            </>
           )}
         </>
       ) : null}

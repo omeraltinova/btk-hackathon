@@ -9,6 +9,7 @@ from app.models.conversation import Conversation
 from app.models.insight import ProactiveInsight
 from app.models.memory import AgentMemory
 from app.models.message import Message
+from app.models.saving_goal import SavingGoal
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -20,6 +21,7 @@ __all__ = [
     "Conversation",
     "Message",
     "ProactiveInsight",
+    "SavingGoal",
     "Subscription",
     "Transaction",
     "User",

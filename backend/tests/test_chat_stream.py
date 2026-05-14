@@ -17,6 +17,8 @@ from app.main import app
 from app.models.category import Category
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.models.saving_goal import SavingGoal
+from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.services.agent_runner import _graph_context_messages
@@ -42,10 +44,18 @@ class FakeResult:
 
 
 class FakeSession:
-    def __init__(self, user: User, categories: list[Category], transactions: list[Transaction]):
+    def __init__(
+        self,
+        user: User,
+        categories: list[Category],
+        transactions: list[Transaction],
+        subscriptions: list[Subscription] | None = None,
+    ):
         self.users = [user]
         self.categories = categories
         self.transactions = transactions
+        self.subscriptions = subscriptions or []
+        self.saving_goals: list[SavingGoal] = []
         self.conversations: list[Conversation] = []
         self.messages: list[Message] = []
 
@@ -74,6 +84,8 @@ class FakeSession:
                     if self._matches_transaction(statement, transaction)
                 ],
             )
+        if entity is Subscription:
+            return FakeResult(self.subscriptions)
         if entity is Message:
             messages = [
                 message for message in self.messages if self._matches_message(statement, message)
@@ -81,6 +93,10 @@ class FakeSession:
             limit_clause = getattr(statement, "_limit_clause", None)
             limit_value = getattr(limit_clause, "value", None)
             return FakeResult(list(reversed(messages))[:limit_value])
+        if entity is SavingGoal:
+            return FakeResult(
+                [goal for goal in self.saving_goals if self._matches_goal(statement, goal)],
+            )
         return FakeResult([])
 
     def add(self, item: object) -> None:
@@ -92,12 +108,18 @@ class FakeSession:
             if item.id is None:
                 item.id = uuid4()
             self.messages.append(item)
+        if isinstance(item, SavingGoal):
+            if item.id is None:
+                item.id = uuid4()
+            self.saving_goals.append(item)
 
     def commit(self) -> None:
         return None
 
     def refresh(self, item: object) -> None:
         if isinstance(item, Conversation) and item.id is None:
+            item.id = uuid4()
+        if isinstance(item, SavingGoal) and item.id is None:
             item.id = uuid4()
 
     @staticmethod
@@ -115,10 +137,16 @@ class FakeSession:
             value = getattr(getattr(criterion, "right", None), "value", None)
             if column_name == "user_id" and not self._matches_user_id(value, transaction.user_id):
                 return False
+            if column_name == "category_id" and transaction.category_id != value:
+                return False
             if column_name == "type" and transaction.type != value:
                 return False
-            if column_name == "occurred_at" and transaction.occurred_at < value:
-                return False
+            if column_name == "occurred_at":
+                operator_name = getattr(getattr(criterion, "operator", None), "__name__", "")
+                if operator_name == "ge" and transaction.occurred_at < value:
+                    return False
+                if operator_name == "lt" and transaction.occurred_at >= value:
+                    return False
         return True
 
     def _matches_message(self, statement: object, message: Message) -> bool:
@@ -128,6 +156,18 @@ class FakeSession:
             if column_name == "conversation_id" and message.conversation_id != value:
                 return False
             if column_name == "role" and not self._matches_role(value, message.role):
+                return False
+        return True
+
+    def _matches_goal(self, statement: object, goal: SavingGoal) -> bool:
+        for criterion in getattr(statement, "_where_criteria", ()):
+            column_name = getattr(getattr(criterion, "left", None), "name", None)
+            value = getattr(getattr(criterion, "right", None), "value", None)
+            if column_name == "user_id" and not self._matches_user_id(value, goal.user_id):
+                return False
+            if column_name == "category_id" and goal.category_id != value:
+                return False
+            if column_name == "status" and goal.status != value:
                 return False
         return True
 
@@ -165,6 +205,24 @@ def test_system_prompt_rejects_investment_advice() -> None:
 
     assert "Asla yatırım tavsiyesi verme" in prompt
     assert "Yatırım tavsiyesi veremem" in prompt
+
+
+def make_subscription(user_id: UUID, amount: str = "120.00") -> Subscription:
+    return Subscription(
+        id=uuid4(),
+        user_id=user_id,
+        name="Dijital servis",
+        merchant="Servis",
+        amount=Decimal(amount),
+        billing_cycle="monthly",
+        recurrence_interval=1,
+        recurrence_unit="month",
+        next_billing_date=date(2026, 6, 1),
+        category_id=None,
+        is_active=True,
+        detected_from_transactions=False,
+        usage_score=Decimal("0.50"),
+    )
 
 
 def test_graph_context_includes_recent_user_and_assistant_messages() -> None:
@@ -222,7 +280,7 @@ def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:
         name="Market",
         icon=None,
         parent_id=None,
-        budget_monthly=None,
+        budget_monthly=Decimal("600.00"),
     )
     transaction = Transaction(
         id=uuid4(),
@@ -258,7 +316,177 @@ def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:
     assert "event: tool_call" in response.text
     assert '"tool_name": "get_spending"' in response.text
     assert "125,00 ₺" in response.text
+    assert "Market zarfında" in response.text
+    assert "475,00 ₺ kaldı" in response.text
     assert [message.role for message in fake_session.messages] == ["user", "tool", "assistant"]
+
+
+def test_chat_stream_routes_harclik_zarf_to_spending_not_concept() -> None:
+    user = make_user()
+    category = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Harçlık",
+        icon=None,
+        parent_id=None,
+        budget_monthly=Decimal("300.00"),
+    )
+    transaction = Transaction(
+        id=uuid4(),
+        user_id=user.id,
+        amount=Decimal("120.00"),
+        type="expense",
+        category_id=category.id,
+        description="Harçlık",
+        merchant="Harçlık",
+        occurred_at=datetime.now(UTC),
+        source="manual",
+        receipt_image_url=None,
+        raw_ocr_data=None,
+    )
+    fake_session = FakeSession(user, [category], [transaction])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Harçlık zarfında ne kadar kaldı?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "get_spending"' in response.text
+    assert '"tool_name": "explain_concept"' not in response.text
+    assert "Harçlık zarfında" in response.text
+    assert "180,00 ₺ kaldı" in response.text
+
+
+def test_chat_stream_can_create_category_saving_goal() -> None:
+    user = make_user()
+    category = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    transaction = Transaction(
+        id=uuid4(),
+        user_id=user.id,
+        amount=Decimal("600.00"),
+        type="expense",
+        category_id=category.id,
+        description="Market alışverişi",
+        merchant="Market",
+        occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+        source="manual",
+        receipt_image_url=None,
+        raw_ocr_data=None,
+    )
+    fake_session = FakeSession(user, [category], [transaction])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Market harcamamı azaltmak istiyorum."},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "create_saving_goal"' in response.text
+    assert "Market için tasarruf hedefini oluşturdum" in response.text
+    assert "510,00" in response.text
+    assert "altında" in response.text
+    assert len(fake_session.saving_goals) == 1
+    assert fake_session.saving_goals[0].created_by == "agent"
+
+
+def test_chat_stream_can_create_smart_saving_plan() -> None:
+    user = make_user()
+    market = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    transport = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Ulaşım",
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    transactions = [
+        Transaction(
+            id=uuid4(),
+            user_id=user.id,
+            amount=Decimal("900.00"),
+            type="expense",
+            category_id=market.id,
+            description="Market alışverişi",
+            merchant="Market",
+            occurred_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+            source="manual",
+            receipt_image_url=None,
+            raw_ocr_data=None,
+        ),
+        Transaction(
+            id=uuid4(),
+            user_id=user.id,
+            amount=Decimal("400.00"),
+            type="expense",
+            category_id=transport.id,
+            description="Ulaşım",
+            merchant="Metro",
+            occurred_at=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
+            source="manual",
+            receipt_image_url=None,
+            raw_ocr_data=None,
+        ),
+    ]
+    fake_session = FakeSession(
+        user,
+        [market, transport],
+        transactions,
+        subscriptions=[make_subscription(user.id)],
+    )
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Bu yaz tatile gitmek istiyorum, giderlerimi kısmam lazım."},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "create_smart_saving_plan"' in response.text
+    assert "Tatil hedefin için" in response.text
+    assert "Market" in response.text
+    assert len(fake_session.saving_goals) == 2
 
 
 def test_chat_stream_returns_inline_chart_payload() -> None:

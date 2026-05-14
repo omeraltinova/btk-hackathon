@@ -26,8 +26,16 @@ from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
+from app.schemas.saving_goal import SavingGoalProgressRead
+from app.services.envelopes import build_envelope_budget_summary, resolve_envelope_category
 from app.services.image_gen import IllustrationService, IllustrationUnavailableError
 from app.services.ocr import ReceiptOcrError, ReceiptOcrService, ReceiptOcrUnavailableError
+from app.services.saving_goals import (
+    calculate_saving_goal_progress,
+    create_saving_goal,
+    find_active_saving_goal,
+)
+from app.services.smart_plans import build_smart_saving_plan
 from app.utils.date_format import format_tr_date
 from app.utils.recurrence import monthly_equivalent, recurrence_label
 from app.utils.tl_format import format_tl
@@ -108,6 +116,11 @@ def _month_range(start: datetime, end: datetime) -> list[date]:
     return months
 
 
+def _local_month_start_utc(value: datetime) -> datetime:
+    local = _aware_utc(value).astimezone(ISTANBUL_TZ)
+    return local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+
+
 def _load_current_user(db: Session, user_id: str) -> User:
     try:
         parsed_user_id = UUID(user_id)
@@ -134,6 +147,9 @@ def visible_categories(db: Session, current_user: User) -> list[Category]:
 
 def infer_category_from_text(db: Session, current_user: User, text: str) -> str | None:
     """Best-effort category extraction for the deterministic Day 3 stream path."""
+    envelope_category = resolve_envelope_category(text)
+    if envelope_category is not None:
+        return envelope_category
     normalized = text.casefold()
     categories = visible_categories(db, current_user)
     for category in sorted(categories, key=lambda item: len(item.name), reverse=True):
@@ -154,17 +170,21 @@ def build_spending_summary(
     safe_days = _normalized_days(days)
     period_end = _aware_utc(now or datetime.now(UTC))
     period_start = period_end - timedelta(days=safe_days)
+    current_month_start = _local_month_start_utc(period_end)
+    query_start = min(period_start, current_month_start)
     user_ids = visible_user_ids(current_user)
     categories = visible_categories(db, current_user)
     category_names = {item.id: item.name for item in categories}
-    category_filter = category.casefold() if category else None
+    resolved_category = resolve_envelope_category(category) if category else None
+    category_name_filter = resolved_category or category
+    category_filter = category_name_filter.casefold() if category_name_filter else None
 
     transactions = list(
         db.execute(
             select(Transaction)
             .where(
                 Transaction.user_id.in_(user_ids),
-                Transaction.occurred_at >= period_start,
+                Transaction.occurred_at >= query_start,
                 Transaction.type == "expense",
             )
             .order_by(Transaction.occurred_at.desc()),
@@ -176,21 +196,28 @@ def build_spending_summary(
     total = Decimal("0")
     included = 0
     category_totals: dict[str, Decimal] = {}
+    current_month_category_totals: dict[UUID | None, Decimal] = {}
     latest_transaction: datetime | None = None
 
     for transaction in transactions:
+        occurred_at = _aware_utc(transaction.occurred_at)
+        amount = Decimal(transaction.amount)
+        if occurred_at >= current_month_start:
+            current_month_category_totals[transaction.category_id] = (
+                current_month_category_totals.get(transaction.category_id, Decimal("0")) + amount
+            )
         category_name = (
             category_names.get(transaction.category_id, "Kategorisiz")
             if transaction.category_id is not None
             else "Kategorisiz"
         )
+        if occurred_at < period_start:
+            continue
         if category_filter is not None and category_filter not in category_name.casefold():
             continue
-        amount = Decimal(transaction.amount)
         total += amount
         included += 1
         category_totals[category_name] = category_totals.get(category_name, Decimal("0")) + amount
-        occurred_at = _aware_utc(transaction.occurred_at)
         if latest_transaction is None or occurred_at > latest_transaction:
             latest_transaction = occurred_at
 
@@ -202,6 +229,24 @@ def build_spending_summary(
         }
         for name, amount in sorted(category_totals.items(), key=lambda item: item[1], reverse=True)
     ]
+    budget_summary = build_envelope_budget_summary(
+        categories=categories,
+        current_category_totals=current_month_category_totals,
+        now=period_end,
+    )
+    matching_envelope = next(
+        (
+            envelope
+            for envelope in budget_summary.envelopes
+            if category_name_filter is not None
+            and envelope.category_name.casefold() == category_name_filter.casefold()
+        ),
+        None,
+    )
+    savings_envelope = next(
+        (envelope for envelope in budget_summary.envelopes if envelope.is_savings_goal),
+        None,
+    )
 
     return {
         "period_start": period_start.isoformat(),
@@ -209,7 +254,7 @@ def build_spending_summary(
         "period_start_formatted": format_tr_date(period_start),
         "period_end_formatted": format_tr_date(period_end),
         "days": safe_days,
-        "category": category,
+        "category": category_name_filter,
         "transaction_count": included,
         "total_amount": _decimal_text(total),
         "total_amount_formatted": format_tl(total),
@@ -218,7 +263,110 @@ def build_spending_summary(
             format_tr_date(latest_transaction) if latest_transaction else None
         ),
         "category_totals": rows,
+        "budget_envelope": None
+        if matching_envelope is None or matching_envelope.budget <= 0
+        else {
+            "slug": matching_envelope.slug,
+            "label": matching_envelope.label,
+            "category_name": matching_envelope.category_name,
+            "budget": _decimal_text(matching_envelope.budget),
+            "budget_formatted": format_tl(matching_envelope.budget),
+            "spent": _decimal_text(matching_envelope.spent),
+            "spent_formatted": format_tl(matching_envelope.spent),
+            "remaining": _decimal_text(matching_envelope.remaining),
+            "remaining_formatted": format_tl(matching_envelope.remaining),
+            "days_left_in_month": matching_envelope.days_left_in_month,
+            "safe_daily_amount": _decimal_text(matching_envelope.safe_daily_amount),
+            "safe_daily_amount_formatted": format_tl(matching_envelope.safe_daily_amount),
+            "status": matching_envelope.status,
+            "is_savings_goal": matching_envelope.is_savings_goal,
+        },
+        "savings_envelope": None
+        if savings_envelope is None or savings_envelope.budget <= 0
+        else {
+            "label": savings_envelope.label,
+            "budget": _decimal_text(savings_envelope.budget),
+            "budget_formatted": format_tl(savings_envelope.budget),
+            "spent": _decimal_text(savings_envelope.spent),
+            "spent_formatted": format_tl(savings_envelope.spent),
+            "remaining": _decimal_text(savings_envelope.remaining),
+            "remaining_formatted": format_tl(savings_envelope.remaining),
+        },
     }
+
+
+def _progress_to_tool_result(progress: SavingGoalProgressRead) -> dict[str, object]:
+    goal = progress.goal
+    return {
+        "goal_id": str(goal.id),
+        "category_id": str(goal.category_id) if goal.category_id is not None else None,
+        "category_name": goal.category_name,
+        "title": goal.title,
+        "baseline_amount": _decimal_text(goal.baseline_amount),
+        "baseline_amount_formatted": format_tl(goal.baseline_amount),
+        "target_spending_amount": _decimal_text(goal.target_spending_amount),
+        "target_spending_amount_formatted": format_tl(goal.target_spending_amount),
+        "target_saving_amount": _decimal_text(goal.target_saving_amount),
+        "target_saving_amount_formatted": format_tl(goal.target_saving_amount),
+        "actual_spending": _decimal_text(progress.actual_spending),
+        "actual_spending_formatted": format_tl(progress.actual_spending),
+        "saved_amount": _decimal_text(progress.saved_amount),
+        "saved_amount_formatted": format_tl(progress.saved_amount),
+        "remaining_limit": _decimal_text(progress.remaining_limit),
+        "remaining_limit_formatted": format_tl(progress.remaining_limit),
+        "progress_percent": f"{progress.progress_percent:.1f}",
+        "expected_spending_to_date": _decimal_text(progress.expected_spending_to_date),
+        "expected_spending_to_date_formatted": format_tl(progress.expected_spending_to_date),
+        "status_label": progress.status_label,
+        "start_date": goal.start_date.isoformat(),
+        "start_date_formatted": format_tr_date(goal.start_date),
+        "end_date": goal.end_date.isoformat(),
+        "end_date_formatted": format_tr_date(goal.end_date),
+        "tactics": progress.tactics,
+    }
+
+
+def build_saving_goal_creation(
+    db: Session,
+    current_user: User,
+    *,
+    category: str,
+    target_reduction_percent: int = 15,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    category_name = resolve_envelope_category(category) or category
+    try:
+        goal = create_saving_goal(
+            db,
+            current_user,
+            category_name=category_name,
+            target_reduction_percent=Decimal(target_reduction_percent),
+            created_by="agent",
+            now=now,
+        )
+    except ValueError as exc:
+        return {"error": str(exc), "category": category_name}
+    progress = calculate_saving_goal_progress(db, goal, now=now)
+    return {"created": True, **_progress_to_tool_result(progress)}
+
+
+def build_saving_goal_progress(
+    db: Session,
+    current_user: User,
+    *,
+    category: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    category_name = resolve_envelope_category(category) if category else None
+    if category_name is None:
+        category_name = category
+    goal = find_active_saving_goal(db, current_user, category_name=category_name)
+    if goal is None:
+        return {
+            "error": "Bu kategori için aktif tasarruf hedefi bulamadım.",
+            "category": category_name,
+        }
+    return _progress_to_tool_result(calculate_saving_goal_progress(db, goal, now=now))
 
 
 def build_subscriptions_summary(
@@ -919,6 +1067,42 @@ def get_subscriptions_tool(
         )
 
 
+@tool("create_saving_goal")
+def create_saving_goal_tool(
+    category: str,
+    target_reduction_percent: int = 15,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Bir gider kategorisinde harcama azaltma hedefi oluşturur."""
+    with SessionLocal() as db:
+        return build_saving_goal_creation(
+            db,
+            _load_current_user(db, user_id),
+            category=category,
+            target_reduction_percent=target_reduction_percent,
+        )
+
+
+@tool("get_saving_goal_progress")
+def get_saving_goal_progress_tool(
+    category: str | None = None,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Aktif kategori tasarruf hedefinin ilerlemesini döner."""
+    with SessionLocal() as db:
+        return build_saving_goal_progress(db, _load_current_user(db, user_id), category=category)
+
+
+@tool("create_smart_saving_plan")
+def create_smart_saving_plan_tool(
+    message: str,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Amaç odaklı mesajdan harcama azaltma planı ve hedefleri oluşturur."""
+    with SessionLocal() as db:
+        return build_smart_saving_plan(db, _load_current_user(db, user_id), message=message)
+
+
 @tool("get_user_memory")
 def get_user_memory_tool(
     key: str | None = None,
@@ -1015,6 +1199,9 @@ def illustrate_concept_tool(
 TOOLS = [
     get_spending_tool,
     get_subscriptions_tool,
+    create_saving_goal_tool,
+    get_saving_goal_progress_tool,
+    create_smart_saving_plan_tool,
     analyze_receipt_tool,
     explain_concept_tool,
     simulate_scenario_tool,

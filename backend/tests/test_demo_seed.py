@@ -59,13 +59,15 @@ class FakeSession:
             next((row for row in rows if self._matches_statement(statement, row)), None)
         )
 
-    def add(self, row: User | Transaction | Subscription) -> None:
+    def add(self, row: User | Transaction | Subscription | Category) -> None:
         if row.id is None:
             row.id = uuid4()
         if isinstance(row, User):
             self.users.append(row)
         elif isinstance(row, Transaction):
             self.transactions.append(row)
+        elif isinstance(row, Category):
+            self.categories.append(row)
         else:
             self.subscriptions.append(row)
 
@@ -136,10 +138,18 @@ def test_demo_seed_creates_parent_logins_child_and_refreshes_insights(
     assert all(user.password_hash is not None for user in db.users)
     assert all(user.is_demo for user in db.users)
     assert len(db.users) == 6
-    assert len(db.transactions) == 26
+    assert len(db.transactions) == 28
     assert any(transaction.source == "receipt_ocr" for transaction in db.transactions)
     assert any(transaction.source == "recurring" for transaction in db.transactions)
     assert any(transaction.merchant == "Bayram hediyesi" for transaction in db.transactions)
+    assert any(transaction.merchant == "Elif harçlığı" for transaction in db.transactions)
+    assert any(transaction.merchant == "Birikim aktarımı" for transaction in db.transactions)
+    assert any(
+        category.user_id == users_by_name["Ayşe Yılmaz"].id
+        and category.name == "Birikim"
+        and str(category.budget_monthly) == "2500.00"
+        for category in db.categories
+    )
     assert len(db.subscriptions) == 4
     assert any(subscription.billing_cycle == "custom" for subscription in db.subscriptions)
     assert [user.name for user in db.refreshed_users] == [

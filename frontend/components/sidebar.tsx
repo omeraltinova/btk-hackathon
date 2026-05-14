@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpen,
   LayoutDashboard,
   LineChart,
   LogOut,
@@ -11,6 +12,7 @@ import {
   Receipt,
   Sparkles,
   Sticker,
+  Target,
   UserRound,
   Users,
   Wallet,
@@ -31,18 +33,22 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
   { href: "/dashboard/transactions", label: "İşlemler", section: "02", icon: WalletCards },
   { href: "/dashboard/income-expense", label: "Gelir/Gider", section: "03", icon: LineChart },
-  { href: "/chat", label: "Sohbet", section: "04", icon: MessageSquare },
-  { href: "/receipts", label: "Fişler", section: "05", icon: Receipt },
-  { href: "/family", label: "Aile", section: "06", icon: Users },
-  { href: "/account", label: "Hesap", section: "07", icon: UserRound },
+  { href: "/dashboard/goals", label: "Hedefler", section: "04", icon: Target },
+  { href: "/learn", label: "Dersler", section: "05", icon: BookOpen },
+  { href: "/chat", label: "Sohbet", section: "06", icon: MessageSquare },
+  { href: "/receipts", label: "Fişler", section: "07", icon: Receipt },
+  { href: "/family", label: "Aile", section: "08", icon: Users },
+  { href: "/account", label: "Hesap", section: "09", icon: UserRound },
 ] as const;
 
 const KID_NAV_ITEMS = [
   { href: "/dashboard", label: "Cüzdanım", section: "01", icon: PiggyBank },
   { href: "/dashboard/transactions", label: "Hareketler", section: "02", icon: WalletCards },
-  { href: "/chat", label: "Koç", section: "03", icon: Sparkles },
-  { href: "/receipts", label: "Fişlerim", section: "04", icon: Sticker },
-  { href: "/account", label: "Profilim", section: "05", icon: UserRound },
+  { href: "/dashboard/goals", label: "Hedefim", section: "03", icon: Target },
+  { href: "/learn", label: "Öğren", section: "04", icon: BookOpen },
+  { href: "/chat", label: "Koç", section: "05", icon: Sparkles },
+  { href: "/receipts", label: "Fişlerim", section: "06", icon: Sticker },
+  { href: "/account", label: "Profilim", section: "07", icon: UserRound },
 ] as const;
 
 const ROLE_LABELS = {

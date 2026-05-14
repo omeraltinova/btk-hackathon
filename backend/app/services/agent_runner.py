@@ -18,6 +18,8 @@ from app.agent.graph import build_agent_graph_from_settings
 from app.agent.tools import (
     build_concept_illustration,
     build_receipt_candidate,
+    build_saving_goal_creation,
+    build_saving_goal_progress,
     build_spending_chart,
     build_spending_summary,
     build_subscriptions_summary,
@@ -31,6 +33,8 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
 from app.schemas.chat import ChatStreamRequest
+from app.services.envelopes import resolve_envelope_category
+from app.services.smart_plans import build_smart_saving_plan
 
 
 class ChatStreamEvent(TypedDict, total=False):
@@ -46,7 +50,20 @@ class ChatStreamEvent(TypedDict, total=False):
 
 
 SUBSCRIPTION_HINTS = ("abonelik", "abonelikler", "tekrarlayan", "subscription")
-CONCEPT_HINTS = ("faiz", "enflasyon", "biriktir", "harçlık", "harclik")
+CONCEPT_HINTS = (
+    "nedir",
+    "faiz",
+    "enflasyon",
+    "bütçe",
+    "butce",
+    "tasarruf",
+    "biriktir",
+    "harçlık",
+    "harclik",
+    "fon",
+    "para piyasası",
+    "para piyasasi",
+)
 SCENARIO_HINTS = ("asgari", "kredi kart", "senaryo", "ödesem", "odesem")
 VISUALIZE_HINTS = ("grafik", "grafiğ", "chart", "görselle", "gorselle", "pasta", "bar grafik")
 MONTHLY_VISUALIZE_HINTS = (
@@ -61,6 +78,37 @@ MONTHLY_VISUALIZE_HINTS = (
     "month by month",
 )
 MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")
+SAVING_GOAL_CREATE_HINTS = (
+    "azalt",
+    "düşür",
+    "dusur",
+    "tasarruf hedefi oluştur",
+    "tasarruf hedefi olustur",
+    "hedef koy",
+)
+SAVING_GOAL_PROGRESS_HINTS = ("hedefimde", "hedefim", "tasarruf hedef", "ilerleme", "durum")
+SMART_PLAN_HINTS = (
+    "tatil",
+    "giderlerimi kısm",
+    "giderlerimi kism",
+    "nereden kısm",
+    "nereden kism",
+    "para biriktiremiyorum",
+    "birikim plan",
+    "akıllı hedef",
+    "akilli hedef",
+)
+ENVELOPE_BUDGET_HINTS = (
+    "zarf",
+    "bütçe",
+    "butce",
+    "kald",
+    "kalan",
+    "günlük",
+    "gunluk",
+    "harcad",
+    "ne kadar",
+)
 ILLUSTRATION_HINTS = (
     "görsel",
     "gorsel",
@@ -203,6 +251,10 @@ def _wants_subscriptions(message: str) -> bool:
 
 
 def _wants_concept(message: str) -> bool:
+    if _wants_envelope_budget(message):
+        return False
+    if _wants_smart_saving_plan(message):
+        return False
     normalized = message.casefold()
     return any(hint in normalized for hint in CONCEPT_HINTS)
 
@@ -227,6 +279,21 @@ def _wants_memory(message: str) -> bool:
     return any(hint in normalized for hint in MEMORY_HINTS)
 
 
+def _wants_saving_goal_creation(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in SAVING_GOAL_CREATE_HINTS)
+
+
+def _wants_saving_goal_progress(message: str) -> bool:
+    normalized = message.casefold()
+    return "hedef" in normalized and any(hint in normalized for hint in SAVING_GOAL_PROGRESS_HINTS)
+
+
+def _wants_smart_saving_plan(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in SMART_PLAN_HINTS)
+
+
 def _wants_illustration(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in ILLUSTRATION_HINTS)
@@ -243,11 +310,28 @@ def _wants_investment_advice(message: str) -> bool:
     return has_investment_term and has_action
 
 
+def _wants_envelope_budget(message: str) -> bool:
+    normalized = message.casefold()
+    return resolve_envelope_category(message) is not None and any(
+        hint in normalized for hint in ENVELOPE_BUDGET_HINTS
+    )
+
+
 def _int_result(result: dict[str, object], key: str) -> int:
     value = result[key]
     if isinstance(value, int):
         return value
     return int(str(value))
+
+
+def _decimal_result(result: dict[str, object], key: str) -> Decimal | None:
+    value = result.get(key)
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _spending_answer(result: dict[str, object]) -> str:
@@ -256,6 +340,43 @@ def _spending_answer(result: dict[str, object]) -> str:
     total = str(result["total_amount_formatted"])
     count = _int_result(result, "transaction_count")
     days = _int_result(result, "days")
+    envelope = result.get("budget_envelope")
+    savings = result.get("savings_envelope")
+    if isinstance(envelope, dict):
+        label = str(envelope.get("label") or "Bu zarf")
+        envelope_name = label.replace(" zarfı", "").casefold()
+        remaining = str(envelope.get("remaining_formatted") or "0,00 ₺")
+        remaining_value = _decimal_result(envelope, "remaining")
+        safe_daily = str(envelope.get("safe_daily_amount_formatted") or "0,00 ₺")
+        days_left = envelope.get("days_left_in_month")
+        if envelope.get("is_savings_goal"):
+            if remaining_value is not None and remaining_value <= 0:
+                return f"{label} bu ay tamamlanmış görünüyor."
+            answer = f"{label}nda bu ay {remaining} daha ayırman gerekiyor."
+            if isinstance(days_left, int) and days_left > 0:
+                answer = (
+                    f"{answer} Ay sonuna {days_left} gün var; günlük hedef yaklaşık {safe_daily}."
+                )
+            return answer
+        if remaining_value is not None and remaining_value < 0:
+            answer = f"{label} bu ay {format_amount_text(str(abs(remaining_value)))} aşıldı."
+        else:
+            answer = f"{label}nda bu ay {remaining} kaldı."
+            if isinstance(days_left, int) and days_left > 0:
+                answer = (
+                    f"{answer} Ay sonuna {days_left} gün var; günlük güvenli {envelope_name} "
+                    f"harcaman yaklaşık {safe_daily}."
+                )
+        if isinstance(savings, dict) and not envelope.get("is_savings_goal"):
+            savings_remaining = _decimal_result(savings, "remaining")
+            if savings_remaining is not None and savings_remaining <= 0:
+                answer = f"{answer} Birikim hedefi bu ay tamamlanmış görünüyor."
+            else:
+                answer = (
+                    f"{answer} Birikim hedefi için {savings.get('remaining_formatted', '0,00 ₺')} "
+                    "daha ayırman gerekiyor."
+                )
+        return answer
     if count == 0:
         return (
             f"Son {days} günde {category_text} kayıtlı gider bulamadım. "
@@ -363,6 +484,75 @@ def _memory_answer(result: dict[str, object]) -> str:
     if labels:
         return f"Hafızamda bu profil için {count} kayıt var: {', '.join(labels)}."
     return f"Hafızamda bu profil için {count} kayıt var."
+
+
+def _saving_goal_answer(result: dict[str, object], *, created: bool) -> str:
+    if "error" in result:
+        category = result.get("category")
+        suffix = f" ({category})" if category else ""
+        return f"Tasarruf hedefi için veriyi netleştiremedim{suffix}: {result['error']}"
+    category_name = str(result.get("category_name", "Bu kategori"))
+    baseline = str(result.get("baseline_amount_formatted", "0,00 ₺"))
+    target = str(result.get("target_spending_amount_formatted", "0,00 ₺"))
+    saving = str(result.get("target_saving_amount_formatted", "0,00 ₺"))
+    actual = str(result.get("actual_spending_formatted", "0,00 ₺"))
+    remaining = str(result.get("remaining_limit_formatted", "0,00 ₺"))
+    tactics = result.get("tactics")
+    first_tactic = ""
+    if isinstance(tactics, list) and tactics:
+        first_tactic = f" İlk taktik: {tactics[0]}"
+    if created:
+        return (
+            f"{category_name} için tasarruf hedefini oluşturdum. Son 30 gün bazın {baseline}; "
+            f"bu ay {target} altında kalırsan yaklaşık {saving} tasarruf edebilirsin."
+            f"{first_tactic}"
+        )
+    status_label = str(result.get("status_label", "on_track"))
+    status_text = {
+        "on_track": "iyi gidiyor",
+        "at_risk": "riskte",
+        "over_limit": "limit aşılmış görünüyor",
+        "completed": "tamamlanmış görünüyor",
+    }.get(status_label, "takipte")
+    return (
+        f"{category_name} tasarruf hedefin {status_text}. Hedef limitin {target}; "
+        f"şu ana kadar {actual} harcadın. Kalan limit {remaining}."
+        f"{first_tactic}"
+    )
+
+
+def _smart_saving_plan_answer(result: dict[str, object]) -> str:
+    goals = result.get("goals")
+    if not isinstance(goals, list) or not goals:
+        return (
+            "Akıllı hedef planı için son 30 günde yeterli kategori harcaması bulamadım. "
+            "Birkaç işlem eklediğinde nereden kısabileceğini birlikte çıkarabilirim."
+        )
+    target = str(result.get("target_label") or "hedef")
+    expense = str(result.get("total_expense_formatted") or "0,00 ₺")
+    saving = str(result.get("expected_monthly_saving_formatted") or "0,00 ₺")
+    parts = [
+        f"{target} hedefin için son 30 gün verine baktım; toplam gider {expense}.",
+        f"İlk aşamada yaklaşık {saving} aylık tasarruf potansiyeli olan hedefler oluşturdum.",
+    ]
+    goal_lines: list[str] = []
+    for item in goals[:2]:
+        if not isinstance(item, dict):
+            continue
+        category = str(item.get("category_name") or "Kategori")
+        target_spending = str(item.get("target_spending_amount_formatted") or "0,00 ₺")
+        target_saving = str(item.get("target_saving_amount_formatted") or "0,00 ₺")
+        goal_lines.append(
+            f"{category}: bu ay {target_spending} altında kal, yaklaşık {target_saving} kazan."
+        )
+    if goal_lines:
+        parts.append(" ".join(goal_lines))
+    subscription_note = result.get("subscription_note")
+    if isinstance(subscription_note, str):
+        monthly = str(result.get("subscription_monthly_total_formatted") or "0,00 ₺")
+        parts.append(f"Aboneliklerin aylık etkisi {monthly}; {subscription_note}")
+    parts.append("Birikim tarafını aylık Birikim zarfı ile takip edebilirsin.")
+    return " ".join(parts)
 
 
 def _image_event_from_result(
@@ -725,6 +915,91 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _subscription_answer(result)
+    elif _wants_smart_saving_plan(payload.message):
+        smart_plan_input: dict[str, object] = {"message": payload.message}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "create_smart_saving_plan",
+            "input": smart_plan_input,
+        }
+        result = build_smart_saving_plan(db, current_user, message=payload.message)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Akıllı hedef planı oluşturuldu.",
+            tool_name="create_smart_saving_plan",
+            tool_calls={"input": smart_plan_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "create_smart_saving_plan",
+            "result": result,
+        }
+        answer = _smart_saving_plan_answer(result)
+    elif _wants_saving_goal_creation(payload.message):
+        category = infer_category_from_text(db, current_user, payload.message)
+        if category is None:
+            answer = "Hangi kategoride tasarruf hedefi oluşturmak istediğini söyler misin?"
+        else:
+            saving_goal_input: dict[str, object] = {
+                "category": category,
+                "target_reduction_percent": 15,
+            }
+            yield {
+                "type": "tool_call",
+                "conversation_id": conversation_id,
+                "tool_name": "create_saving_goal",
+                "input": saving_goal_input,
+            }
+            result = build_saving_goal_creation(
+                db,
+                current_user,
+                category=category,
+                target_reduction_percent=15,
+            )
+            _persist_message(
+                db,
+                conversation,
+                role="tool",
+                content="Tasarruf hedefi oluşturuldu.",
+                tool_name="create_saving_goal",
+                tool_calls={"input": saving_goal_input, "result": result},
+            )
+            yield {
+                "type": "tool_result",
+                "conversation_id": conversation_id,
+                "tool_name": "create_saving_goal",
+                "result": result,
+            }
+            answer = _saving_goal_answer(result, created=True)
+    elif _wants_saving_goal_progress(payload.message):
+        category = infer_category_from_text(db, current_user, payload.message)
+        saving_goal_input = {"category": category}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "get_saving_goal_progress",
+            "input": saving_goal_input,
+        }
+        result = build_saving_goal_progress(db, current_user, category=category)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Tasarruf hedefi ilerlemesi alındı.",
+            tool_name="get_saving_goal_progress",
+            tool_calls={"input": saving_goal_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "get_saving_goal_progress",
+            "result": result,
+        }
+        answer = _saving_goal_answer(result, created=False)
     elif _wants_scenario(payload.message):
         scenario_input: dict[str, object] = {"scenario": payload.message}
         yield {
