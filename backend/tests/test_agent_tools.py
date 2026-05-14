@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.agent.tools import (
+    build_accumulation_goal_creation,
     build_concept_illustration,
     build_saving_goal_creation,
     build_saving_goal_progress,
@@ -195,11 +196,15 @@ def make_saving_goal(
     return SavingGoal(
         id=uuid4(),
         user_id=user_id,
+        goal_type="expense_reduction",
         category_id=category_id,
         title="Market harcamamı azalt",
         baseline_amount=Decimal(baseline),
         target_spending_amount=Decimal(target),
         target_saving_amount=Decimal(saving),
+        target_amount=None,
+        current_amount=Decimal("0"),
+        monthly_contribution=None,
         start_date=datetime(2026, 5, 1, 0, 0, tzinfo=UTC),
         end_date=datetime(2026, 6, 1, 0, 0, tzinfo=UTC),
         status="active",
@@ -545,6 +550,32 @@ def test_build_saving_goal_creation_uses_decimal_category_spending() -> None:
     assert result["target_saving_amount_formatted"] == "90,00 ₺"
     assert len(db.saving_goals) == 1
     assert db.saving_goals[0].created_by == "agent"
+
+
+def test_build_accumulation_goal_creation_tracks_target_without_float() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_accumulation_goal_creation(
+        db,
+        user,
+        title="Tatil birikimi",
+        target_amount=Decimal("24000.00"),
+        current_amount=Decimal("6000.00"),
+        target_months=12,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert result["goal_type"] == "accumulation"
+    assert result["target_amount"] == "24000.00"
+    assert result["current_amount_formatted"] == "6.000,00 ₺"
+    assert result["remaining_amount_formatted"] == "18.000,00 ₺"
+    assert result["target_saving_amount"] == "18000.00"
+    assert not isinstance(result["target_amount"], float)
+    assert len(db.saving_goals) == 1
+    assert db.saving_goals[0].category_id is None
+    assert db.saving_goals[0].baseline_amount == Decimal("6000.00")
 
 
 def test_build_saving_goal_progress_reads_active_scoped_goal() -> None:

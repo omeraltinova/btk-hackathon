@@ -17,6 +17,7 @@ from app.routers._scoping import visible_user_ids
 from app.schemas.saving_goal import SavingGoalCreate, SavingGoalProgressRead, SavingGoalRead
 from app.services.saving_goals import (
     calculate_saving_goal_progress,
+    create_accumulation_goal,
     create_saving_goal,
     serialize_saving_goal,
 )
@@ -56,16 +57,30 @@ def create_saving_goal_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> SavingGoalRead:
     try:
-        goal = create_saving_goal(
-            db,
-            current_user,
-            category_id=payload.category_id,
-            category_name=payload.category_name,
-            target_reduction_percent=payload.target_reduction_percent,
-            baseline_amount=payload.baseline_amount,
-            title=payload.title,
-            created_by="manual",
-        )
+        if payload.goal_type == "accumulation":
+            if payload.target_amount is None or payload.target_date is None:
+                raise ValueError("Birikim hedefi için hedef tutar ve tarih gerekli.")
+            goal = create_accumulation_goal(
+                db,
+                current_user,
+                target_amount=payload.target_amount,
+                current_amount=payload.current_amount,
+                monthly_contribution=payload.monthly_contribution,
+                target_date=payload.target_date,
+                title=payload.title,
+                created_by="manual",
+            )
+        else:
+            goal = create_saving_goal(
+                db,
+                current_user,
+                category_id=payload.category_id,
+                category_name=payload.category_name,
+                target_reduction_percent=payload.target_reduction_percent,
+                baseline_amount=payload.baseline_amount,
+                title=payload.title,
+                created_by="manual",
+            )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return serialize_saving_goal(db, goal)

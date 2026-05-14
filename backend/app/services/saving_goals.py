@@ -1,4 +1,4 @@
-"""Service functions for category-based expense reduction goals."""
+"""Service functions for smart saving goals."""
 
 from __future__ import annotations
 
@@ -36,6 +36,17 @@ class SavingGoalDraft:
     strategy: dict[str, object]
 
 
+@dataclass(frozen=True)
+class AccumulationGoalDraft:
+    target_amount: Decimal
+    current_amount: Decimal
+    monthly_contribution: Decimal
+    start_date: datetime
+    end_date: datetime
+    title: str
+    strategy: dict[str, object]
+
+
 def _money(value: Decimal) -> Decimal:
     return value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
 
@@ -64,12 +75,22 @@ def _serialize_goal(goal: SavingGoal, category_name: str) -> SavingGoalRead:
     return SavingGoalRead(
         id=goal.id,
         user_id=goal.user_id,
+        goal_type=goal.goal_type,
         category_id=goal.category_id,
         category_name=category_name,
         title=goal.title,
         baseline_amount=_money(Decimal(goal.baseline_amount)),
         target_spending_amount=_money(Decimal(goal.target_spending_amount)),
         target_saving_amount=_money(Decimal(goal.target_saving_amount)),
+        target_amount=_money(Decimal(goal.target_amount))
+        if goal.target_amount is not None
+        else None,
+        current_amount=_money(Decimal(goal.current_amount)),
+        monthly_contribution=(
+            _money(Decimal(goal.monthly_contribution))
+            if goal.monthly_contribution is not None
+            else None
+        ),
         start_date=goal.start_date,
         end_date=goal.end_date,
         status=goal.status,
@@ -240,11 +261,119 @@ def create_saving_goal(
     )
     goal = SavingGoal(
         user_id=current_user.id,
+        goal_type="expense_reduction",
         category_id=draft.category.id,
         title=title or draft.title,
         baseline_amount=draft.baseline_amount,
         target_spending_amount=draft.target_spending_amount,
         target_saving_amount=draft.target_saving_amount,
+        target_amount=None,
+        current_amount=Decimal("0"),
+        monthly_contribution=None,
+        start_date=draft.start_date,
+        end_date=draft.end_date,
+        status="active",
+        strategy=draft.strategy,
+        created_by=created_by,
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return goal
+
+
+def _accumulation_tactics(monthly_contribution: Decimal, remaining_amount: Decimal) -> list[str]:
+    return [
+        f"Aylık hedef katkıyı yaklaşık {format_tl(monthly_contribution)} olarak ayrı bir zarf gibi takip et.",
+        "Gelir geldiği gün küçük bir otomatik ayırma hatırlatıcısı kurmayı düşünebilirsin.",
+        f"Kalan tutarı ({format_tl(remaining_amount)}) haftalık küçük parçalara bölerek görünür tut.",
+        "Bu hedef yatırım tavsiyesi değildir; sadece bütçe içinde ayrılacak tutarı planlar.",
+    ]
+
+
+def build_accumulation_goal_draft(
+    *,
+    target_amount: Decimal,
+    current_amount: Decimal = Decimal("0"),
+    monthly_contribution: Decimal | None = None,
+    target_date: datetime,
+    title: str | None = None,
+    now: datetime | None = None,
+) -> AccumulationGoalDraft:
+    start_date = _aware_utc(now or datetime.now(UTC))
+    end_date = _aware_utc(target_date)
+    target = _money(Decimal(target_amount))
+    current = _money(Decimal(current_amount))
+    if target <= 0:
+        raise ValueError("Hedef tutar sıfırdan büyük olmalı.")
+    if current < 0:
+        raise ValueError("Başlangıç tutarı negatif olamaz.")
+    if current >= target:
+        raise ValueError("Başlangıç tutarı hedef tutardan küçük olmalı.")
+    if end_date <= start_date:
+        raise ValueError("Hedef tarihi bugünden sonra olmalı.")
+
+    remaining = _money(target - current)
+    total_days = Decimal(max((end_date - start_date).days, 1))
+    month_count = max(
+        (total_days / Decimal("30")).quantize(Decimal("1"), rounding=ROUND_HALF_UP), Decimal("1")
+    )
+    contribution = _money(
+        Decimal(monthly_contribution)
+        if monthly_contribution is not None
+        else remaining / month_count
+    )
+    if contribution <= 0:
+        raise ValueError("Aylık katkı sıfırdan büyük olmalı.")
+    tactics = _accumulation_tactics(contribution, remaining)
+    return AccumulationGoalDraft(
+        target_amount=target,
+        current_amount=current,
+        monthly_contribution=contribution,
+        start_date=start_date,
+        end_date=end_date,
+        title=title or "Birikim hedefi",
+        strategy={
+            "remaining_amount": f"{remaining:.2f}",
+            "remaining_amount_formatted": format_tl(remaining),
+            "monthly_contribution": f"{contribution:.2f}",
+            "monthly_contribution_formatted": format_tl(contribution),
+            "tactics": tactics,
+        },
+    )
+
+
+def create_accumulation_goal(
+    db: Session,
+    current_user: User,
+    *,
+    target_amount: Decimal,
+    current_amount: Decimal = Decimal("0"),
+    monthly_contribution: Decimal | None = None,
+    target_date: datetime,
+    title: str | None = None,
+    created_by: str = "manual",
+    now: datetime | None = None,
+) -> SavingGoal:
+    draft = build_accumulation_goal_draft(
+        target_amount=target_amount,
+        current_amount=current_amount,
+        monthly_contribution=monthly_contribution,
+        target_date=target_date,
+        title=title,
+        now=now,
+    )
+    goal = SavingGoal(
+        user_id=current_user.id,
+        goal_type="accumulation",
+        category_id=None,
+        title=draft.title,
+        baseline_amount=draft.current_amount,
+        target_spending_amount=draft.target_amount,
+        target_saving_amount=_money(draft.target_amount - draft.current_amount),
+        target_amount=draft.target_amount,
+        current_amount=draft.current_amount,
+        monthly_contribution=draft.monthly_contribution,
         start_date=draft.start_date,
         end_date=draft.end_date,
         status="active",
@@ -276,6 +405,8 @@ def find_active_saving_goal(
 
 
 def serialize_saving_goal(db: Session, goal: SavingGoal) -> SavingGoalRead:
+    if goal.goal_type == "accumulation":
+        return _serialize_goal(goal, "Birikim")
     return _serialize_goal(goal, _category_name(db, goal.category_id))
 
 
@@ -286,6 +417,52 @@ def calculate_saving_goal_progress(
     now: datetime | None = None,
 ) -> SavingGoalProgressRead:
     period_now = _aware_utc(now or datetime.now(UTC))
+    if goal.goal_type == "accumulation":
+        target_amount = _money(Decimal(goal.target_amount or goal.target_saving_amount))
+        start_amount = _money(Decimal(goal.baseline_amount))
+        current_amount = _money(Decimal(goal.current_amount))
+        remaining_amount = _money(max(target_amount - current_amount, Decimal("0")))
+        progress_percent = (
+            Decimal("0")
+            if target_amount == 0
+            else _percent((current_amount / target_amount) * Decimal("100"))
+        )
+        total_seconds = max(
+            (_aware_utc(goal.end_date) - _aware_utc(goal.start_date)).total_seconds(), 1
+        )
+        elapsed_seconds = min(
+            max((period_now - _aware_utc(goal.start_date)).total_seconds(), 0),
+            total_seconds,
+        )
+        expected_amount = _money(
+            start_amount
+            + (target_amount - start_amount) * Decimal(str(elapsed_seconds / total_seconds))
+        )
+        if goal.status == "completed" or current_amount >= target_amount:
+            status_label = "completed"
+        elif current_amount < expected_amount:
+            status_label = "at_risk"
+        else:
+            status_label = "on_track"
+        tactics = []
+        if isinstance(goal.strategy, dict) and isinstance(goal.strategy.get("tactics"), list):
+            tactics = [str(item) for item in goal.strategy["tactics"][:4]]
+        if not tactics:
+            monthly = _money(Decimal(goal.monthly_contribution or Decimal("0")))
+            tactics = _accumulation_tactics(monthly, remaining_amount)
+        serialized = _serialize_goal(goal, "Birikim")
+        return SavingGoalProgressRead(
+            goal=serialized,
+            actual_spending=Decimal("0.00"),
+            saved_amount=current_amount,
+            remaining_limit=remaining_amount,
+            remaining_amount=remaining_amount,
+            progress_percent=progress_percent,
+            expected_spending_to_date=expected_amount,
+            status_label=status_label,
+            tactics=tactics,
+        )
+
     actual = _spending_total(
         db,
         user_id=goal.user_id,
@@ -331,6 +508,7 @@ def calculate_saving_goal_progress(
         actual_spending=actual,
         saved_amount=saved,
         remaining_limit=remaining_limit,
+        remaining_amount=remaining_limit,
         progress_percent=progress_percent,
         expected_spending_to_date=expected_spending,
         status_label=status_label,

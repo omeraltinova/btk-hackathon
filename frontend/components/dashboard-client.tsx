@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowDownRight,
   ArrowUpRight,
+  BookOpen,
   CalendarDays,
   Edit3,
   Loader2,
@@ -13,10 +14,12 @@ import {
   RefreshCw,
   Repeat2,
   Sparkles,
+  Target,
   Trash2,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { InsightBanner } from "@/components/InsightBanner";
@@ -34,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
 import { api, ApiError } from "@/lib/api";
 import { categoriesForType, hasCategoryForType } from "@/lib/category-groups";
+import { rememberActiveConversationId, rememberPendingChatMessage } from "@/lib/chat-session";
 import { defaultDateTimeLocal, toDateTimeLocal, toIsoDateTime } from "@/lib/datetime";
 import { useKidMode } from "@/lib/kid-mode";
 import { amountInput, isValidAmount, normalizeAmountInput } from "@/lib/money-input";
@@ -1341,6 +1345,7 @@ export function DashboardTabs({ activeView }: { activeView: DashboardView }) {
 }
 
 export function DashboardClient({ view = "overview" }: DashboardClientProps) {
+  const router = useRouter();
   const { isKid } = useKidMode();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -1503,6 +1508,18 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     } finally {
       setDismissingInsightId(null);
     }
+  }
+
+  function handleStartSmartPlan() {
+    rememberPendingChatMessage({
+      message:
+        "Akıllı hedef planı çıkar. Son harcamalarıma bakıp nereden kısabileceğimi ve hangi birikim hedefini açabileceğimi öner.",
+      source: "dashboard",
+      title: "Akıllı hedef planı",
+      startNew: true,
+    });
+    rememberActiveConversationId(null);
+    router.push("/chat");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1840,6 +1857,27 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         </Link>
                       </Button>
                     ) : null}
+                    <Button asChild size="sm" variant="secondary">
+                      <Link href="/dashboard/goals">
+                        Hedef oluştur
+                        <Target className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button asChild size="sm" variant="secondary">
+                      <Link href="/learn">
+                        Dersi aç
+                        <BookOpen className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleStartSmartPlan}
+                    >
+                      Plan çıkar
+                      <Sparkles className="h-4 w-4" />
+                    </Button>
                     <Button
                       type="button"
                       size="sm"

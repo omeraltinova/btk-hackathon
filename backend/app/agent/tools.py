@@ -6,7 +6,7 @@ import base64
 import binascii
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -32,6 +32,7 @@ from app.services.image_gen import IllustrationService, IllustrationUnavailableE
 from app.services.ocr import ReceiptOcrError, ReceiptOcrService, ReceiptOcrUnavailableError
 from app.services.saving_goals import (
     calculate_saving_goal_progress,
+    create_accumulation_goal,
     create_saving_goal,
     find_active_saving_goal,
 )
@@ -299,6 +300,7 @@ def _progress_to_tool_result(progress: SavingGoalProgressRead) -> dict[str, obje
     goal = progress.goal
     return {
         "goal_id": str(goal.id),
+        "goal_type": goal.goal_type,
         "category_id": str(goal.category_id) if goal.category_id is not None else None,
         "category_name": goal.category_name,
         "title": goal.title,
@@ -308,12 +310,30 @@ def _progress_to_tool_result(progress: SavingGoalProgressRead) -> dict[str, obje
         "target_spending_amount_formatted": format_tl(goal.target_spending_amount),
         "target_saving_amount": _decimal_text(goal.target_saving_amount),
         "target_saving_amount_formatted": format_tl(goal.target_saving_amount),
+        "target_amount": _decimal_text(goal.target_amount)
+        if goal.target_amount is not None
+        else None,
+        "target_amount_formatted": format_tl(goal.target_amount)
+        if goal.target_amount is not None
+        else None,
+        "current_amount": _decimal_text(goal.current_amount),
+        "current_amount_formatted": format_tl(goal.current_amount),
+        "monthly_contribution": (
+            _decimal_text(goal.monthly_contribution)
+            if goal.monthly_contribution is not None
+            else None
+        ),
+        "monthly_contribution_formatted": (
+            format_tl(goal.monthly_contribution) if goal.monthly_contribution is not None else None
+        ),
         "actual_spending": _decimal_text(progress.actual_spending),
         "actual_spending_formatted": format_tl(progress.actual_spending),
         "saved_amount": _decimal_text(progress.saved_amount),
         "saved_amount_formatted": format_tl(progress.saved_amount),
         "remaining_limit": _decimal_text(progress.remaining_limit),
         "remaining_limit_formatted": format_tl(progress.remaining_limit),
+        "remaining_amount": _decimal_text(progress.remaining_amount),
+        "remaining_amount_formatted": format_tl(progress.remaining_amount),
         "progress_percent": f"{progress.progress_percent:.1f}",
         "expected_spending_to_date": _decimal_text(progress.expected_spending_to_date),
         "expected_spending_to_date_formatted": format_tl(progress.expected_spending_to_date),
@@ -347,6 +367,39 @@ def build_saving_goal_creation(
     except ValueError as exc:
         return {"error": str(exc), "category": category_name}
     progress = calculate_saving_goal_progress(db, goal, now=now)
+    return {"created": True, **_progress_to_tool_result(progress)}
+
+
+def build_accumulation_goal_creation(
+    db: Session,
+    current_user: User,
+    *,
+    title: str,
+    target_amount: Decimal,
+    current_amount: Decimal = Decimal("0"),
+    target_months: int = 12,
+    monthly_contribution: Decimal | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    period_start = _aware_utc(now or datetime.now(UTC))
+    safe_months = max(1, min(target_months, 120))
+    target_date = _add_months(_month_start(period_start), safe_months)
+    target_end = datetime(target_date.year, target_date.month, target_date.day, tzinfo=UTC)
+    try:
+        goal = create_accumulation_goal(
+            db,
+            current_user,
+            target_amount=target_amount,
+            current_amount=current_amount,
+            monthly_contribution=monthly_contribution,
+            target_date=target_end,
+            title=title,
+            created_by="agent",
+            now=period_start,
+        )
+    except ValueError as exc:
+        return {"error": str(exc), "title": title}
+    progress = calculate_saving_goal_progress(db, goal, now=period_start)
     return {"created": True, **_progress_to_tool_result(progress)}
 
 
@@ -1093,6 +1146,38 @@ def get_saving_goal_progress_tool(
         return build_saving_goal_progress(db, _load_current_user(db, user_id), category=category)
 
 
+@tool("create_accumulation_goal")
+def create_accumulation_goal_tool(
+    title: str,
+    target_amount: str,
+    current_amount: str = "0",
+    target_months: int = 12,
+    monthly_contribution: str | None = None,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Belirli bir tutara ulaşmak için birikim hedefi oluşturur."""
+    with SessionLocal() as db:
+        try:
+            parsed_target = Decimal(target_amount.replace(".", "").replace(",", "."))
+            parsed_current = Decimal(current_amount.replace(".", "").replace(",", "."))
+            parsed_monthly = (
+                Decimal(monthly_contribution.replace(".", "").replace(",", "."))
+                if monthly_contribution is not None
+                else None
+            )
+        except InvalidOperation:
+            return {"error": "Tutarları net okuyamadım.", "title": title}
+        return build_accumulation_goal_creation(
+            db,
+            _load_current_user(db, user_id),
+            title=title,
+            target_amount=parsed_target,
+            current_amount=parsed_current,
+            target_months=target_months,
+            monthly_contribution=parsed_monthly,
+        )
+
+
 @tool("create_smart_saving_plan")
 def create_smart_saving_plan_tool(
     message: str,
@@ -1200,6 +1285,7 @@ TOOLS = [
     get_spending_tool,
     get_subscriptions_tool,
     create_saving_goal_tool,
+    create_accumulation_goal_tool,
     get_saving_goal_progress_tool,
     create_smart_saving_plan_tool,
     analyze_receipt_tool,

@@ -407,22 +407,25 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     çok dönemli hedef takibi stretch kapsamda kalır. Agent aynı scoped zarf
     özetini kullanarak kalan bütçe ve ay sonuna kadar güvenli günlük harcama
     yanıtı verir.
-21. **Kategori bazlı tasarruf hedefleri (MVP):** Kullanıcı belirli bir gider
-    kategorisindeki harcamayı bu ay azaltmak için hedef oluşturabilir. Bu,
-    klasik birikim hedefinden ayrıdır: hedef para biriktirme değil, örneğin
-    `Market` harcamasını geçen 30 gün bazına göre %10–15 düşürmektir. Agent
-    `create_saving_goal` ve `get_saving_goal_progress` araçlarıyla hedef
-    oluşturur/izler; taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe
-    önerisidir. Tutarlar `Decimal`, kapsam `user_id` filtresi ve aile görünürlük
-    kurallarıyla hesaplanır.
+21. **Akıllı hedefler (tasarruf + birikim MVP):** Kullanıcı tek hedef ekranında
+    iki hedef türü oluşturabilir. `Tasarruf hedefi`, belirli bir gider
+    kategorisindeki harcamayı bu ay azaltır; örneğin `Market` harcamasını geçen
+    30 gün bazına göre %10–15 düşürmek. `Birikim hedefi`, tatil, okul masrafı
+    veya acil durum gibi belirli bir tutara ulaşmayı izler; başlangıç tutarı,
+    hedef tutar, hedef tarih ve önerilen aylık katkı saklanır. Agent
+    `create_saving_goal`, `create_accumulation_goal` ve
+    `get_saving_goal_progress` araçlarıyla iki hedef türünü de oluşturur/izler.
+    Taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe önerisidir. Tutarlar
+    `Decimal`, kapsam `user_id` filtresi ve aile görünürlük kurallarıyla
+    hesaplanır.
 22. **Akıllı hedef planı:** Kullanıcı “Tatile gitmek istiyorum, giderlerimi
     kısmam lazım” gibi amaç odaklı bir mesaj yazarsa agent `get_spending`,
-    `get_subscriptions` ve `create_smart_saving_plan` akışıyla son 30 günün
-    yüksek harcama kategorilerini ve aktif abonelik etkisini inceler. Yeni tablo
-    eklemeden mevcut `saving_goals` yapısında 1–2 kategori bazlı tasarruf hedefi
-    oluşturur, haftalık limit/taktik verir ve `Birikim zarfı`nı aylık hedef
-    olarak konumlandırır. Bu akış da yatırım tavsiyesi vermez; sadece bütçe ve
-    alışkanlık koçluğu yapar.
+    `get_subscriptions`, `create_smart_saving_plan` ve gerekirse
+    `create_accumulation_goal` akışıyla son 30 günün yüksek harcama kategorilerini
+    ve aktif abonelik etkisini inceler. Mevcut `saving_goals` yapısında 1–2
+    kategori bazlı tasarruf hedefi ve amaç netse bir birikim hedefi oluşturabilir,
+    haftalık limit/aylık katkı/taktik verir. Bu akış da yatırım tavsiyesi vermez;
+    sadece bütçe ve alışkanlık koçluğu yapar.
 23. **Finans Okulu (hazır AI dersleri):** Frontend, kontrollü bir başlık
     listesiyle (`Faiz`, `Enflasyon`, `Bütçe`, `Tasarruf`, `Kredi kartı asgari
     ödeme`, `Para piyasası fonu nedir?`) kısa ders akışı sunar. Kullanıcı başlığa
@@ -434,7 +437,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
 24. Sesli giriş (Web Speech API)
-25. Çok dönemli birikim hedef takibi
+25. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
 26. Quiz modu
 27. CSV export
 28. Magic link auth (email-only login, parola yok)
@@ -549,11 +552,16 @@ CREATE INDEX idx_tx_merchant ON transactions(merchant);
 CREATE TABLE saving_goals (
   id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  goal_type               TEXT NOT NULL DEFAULT 'expense_reduction'
+                          CHECK (goal_type IN ('expense_reduction','accumulation')),
   category_id             UUID REFERENCES categories(id) ON DELETE SET NULL,
   title                   TEXT NOT NULL,
   baseline_amount         NUMERIC(12,2) NOT NULL,
   target_spending_amount  NUMERIC(12,2) NOT NULL,
   target_saving_amount    NUMERIC(12,2) NOT NULL,
+  target_amount           NUMERIC(12,2),       -- accumulation goals only
+  current_amount          NUMERIC(12,2) NOT NULL DEFAULT 0,
+  monthly_contribution    NUMERIC(12,2),
   start_date              TIMESTAMPTZ NOT NULL,
   end_date                TIMESTAMPTZ NOT NULL,
   status                  TEXT NOT NULL DEFAULT 'active'
@@ -565,6 +573,7 @@ CREATE TABLE saving_goals (
   updated_at              TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_saving_goals_user_status ON saving_goals(user_id, status);
+CREATE INDEX idx_saving_goals_user_type_status ON saving_goals(user_id, goal_type, status);
 CREATE INDEX idx_saving_goals_category ON saving_goals(category_id);
 
 CREATE TABLE subscriptions (
@@ -652,7 +661,7 @@ from .tools import (
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
     visualize_spending, illustrate_concept,
-    create_saving_goal, get_saving_goal_progress
+    create_saving_goal, create_accumulation_goal, get_saving_goal_progress
 )
 from .prompts import build_system_prompt
 
@@ -666,7 +675,7 @@ TOOLS = [
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
     visualize_spending, illustrate_concept,
-    create_saving_goal, get_saving_goal_progress,
+    create_saving_goal, create_accumulation_goal, get_saving_goal_progress,
 ]
 
 llm = ChatGoogleGenerativeAI(
@@ -1061,8 +1070,14 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.20
+**Doküman versiyonu:** 0.21
 **Son güncelleme:** 14 Mayıs 2026
+**v0.21 değişiklikleri:** §12.2'de `Akıllı hedefler` kapsamı tasarruf ve
+birikim hedeflerini tek MVP yüzeyinde birleştirdi. `saving_goals` mevcut tablo
+ailesi `goal_type='expense_reduction'|'accumulation'`, `target_amount`,
+`current_amount` ve `monthly_contribution` alanlarıyla iki hedef türünü de
+taşıyabilir; `create_accumulation_goal` agent aracı eklendi. Stretch maddesi
+otomatik katkı eşleştirme gibi gelişmiş hedef otomasyonuna daraltıldı.
 **v0.20 değişiklikleri:** `day-1-bootstrap` ve `semih/zarf-budget-goals`
 branchlerindeki paralel Day 7 scope kararları tek planda birleştirildi.
 §12.2 yeniden numaralandırıldı; gelir/gider detayları, tekrarlayan ödeme

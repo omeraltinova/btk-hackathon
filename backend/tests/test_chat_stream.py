@@ -415,6 +415,32 @@ def test_chat_stream_can_create_category_saving_goal() -> None:
     assert fake_session.saving_goals[0].created_by == "agent"
 
 
+def test_chat_stream_can_create_accumulation_goal() -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Tatil için 24000 TL birikim hedefi oluştur."},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "create_accumulation_goal"' in response.text
+    assert "Tatil birikimi oluşturdum" in response.text
+    assert "24.000,00 ₺" in response.text
+    assert len(fake_session.saving_goals) == 1
+    assert fake_session.saving_goals[0].goal_type == "accumulation"
+
+
 def test_chat_stream_can_create_smart_saving_plan() -> None:
     user = make_user()
     market = Category(
@@ -487,6 +513,32 @@ def test_chat_stream_can_create_smart_saving_plan() -> None:
     assert "Tatil hedefin için" in response.text
     assert "Market" in response.text
     assert len(fake_session.saving_goals) == 2
+
+
+def test_chat_stream_smart_plan_mentions_accumulation_without_spending_data() -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Tatil için 24000 TL biriktirmek istiyorum, nereden kısmalıyım?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "create_smart_saving_plan"' in response.text
+    assert "Tatil birikimi için 24.000,00 ₺ hedefi açtım" in response.text
+    assert "yeterli gider verisi bulamadım" in response.text
+    assert len(fake_session.saving_goals) == 1
+    assert fake_session.saving_goals[0].goal_type == "accumulation"
 
 
 def test_chat_stream_returns_inline_chart_payload() -> None:

@@ -169,12 +169,16 @@ export type TransactionSummary = {
 export type SavingGoal = {
   id: string;
   user_id: string;
+  goal_type: "expense_reduction" | "accumulation";
   category_id: string | null;
   category_name: string;
   title: string;
   baseline_amount: string;
   target_spending_amount: string;
   target_saving_amount: string;
+  target_amount: string | null;
+  current_amount: string;
+  monthly_contribution: string | null;
   start_date: string;
   end_date: string;
   status: "active" | "completed" | "paused";
@@ -187,6 +191,7 @@ export type SavingGoalProgress = {
   actual_spending: string;
   saved_amount: string;
   remaining_limit: string;
+  remaining_amount: string;
   progress_percent: string;
   expected_spending_to_date: string;
   status_label: "on_track" | "at_risk" | "over_limit" | "completed";

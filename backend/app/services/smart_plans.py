@@ -18,6 +18,7 @@ from app.models.user import User
 from app.routers._scoping import visible_user_ids
 from app.services.saving_goals import (
     calculate_saving_goal_progress,
+    create_accumulation_goal,
     create_saving_goal,
 )
 from app.utils.recurrence import monthly_equivalent
@@ -50,11 +51,18 @@ def _target_amount_from_message(message: str) -> Decimal | None:
     matches = re.findall(r"\d[\d\.]*,?\d*", message)
     if not matches:
         return None
-    raw = matches[0].replace(".", "").replace(",", ".")
-    try:
-        amount = Decimal(raw)
-    except InvalidOperation:
+    amounts: list[Decimal] = []
+    for match in matches:
+        raw = match.replace(".", "").replace(",", ".")
+        try:
+            amount = Decimal(raw)
+        except InvalidOperation:
+            continue
+        if amount >= Decimal("100"):
+            amounts.append(amount)
+    if not amounts:
         return None
+    amount = max(amounts)
     return _money(amount) if amount > 0 else None
 
 
@@ -67,6 +75,17 @@ def _goal_label_from_message(message: str) -> str:
     if "okul" in normalized or "eğitim" in normalized or "egitim" in normalized:
         return "Eğitim"
     return "Birikim"
+
+
+def _target_months_from_message(message: str) -> int:
+    normalized = message.casefold()
+    month_match = re.search(r"(\d{1,3})\s*(?:ay|ayda|aylık|aylik)", normalized)
+    if month_match:
+        return max(1, min(int(month_match.group(1)), 120))
+    year_match = re.search(r"(\d{1,2})\s*(?:yıl|yil|senede|sene)", normalized)
+    if year_match:
+        return max(1, min(int(year_match.group(1)) * 12, 120))
+    return 12
 
 
 def _reduction_percent_for_category(category_name: str) -> Decimal:
@@ -204,6 +223,37 @@ def build_smart_saving_plan(
         Decimal("0"),
     )
     target_amount = _target_amount_from_message(message)
+    accumulation_goal: dict[str, object] | None = None
+    if target_amount is not None:
+        target_label = _goal_label_from_message(message)
+        accumulation = create_accumulation_goal(
+            db,
+            current_user,
+            target_amount=target_amount,
+            target_date=period_end + timedelta(days=30 * _target_months_from_message(message)),
+            title=f"{target_label} birikimi",
+            created_by="agent",
+            now=period_end,
+        )
+        accumulation_progress = calculate_saving_goal_progress(db, accumulation, now=period_end)
+        accumulation_goal = {
+            "goal_id": str(accumulation.id),
+            "title": accumulation.title,
+            "target_amount": _decimal_text(
+                accumulation_progress.goal.target_amount or Decimal("0")
+            ),
+            "target_amount_formatted": format_tl(
+                accumulation_progress.goal.target_amount or Decimal("0"),
+            ),
+            "remaining_amount": _decimal_text(accumulation_progress.remaining_amount),
+            "remaining_amount_formatted": format_tl(accumulation_progress.remaining_amount),
+            "monthly_contribution": _decimal_text(
+                accumulation_progress.goal.monthly_contribution or Decimal("0"),
+            ),
+            "monthly_contribution_formatted": format_tl(
+                accumulation_progress.goal.monthly_contribution or Decimal("0"),
+            ),
+        }
     expected_monthly_saving = _money(
         sum(
             (Decimal(str(goal["target_saving_amount"])) for goal in created_goals),
@@ -215,6 +265,7 @@ def build_smart_saving_plan(
         "target_label": _goal_label_from_message(message),
         "target_amount": _decimal_text(target_amount) if target_amount is not None else None,
         "target_amount_formatted": format_tl(target_amount) if target_amount is not None else None,
+        "accumulation_goal": accumulation_goal,
         "analysis_period_days": 30,
         "total_expense": _decimal_text(total_expense),
         "total_expense_formatted": format_tl(total_expense),

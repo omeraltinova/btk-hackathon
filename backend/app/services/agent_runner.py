@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.graph import build_agent_graph_from_settings
 from app.agent.tools import (
+    build_accumulation_goal_creation,
     build_concept_illustration,
     build_receipt_candidate,
     build_saving_goal_creation,
@@ -85,6 +86,13 @@ SAVING_GOAL_CREATE_HINTS = (
     "tasarruf hedefi oluştur",
     "tasarruf hedefi olustur",
     "hedef koy",
+)
+ACCUMULATION_GOAL_CREATE_HINTS = (
+    "birikim hedefi oluştur",
+    "birikim hedefi olustur",
+    "birikim hedefi koy",
+    "biriktirme hedefi",
+    "para biriktirmek istiyorum",
 )
 SAVING_GOAL_PROGRESS_HINTS = ("hedefimde", "hedefim", "tasarruf hedef", "ilerleme", "durum")
 SMART_PLAN_HINTS = (
@@ -271,6 +279,11 @@ def _wants_saving_goal_creation(message: str) -> bool:
     return any(hint in normalized for hint in SAVING_GOAL_CREATE_HINTS)
 
 
+def _wants_accumulation_goal_creation(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in ACCUMULATION_GOAL_CREATE_HINTS)
+
+
 def _wants_saving_goal_progress(message: str) -> bool:
     normalized = message.casefold()
     return "hedef" in normalized and any(hint in normalized for hint in SAVING_GOAL_PROGRESS_HINTS)
@@ -323,6 +336,46 @@ def _decimal_result(result: dict[str, object], key: str) -> Decimal | None:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _target_amount_from_message(message: str) -> Decimal | None:
+    matches = re.findall(r"\d[\d\.]*,?\d*", message)
+    if not matches:
+        return None
+    amounts: list[Decimal] = []
+    for match in matches:
+        raw = match.replace(".", "").replace(",", ".")
+        try:
+            amount = Decimal(raw)
+        except InvalidOperation:
+            continue
+        if amount >= Decimal("100"):
+            amounts.append(amount)
+    return max(amounts) if amounts else None
+
+
+def _target_months_from_message(message: str) -> int:
+    normalized = message.casefold()
+    month_match = re.search(r"(\d{1,3})\s*(?:ay|ayda|aylık|aylik)", normalized)
+    if month_match:
+        return max(1, min(int(month_match.group(1)), 120))
+    year_match = re.search(r"(\d{1,2})\s*(?:yıl|yil|senede|sene)", normalized)
+    if year_match:
+        return max(1, min(int(year_match.group(1)) * 12, 120))
+    return 12
+
+
+def _accumulation_title_from_message(message: str) -> str:
+    normalized = message.casefold()
+    if "tatil" in normalized:
+        return "Tatil birikimi"
+    if "okul" in normalized or "eğitim" in normalized or "egitim" in normalized:
+        return "Eğitim birikimi"
+    if "telefon" in normalized:
+        return "Telefon birikimi"
+    if "acil" in normalized:
+        return "Acil durum birikimi"
+    return "Birikim hedefi"
 
 
 def _spending_answer(result: dict[str, object]) -> str:
@@ -478,6 +531,8 @@ def _memory_answer(result: dict[str, object]) -> str:
 
 
 def _saving_goal_answer(result: dict[str, object], *, created: bool) -> str:
+    if result.get("goal_type") == "accumulation":
+        return _accumulation_goal_answer(result, created=created)
     if "error" in result:
         category = result.get("category")
         suffix = f" ({category})" if category else ""
@@ -512,9 +567,34 @@ def _saving_goal_answer(result: dict[str, object], *, created: bool) -> str:
     )
 
 
+def _accumulation_goal_answer(result: dict[str, object], *, created: bool) -> str:
+    if "error" in result:
+        return f"Birikim hedefi için veriyi netleştiremedim: {result['error']}"
+    title = str(result.get("title") or "Birikim hedefi")
+    target = str(result.get("target_amount_formatted") or "0,00 ₺")
+    current = str(result.get("current_amount_formatted") or "0,00 ₺")
+    remaining = str(result.get("remaining_amount_formatted") or "0,00 ₺")
+    monthly = str(result.get("monthly_contribution_formatted") or "0,00 ₺")
+    if created:
+        return (
+            f"{title} oluşturdum. Hedef tutar {target}; şu an {current} var. "
+            f"Kalan {remaining}. Aylık yaklaşık {monthly} ayırarak takip edebilirsin."
+        )
+    return f"{title} için kalan tutar {remaining}; aylık takip tutarı yaklaşık {monthly}."
+
+
 def _smart_saving_plan_answer(result: dict[str, object]) -> str:
     goals = result.get("goals")
+    accumulation = result.get("accumulation_goal")
     if not isinstance(goals, list) or not goals:
+        if isinstance(accumulation, dict):
+            title = str(accumulation.get("title") or "Birikim hedefi")
+            target_amount = str(accumulation.get("target_amount_formatted") or "0,00 ₺")
+            monthly = str(accumulation.get("monthly_contribution_formatted") or "0,00 ₺")
+            return (
+                f"{title} için {target_amount} hedefi açtım; aylık yaklaşık {monthly} gerekir. "
+                "Son 30 günde kategori bazlı azaltma hedefi önermek için yeterli gider verisi bulamadım."
+            )
         return (
             "Akıllı hedef planı için son 30 günde yeterli kategori harcaması bulamadım. "
             "Birkaç işlem eklediğinde nereden kısabileceğini birlikte çıkarabilirim."
@@ -538,11 +618,19 @@ def _smart_saving_plan_answer(result: dict[str, object]) -> str:
         )
     if goal_lines:
         parts.append(" ".join(goal_lines))
+    if isinstance(accumulation, dict):
+        title = str(accumulation.get("title") or "Birikim hedefi")
+        target_amount = str(accumulation.get("target_amount_formatted") or "0,00 ₺")
+        monthly = str(accumulation.get("monthly_contribution_formatted") or "0,00 ₺")
+        parts.append(
+            f"{title} için {target_amount} hedefi açtım; aylık yaklaşık {monthly} gerekir."
+        )
     subscription_note = result.get("subscription_note")
     if isinstance(subscription_note, str):
         monthly = str(result.get("subscription_monthly_total_formatted") or "0,00 ₺")
         parts.append(f"Aboneliklerin aylık etkisi {monthly}; {subscription_note}")
-    parts.append("Birikim tarafını aylık Birikim zarfı ile takip edebilirsin.")
+    if not isinstance(accumulation, dict):
+        parts.append("Birikim tarafını aylık Birikim zarfı ile takip edebilirsin.")
     return " ".join(parts)
 
 
@@ -906,6 +994,46 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _subscription_answer(result)
+    elif _wants_accumulation_goal_creation(payload.message):
+        target_amount = _target_amount_from_message(payload.message)
+        if target_amount is None:
+            answer = "Birikim hedefi için hedef tutarı yazar mısın? Örneğin 20.000 ₺ gibi."
+        else:
+            title = _accumulation_title_from_message(payload.message)
+            months = _target_months_from_message(payload.message)
+            accumulation_input: dict[str, object] = {
+                "title": title,
+                "target_amount": str(target_amount),
+                "target_months": months,
+            }
+            yield {
+                "type": "tool_call",
+                "conversation_id": conversation_id,
+                "tool_name": "create_accumulation_goal",
+                "input": accumulation_input,
+            }
+            result = build_accumulation_goal_creation(
+                db,
+                current_user,
+                title=title,
+                target_amount=target_amount,
+                target_months=months,
+            )
+            _persist_message(
+                db,
+                conversation,
+                role="tool",
+                content="Birikim hedefi oluşturuldu.",
+                tool_name="create_accumulation_goal",
+                tool_calls={"input": accumulation_input, "result": result},
+            )
+            yield {
+                "type": "tool_result",
+                "conversation_id": conversation_id,
+                "tool_name": "create_accumulation_goal",
+                "result": result,
+            }
+            answer = _accumulation_goal_answer(result, created=True)
     elif _wants_smart_saving_plan(payload.message):
         smart_plan_input: dict[str, object] = {"message": payload.message}
         yield {
