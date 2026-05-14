@@ -104,8 +104,6 @@ ENVELOPE_BUDGET_HINTS = (
     "butce",
     "kald",
     "kalan",
-    "günlük",
-    "gunluk",
     "harcad",
     "ne kadar",
 )
@@ -135,28 +133,17 @@ INVESTMENT_TERMS = (
     "yatırım",
     "yatirim",
 )
-INVESTMENT_ADVICE_ACTIONS = (
-    "alayım",
-    "alayim",
-    "almalı",
-    "almali",
-    "alınır",
-    "alinir",
-    "satayım",
-    "satayim",
-    "satmalı",
-    "satmali",
-    "satılır",
-    "satilir",
-    "öner",
-    "oner",
-    "tavsiye",
-    "hangi",
-    "neye yatır",
-    "neye yatir",
-    "portföy",
-    "portfoy",
+INVESTMENT_ADVICE_PATTERNS = (
+    r"\b(alayım|alayim|almalı|almali|alınır|alinir)\b",
+    r"\b(satayım|satayim|satmalı|satmali|satılır|satilir)\b",
+    r"\bhangi\b",
+    r"\bneye yat[ıi]r",
+    r"\bportf[öo]y\b",
+    r"\b(öner|oner|önerir|onerir)\b",
+    r"\btavsiye (?:et|eder|edersin|edilir|ver|verir|istiyorum)\b",
+    r"\byat[ıi]r[ıi]m tavsiyesi (?:ver|verir|istiyorum|laz[ıi]m|gerek)\b",
 )
+NEGATED_SHORT_TRADE_HINTS = ("al/sat", "al-sat", "al sat tavsiyesi verme")
 MAX_CONTEXT_MESSAGES = 20
 
 
@@ -301,13 +288,17 @@ def _wants_illustration(message: str) -> bool:
 
 def _wants_investment_advice(message: str) -> bool:
     normalized = message.casefold()
-    if "yatırım tavsiyesi" in normalized or "yatirim tavsiyesi" in normalized:
-        return True
     has_investment_term = any(term in normalized for term in INVESTMENT_TERMS)
-    has_action = any(action in normalized for action in INVESTMENT_ADVICE_ACTIONS) or bool(
-        re.search(r"\b(al|sat)\b", normalized),
+    if not has_investment_term:
+        return False
+
+    has_advice_pattern = any(
+        re.search(pattern, normalized) for pattern in INVESTMENT_ADVICE_PATTERNS
     )
-    return has_investment_term and has_action
+    has_short_trade_action = bool(re.search(r"\b(al|sat)\b", normalized)) and not any(
+        hint in normalized for hint in NEGATED_SHORT_TRADE_HINTS
+    )
+    return has_advice_pattern or has_short_trade_action
 
 
 def _wants_envelope_budget(message: str) -> bool:

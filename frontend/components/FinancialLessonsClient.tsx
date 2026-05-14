@@ -1,11 +1,11 @@
 "use client";
 
-import { BookOpen, ImagePlus, Loader2, Volume2 } from "lucide-react";
+import { BookOpen, ImagePlus, MessageSquareText } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { streamChat } from "@/lib/sse";
-import type { ChatStreamEvent } from "@/lib/types";
+import { rememberActiveConversationId, rememberPendingChatMessage } from "@/lib/chat-session";
 
 type Lesson = {
   title: string;
@@ -43,7 +43,7 @@ const LESSONS: Lesson[] = [
   {
     title: "Para piyasası fonu nedir?",
     prompt:
-      "Para piyasası fonu nedir? Sadece eğitim amaçlı anlat; belirli fon önerme, al/sat/tut tavsiyesi verme.",
+      "Para piyasası fonu nedir? Eğitim amaçlı, günlük hayattan örneklerle genel işleyişini ve risklerini anlat; belirli ürün adı veya getiri iddiası kullanma.",
     tag: "Yatırım kavramı",
     sensitive: true,
   },
@@ -53,44 +53,26 @@ const DEFAULT_LESSON = LESSONS[0] as Lesson;
 
 function lessonPrompt(lesson: Lesson, visual: boolean): string {
   const suffix = visual ? " Görsel olarak da anlat." : "";
-  return `${lesson.prompt} Yatırım tavsiyesi verme; sadece eğitim amaçlı açıkla.${suffix}`;
+  return `${lesson.prompt} Bu bir ders anlatımıdır; ürün seçimi veya getiri iddiası yapma.${suffix}`;
 }
 
 export function FinancialLessonsClient() {
+  const router = useRouter();
   const [selectedLesson, setSelectedLesson] = useState<Lesson>(DEFAULT_LESSON);
-  const [answer, setAnswer] = useState("");
-  const [image, setImage] = useState<{ url: string; alt: string } | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [routingAction, setRoutingAction] = useState<string | null>(null);
 
-  async function runLesson(lesson: Lesson, visual = false) {
+  function startLessonInChat(lesson: Lesson, visual = false) {
+    const actionKey = `${lesson.title}-${visual ? "visual" : "text"}`;
     setSelectedLesson(lesson);
-    setAnswer("");
-    setImage(null);
-    setError(null);
-    setIsLoading(true);
-    try {
-      await streamChat({ message: lessonPrompt(lesson, visual) }, (event: ChatStreamEvent) => {
-        if (event.type === "delta") {
-          setAnswer((current) => `${current}${event.content}`);
-        }
-        if (event.type === "image") {
-          setImage({ url: event.image_url, alt: event.alt_text });
-        }
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ders hazırlanamadı, tekrar dener misin?");
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  function speakAnswer() {
-    if (!answer || typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(answer);
-    utterance.lang = "tr-TR";
-    window.speechSynthesis.speak(utterance);
+    setRoutingAction(actionKey);
+    rememberPendingChatMessage({
+      message: lessonPrompt(lesson, visual),
+      source: "learn",
+      title: lesson.title,
+      startNew: true,
+    });
+    rememberActiveConversationId(null);
+    router.push("/chat");
   }
 
   return (
@@ -99,22 +81,21 @@ export function FinancialLessonsClient() {
         <div className="max-w-3xl space-y-3">
           <span className="stamp-label bg-primary/10 text-primary">Finans Okulu</span>
           <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
-            Hazır ders seç, koç anlatsın
+            Hazır ders seç, sohbette başlat
           </h1>
           <p className="text-sm leading-6 text-muted-foreground sm:text-base">
-            Dersler kontrollü başlıklardan başlar; AI sadece eğitim amaçlı açıklar. Fon, hisse,
-            kripto, altın veya döviz başlıklarında belirli ürün önerisi ve al/sat/tut tavsiyesi
-            verilmez.
+            Dersler kontrollü başlıklardan başlar; koç cevabı sohbet ekranında üretir. Fon, hisse,
+            kripto, altın veya döviz başlıklarında belirli ürün seçimi ve getiri iddiası yoktur.
           </p>
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="grid gap-3">
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {LESSONS.map((lesson) => (
             <article
               key={lesson.title}
-              className="ledger-card rounded-[1.4rem] border border-border/80 bg-card p-4"
+              className="ledger-card flex min-h-[12rem] flex-col rounded-[1.4rem] border border-border/80 bg-card p-4"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -130,15 +111,20 @@ export function FinancialLessonsClient() {
                 </div>
                 <BookOpen className="h-5 w-5 text-primary" />
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button size="sm" disabled={isLoading} onClick={() => void runLesson(lesson)}>
-                  Anlat
+              <div className="mt-auto flex flex-wrap gap-2 pt-4">
+                <Button
+                  size="sm"
+                  disabled={routingAction !== null}
+                  onClick={() => startLessonInChat(lesson)}
+                >
+                  <MessageSquareText className="h-4 w-4" />
+                  Sohbette anlat
                 </Button>
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={isLoading}
-                  onClick={() => void runLesson(lesson, true)}
+                  disabled={routingAction !== null}
+                  onClick={() => startLessonInChat(lesson, true)}
                 >
                   <ImagePlus className="h-4 w-4" />
                   Görselle anlat
@@ -148,47 +134,32 @@ export function FinancialLessonsClient() {
           ))}
         </div>
 
-        <article className="ledger-card min-h-[28rem] rounded-[1.8rem] border border-border/80 bg-card p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                Seçili ders
-              </p>
-              <h2 className="mt-1 font-display text-2xl font-bold">{selectedLesson.title}</h2>
-            </div>
-            <Button size="sm" variant="ghost" disabled={!answer} onClick={speakAnswer}>
-              <Volume2 className="h-4 w-4" />
-              Sesli oku
+        <aside className="ledger-card h-fit rounded-[1.8rem] border border-border/80 bg-card p-5">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            Seçili ders
+          </p>
+          <h2 className="mt-2 font-display text-2xl font-bold">{selectedLesson.title}</h2>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            Ders yanıtı sohbet masasında açılır; araç izi, görsel ve sesli okuma aynı akışta kalır.
+          </p>
+          <div className="mt-5 flex flex-col gap-2">
+            <Button
+              disabled={routingAction !== null}
+              onClick={() => startLessonInChat(selectedLesson)}
+            >
+              <MessageSquareText className="h-4 w-4" />
+              Sohbette anlat
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={routingAction !== null}
+              onClick={() => startLessonInChat(selectedLesson, true)}
+            >
+              <ImagePlus className="h-4 w-4" />
+              Görselle anlat
             </Button>
           </div>
-
-          <div className="mt-5 rounded-[1.4rem] border border-dashed border-border/80 bg-muted/35 p-4 text-sm leading-7 text-foreground/85">
-            {isLoading && !answer ? (
-              <p className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Koç dersi hazırlıyor...
-              </p>
-            ) : null}
-            {answer ? <p className="whitespace-pre-wrap">{answer}</p> : null}
-            {!isLoading && !answer && !error ? (
-              <p className="text-muted-foreground">
-                Soldan bir ders seç. İstersen önce metin olarak oku, istersen görsel anlatım da
-                iste.
-              </p>
-            ) : null}
-            {error ? <p className="text-destructive">{error}</p> : null}
-          </div>
-
-          {image ? (
-            <figure className="mt-5 overflow-hidden rounded-[1.5rem] border border-border/80 bg-background">
-              {/* eslint-disable-next-line @next/next/no-img-element -- Runtime MinIO URL comes from existing illustration tool. */}
-              <img src={image.url} alt={image.alt} className="w-full object-cover" />
-              <figcaption className="px-4 py-3 text-xs text-muted-foreground">
-                {image.alt}
-              </figcaption>
-            </figure>
-          ) : null}
-        </article>
+        </aside>
       </section>
     </main>
   );

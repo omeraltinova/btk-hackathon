@@ -604,6 +604,88 @@ def test_chat_stream_rejects_investment_advice_without_tool_call() -> None:
     assert [message.role for message in fake_session.messages] == ["user", "assistant"]
 
 
+def test_chat_stream_rejects_fund_advice_without_tool_call() -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Hangi fon alınır?"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "Yatırım tavsiyesi veremem" in response.text
+    assert '"tool_name"' not in response.text
+    assert [message.role for message in fake_session.messages] == ["user", "assistant"]
+
+
+def test_chat_stream_allows_finance_school_safety_instruction(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def fake_live_agent_available(_settings: object) -> bool:
+        return False
+
+    def fake_illustration(
+        _db: FakeSession,
+        _current_user: User,
+        *,
+        concept: str,
+    ) -> dict[str, object]:
+        return {"concept": concept, "error": "Görsel şu an hazırlanamadı."}
+
+    monkeypatch.setattr(
+        "app.services.agent_runner._live_agent_available",
+        fake_live_agent_available,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_runner.build_concept_illustration",
+        fake_illustration,
+    )
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={
+                "message": (
+                    "Faiz nedir? Günlük hayattan basit örneklerle açıkla. "
+                    "Yatırım tavsiyesi verme; sadece eğitim amaçlı açıkla. "
+                    "Görsel olarak da anlat."
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "Yatırım tavsiyesi veremem" not in response.text
+    assert '"tool_name": "explain_concept"' in response.text
+    assert '"tool_name": "illustrate_concept"' in response.text
+    assert [message.role for message in fake_session.messages] == [
+        "user",
+        "tool",
+        "tool",
+        "assistant",
+    ]
+
+
 def test_chat_stream_can_read_current_profile_memory() -> None:
     user = make_user()
     fake_session = FakeSession(user, [], [])

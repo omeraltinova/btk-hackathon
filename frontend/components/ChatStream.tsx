@@ -11,7 +11,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatChart } from "@/components/ChatChart";
 import { ChatMessage } from "@/components/ChatMessage";
@@ -24,7 +24,13 @@ import {
   extractChart,
   type ChatAttachmentItem,
 } from "@/lib/chat-attachments";
-import { readActiveConversationId, rememberActiveConversationId } from "@/lib/chat-session";
+import {
+  clearPendingChatMessage,
+  readActiveConversationId,
+  readPendingChatMessage,
+  rememberActiveConversationId,
+  type PendingChatMessage,
+} from "@/lib/chat-session";
 import { amountToKurus, formatKurus } from "@/lib/format";
 import { useKidMode } from "@/lib/kid-mode";
 import { streamChat } from "@/lib/sse";
@@ -209,6 +215,8 @@ export function ChatStream() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const pendingMessageRef = useRef<PendingChatMessage | null>(null);
+  const pendingMessageStartedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const suggestions = isKid ? KID_SUGGESTIONS : ADULT_SUGGESTIONS;
   const activeSuggestion =
@@ -221,12 +229,18 @@ export function ChatStream() {
       setIsHydrating(true);
       setHistoryError(null);
       try {
-        let targetId = readActiveConversationId();
+        const pendingMessage = pendingMessageRef.current ?? readPendingChatMessage();
+        pendingMessageRef.current = pendingMessage;
+        let targetId = pendingMessage?.startNew ? null : readActiveConversationId();
         if (!targetId) {
-          const conversations = await api<ConversationListItem[]>("/api/conversations?limit=1", {
-            silent: true,
-          });
-          targetId = conversations[0]?.id ?? null;
+          if (pendingMessage?.startNew) {
+            rememberActiveConversationId(null);
+          } else {
+            const conversations = await api<ConversationListItem[]>("/api/conversations?limit=1", {
+              silent: true,
+            });
+            targetId = conversations[0]?.id ?? null;
+          }
         }
 
         if (!targetId) {
@@ -291,7 +305,7 @@ export function ChatStream() {
     return () => window.clearInterval(intervalId);
   }, [isKid]);
 
-  function applyStreamEvent(event: ChatStreamEvent, assistantId: string) {
+  const applyStreamEvent = useCallback((event: ChatStreamEvent, assistantId: string) => {
     if (event.type === "message_start") {
       setConversationId(event.conversation_id);
       rememberActiveConversationId(event.conversation_id);
@@ -387,53 +401,88 @@ export function ChatStream() {
         ),
       );
     }
-  }
+  }, []);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const sendMessage = useCallback(
+    async (
+      text: string,
+      options: { receipt?: ReceiptAttachment | null; resetConversation?: boolean } = {},
+    ): Promise<boolean> => {
+      const trimmedText = text.trim();
+      if (!trimmedText || isStreaming || isHydrating) return false;
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const assistantId = crypto.randomUUID();
+      const receipt = options.receipt ?? null;
+      const targetConversationId = options.resetConversation ? null : conversationId;
+
+      if (options.resetConversation) {
+        rememberActiveConversationId(null);
+        setConversationId(null);
+        setToolTrace([]);
+      }
+
+      setMessages((current) => {
+        const nextMessages = [
+          { id: crypto.randomUUID(), role: "user" as const, content: trimmedText },
+          { id: assistantId, role: "assistant" as const, content: "", isStreaming: true },
+        ];
+        return options.resetConversation ? nextMessages : [...current, ...nextMessages];
+      });
+      setDraft("");
+      setAttachment(null);
+      setFileError(null);
+      setHistoryError(null);
+      setActivePanel("chat");
+      setIsStreaming(true);
+
+      try {
+        await streamChat(
+          {
+            message: trimmedText,
+            conversation_id: targetConversationId,
+            receipt_image_base64: receipt?.base64 ?? null,
+            receipt_filename: receipt?.filename ?? null,
+            receipt_content_type: receipt?.contentType ?? null,
+          },
+          (streamEvent) => applyStreamEvent(streamEvent, assistantId),
+          { signal: controller.signal },
+        );
+        return true;
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return false;
+        const message =
+          err instanceof Error ? err.message : "Koç akışı kesildi, tekrar dener misin?";
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === assistantId ? { ...item, content: message, isStreaming: false } : item,
+          ),
+        );
+        return false;
+      } finally {
+        setIsStreaming(false);
+      }
+    },
+    [applyStreamEvent, conversationId, isHydrating, isStreaming],
+  );
+
+  useEffect(() => {
+    if (isHydrating || isStreaming || pendingMessageStartedRef.current) return;
+    const pendingMessage = pendingMessageRef.current ?? readPendingChatMessage();
+    if (!pendingMessage) return;
+    pendingMessageRef.current = pendingMessage;
+    pendingMessageStartedRef.current = true;
+    clearPendingChatMessage();
+    void sendMessage(pendingMessage.message, { resetConversation: pendingMessage.startNew });
+  }, [isHydrating, isStreaming, sendMessage]);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = draft.trim();
     if (!text || isStreaming || isHydrating) return;
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const assistantId = crypto.randomUUID();
-
-    setMessages((current) => [
-      ...current,
-      { id: crypto.randomUUID(), role: "user", content: text },
-      { id: assistantId, role: "assistant", content: "", isStreaming: true },
-    ]);
-    setDraft("");
-    setAttachment(null);
-    setFileError(null);
-    setHistoryError(null);
-    setActivePanel("chat");
-    setIsStreaming(true);
-
-    try {
-      await streamChat(
-        {
-          message: text,
-          conversation_id: conversationId,
-          receipt_image_base64: attachment?.base64 ?? null,
-          receipt_filename: attachment?.filename ?? null,
-          receipt_content_type: attachment?.contentType ?? null,
-        },
-        (streamEvent) => applyStreamEvent(streamEvent, assistantId),
-        { signal: controller.signal },
-      );
-    } catch (err) {
-      if ((err as Error).name === "AbortError") return;
-      const message = err instanceof Error ? err.message : "Koç akışı kesildi, tekrar dener misin?";
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === assistantId ? { ...item, content: message, isStreaming: false } : item,
-        ),
-      );
-    } finally {
-      setIsStreaming(false);
-    }
+    void sendMessage(text, { receipt: attachment });
   }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
