@@ -225,6 +225,51 @@ def make_subscription(user_id: UUID, amount: str = "120.00") -> Subscription:
     )
 
 
+def make_goal(
+    *,
+    user_id: UUID,
+    goal_type: str,
+    category_id: UUID | None = None,
+) -> SavingGoal:
+    if goal_type == "accumulation":
+        return SavingGoal(
+            id=uuid4(),
+            user_id=user_id,
+            goal_type="accumulation",
+            category_id=None,
+            title="Tatil birikimi",
+            baseline_amount=Decimal("6000.00"),
+            target_spending_amount=Decimal("24000.00"),
+            target_saving_amount=Decimal("18000.00"),
+            target_amount=Decimal("24000.00"),
+            current_amount=Decimal("6000.00"),
+            monthly_contribution=Decimal("1500.00"),
+            start_date=datetime(2026, 5, 1, 0, 0, tzinfo=UTC),
+            end_date=datetime(2027, 5, 1, 0, 0, tzinfo=UTC),
+            status="active",
+            strategy={"tactics": ["Aylık hedef katkıyı ayrı takip et."]},
+            created_by="agent",
+        )
+    return SavingGoal(
+        id=uuid4(),
+        user_id=user_id,
+        goal_type="expense_reduction",
+        category_id=category_id,
+        title="Market harcamamı azalt",
+        baseline_amount=Decimal("600.00"),
+        target_spending_amount=Decimal("510.00"),
+        target_saving_amount=Decimal("90.00"),
+        target_amount=None,
+        current_amount=Decimal("0"),
+        monthly_contribution=None,
+        start_date=datetime(2026, 5, 1, 0, 0, tzinfo=UTC),
+        end_date=datetime(2026, 6, 1, 0, 0, tzinfo=UTC),
+        status="active",
+        strategy={"tactics": ["Haftalık üst limitini takip et."]},
+        created_by="agent",
+    )
+
+
 def test_graph_context_includes_recent_user_and_assistant_messages() -> None:
     user = make_user()
     conversation = Conversation(id=uuid4(), user_id=user.id)
@@ -439,6 +484,59 @@ def test_chat_stream_can_create_accumulation_goal() -> None:
     assert "24.000,00 ₺" in response.text
     assert len(fake_session.saving_goals) == 1
     assert fake_session.saving_goals[0].goal_type == "accumulation"
+
+
+def test_chat_stream_can_show_goals_with_chart_payload() -> None:
+    user = make_user()
+    market = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    transaction = Transaction(
+        id=uuid4(),
+        user_id=user.id,
+        amount=Decimal("540.00"),
+        type="expense",
+        category_id=market.id,
+        description="Market alışverişi",
+        merchant="Market",
+        occurred_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+        source="manual",
+        receipt_image_url=None,
+        raw_ocr_data=None,
+    )
+    fake_session = FakeSession(user, [market], [transaction])
+    fake_session.saving_goals.extend(
+        [
+            make_goal(user_id=user.id, goal_type="accumulation"),
+            make_goal(user_id=user.id, goal_type="expense_reduction", category_id=market.id),
+        ],
+    )
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Mevcut birikim ve tasarruf hedeflerimi grafikle göster."},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "get_saving_goals"' in response.text
+    assert '"tool_name": "visualize_saving_goals"' in response.text
+    assert '"chart"' in response.text
+    assert "Aktif 2 hedefin var" in response.text
+    assert "/dashboard/goals" in response.text
 
 
 def test_chat_stream_can_create_smart_saving_plan() -> None:

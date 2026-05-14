@@ -21,6 +21,8 @@ from app.agent.tools import (
     build_receipt_candidate,
     build_saving_goal_creation,
     build_saving_goal_progress,
+    build_saving_goals_chart,
+    build_saving_goals_overview,
     build_spending_chart,
     build_spending_summary,
     build_subscriptions_summary,
@@ -95,6 +97,16 @@ ACCUMULATION_GOAL_CREATE_HINTS = (
     "para biriktirmek istiyorum",
 )
 SAVING_GOAL_PROGRESS_HINTS = ("hedefimde", "hedefim", "tasarruf hedef", "ilerleme", "durum")
+SAVING_GOAL_OVERVIEW_HINTS = (
+    "hedeflerimi göster",
+    "hedeflerimi goster",
+    "hedeflerimi liste",
+    "hedeflerim",
+    "mevcut hedef",
+    "aktif hedef",
+    "birikim hedefler",
+    "tasarruf hedefler",
+)
 SMART_PLAN_HINTS = (
     "tatil",
     "giderlerimi kısm",
@@ -287,6 +299,16 @@ def _wants_accumulation_goal_creation(message: str) -> bool:
 def _wants_saving_goal_progress(message: str) -> bool:
     normalized = message.casefold()
     return "hedef" in normalized and any(hint in normalized for hint in SAVING_GOAL_PROGRESS_HINTS)
+
+
+def _wants_saving_goals_overview(message: str) -> bool:
+    normalized = message.casefold()
+    if any(hint in normalized for hint in SAVING_GOAL_OVERVIEW_HINTS):
+        return True
+    return "hedef" in normalized and any(
+        hint in normalized
+        for hint in ("göster", "goster", "liste", "grafik", "görselle", "gorselle")
+    )
 
 
 def _wants_smart_saving_plan(message: str) -> bool:
@@ -581,6 +603,41 @@ def _accumulation_goal_answer(result: dict[str, object], *, created: bool) -> st
             f"Kalan {remaining}. Aylık yaklaşık {monthly} ayırarak takip edebilirsin."
         )
     return f"{title} için kalan tutar {remaining}; aylık takip tutarı yaklaşık {monthly}."
+
+
+def _saving_goals_overview_answer(result: dict[str, object]) -> str:
+    count = _int_result(result, "count") if "count" in result else 0
+    goals = result.get("goals")
+    if count == 0 or not isinstance(goals, list):
+        return (
+            "Aktif birikim veya tasarruf hedefi bulamadım. İstersen sohbetten yeni hedef "
+            "oluşturabilirim; örneğin 'Tatil için 30.000 TL birikim hedefi oluştur.'"
+        )
+
+    lines = [f"Aktif {count} hedefin var. Grafiği hemen üstte görebilirsin."]
+    for item in goals[:4]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "Hedef")
+        progress_decimal = _decimal_result(item, "progress_percent") or Decimal("0")
+        progress = f"{min(max(progress_decimal, Decimal('0')), Decimal('100')):.1f}"
+        if item.get("goal_type") == "accumulation":
+            target = str(item.get("target_amount_formatted") or "0,00 ₺")
+            current = str(item.get("current_amount_formatted") or "0,00 ₺")
+            remaining = str(item.get("remaining_amount_formatted") or "0,00 ₺")
+            lines.append(
+                f"{title}: {target} hedefin %{progress} tamamlandı; şu an {current}, kalan {remaining}."
+            )
+        else:
+            category = str(item.get("category_name") or "Kategori")
+            target = str(item.get("target_spending_amount_formatted") or "0,00 ₺")
+            actual = str(item.get("actual_spending_formatted") or "0,00 ₺")
+            remaining = str(item.get("remaining_limit_formatted") or "0,00 ₺")
+            lines.append(
+                f"{category}: bu ay hedef limit {target}; şu ana kadar {actual}, kalan limit {remaining}."
+            )
+    lines.append("Detay için /dashboard/goals sayfasında hedef kartına tıklayabilirsin.")
+    return " ".join(lines)
 
 
 def _smart_saving_plan_answer(result: dict[str, object]) -> str:
@@ -932,6 +989,51 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _memory_answer(result)
+    elif _wants_saving_goals_overview(payload.message):
+        goals_input: dict[str, object] = {"status": "active"}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "get_saving_goals",
+            "input": goals_input,
+        }
+        overview_result = build_saving_goals_overview(db, current_user, status="active")
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Hedef özeti alındı.",
+            tool_name="get_saving_goals",
+            tool_calls={"input": goals_input, "result": overview_result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "get_saving_goals",
+            "result": overview_result,
+        }
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "visualize_saving_goals",
+            "input": goals_input,
+        }
+        result = build_saving_goals_chart(db, current_user, status="active")
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Hedef grafiği üretildi.",
+            tool_name="visualize_saving_goals",
+            tool_calls={"input": goals_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "visualize_saving_goals",
+            "result": result,
+        }
+        answer = _saving_goals_overview_answer(result)
     elif _wants_visualization(payload.message) and not _wants_concept(payload.message):
         chart_type = "bar"
         if "pasta" in payload.message.casefold():

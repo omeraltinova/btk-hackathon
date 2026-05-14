@@ -10,6 +10,8 @@ from app.agent.tools import (
     build_concept_illustration,
     build_saving_goal_creation,
     build_saving_goal_progress,
+    build_saving_goals_chart,
+    build_saving_goals_overview,
     build_smart_saving_plan,
     build_spending_chart,
     build_spending_summary,
@@ -209,6 +211,32 @@ def make_saving_goal(
         end_date=datetime(2026, 6, 1, 0, 0, tzinfo=UTC),
         status="active",
         strategy={"tactics": ["Haftalık üst limitini takip et."]},
+        created_by="agent",
+    )
+
+
+def make_accumulation_goal(
+    *,
+    user_id: UUID,
+    target: str = "24000.00",
+    current: str = "6000.00",
+) -> SavingGoal:
+    return SavingGoal(
+        id=uuid4(),
+        user_id=user_id,
+        goal_type="accumulation",
+        category_id=None,
+        title="Tatil birikimi",
+        baseline_amount=Decimal(current),
+        target_spending_amount=Decimal(target),
+        target_saving_amount=Decimal(target) - Decimal(current),
+        target_amount=Decimal(target),
+        current_amount=Decimal(current),
+        monthly_contribution=Decimal("1500.00"),
+        start_date=datetime(2026, 5, 1, 0, 0, tzinfo=UTC),
+        end_date=datetime(2027, 5, 1, 0, 0, tzinfo=UTC),
+        status="active",
+        strategy={"tactics": ["Aylık hedef katkıyı ayrı takip et."]},
         created_by="agent",
     )
 
@@ -606,6 +634,58 @@ def test_build_saving_goal_progress_reads_active_scoped_goal() -> None:
     assert result["actual_spending"] == "200.00"
     assert result["remaining_limit_formatted"] == "310,00 ₺"
     assert result["status_label"] == "on_track"
+
+
+def test_build_saving_goals_overview_and_chart_are_scoped_without_float() -> None:
+    user = make_user()
+    other = make_user()
+    market = make_category("Market")
+    db = FakeSession(
+        categories=[market],
+        saving_goals=[
+            make_accumulation_goal(user_id=user.id),
+            make_saving_goal(user_id=user.id, category_id=market.id),
+            make_accumulation_goal(user_id=other.id, target="50000.00", current="10000.00"),
+        ],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=market.id,
+                amount="700.00",
+                occurred_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    overview = build_saving_goals_overview(
+        db,
+        user,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+    chart_result = build_saving_goals_chart(
+        db,
+        user,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert overview["count"] == 2
+    goals = overview["goals"]
+    assert isinstance(goals, list)
+    assert {goal["goal_type"] for goal in goals if isinstance(goal, dict)} == {
+        "accumulation",
+        "expense_reduction",
+    }
+    chart = chart_result["chart"]
+    assert isinstance(chart, dict)
+    assert chart["type"] == "bar"
+    data = chart["data"]
+    assert isinstance(data, list)
+    assert len(data) == 2
+    assert all(isinstance(point["value"], str) for point in data)
+    assert not any(isinstance(point["value"], float) for point in data)
+    market_point = next(point for point in data if point["label"] == "Market harcamamı azalt")
+    assert market_point["value"] == "0.0"
+    assert market_point["value_formatted"] == "%0.0"
 
 
 def test_build_smart_saving_plan_creates_top_category_goals() -> None:

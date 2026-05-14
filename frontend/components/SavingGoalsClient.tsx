@@ -31,6 +31,17 @@ function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
+function numericAmount(value: string | null): number {
+  if (value === null) return 0;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+}
+
+function barWidth(value: number, max: number): string {
+  if (max <= 0 || value <= 0) return "0%";
+  return `${Math.max(6, Math.min(100, (value / max) * 100))}%`;
+}
+
 function defaultTargetDate(): string {
   const value = new Date();
   value.setMonth(value.getMonth() + 12);
@@ -59,6 +70,7 @@ export function SavingGoalsClient() {
   const [targetAmount, setTargetAmount] = useState("20000");
   const [currentAmount, setCurrentAmount] = useState("0");
   const [targetDate, setTargetDate] = useState(defaultTargetDate);
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -69,6 +81,11 @@ export function SavingGoalsClient() {
     ]);
     setCategories(categoryRows);
     setGoals(goalRows);
+    if (goalRows.length === 0) {
+      setSelectedGoalId(null);
+    } else if (!selectedGoalId || !goalRows.some((goal) => goal.id === selectedGoalId)) {
+      setSelectedGoalId(goalRows[0]?.id ?? null);
+    }
     if (!selectedCategoryId && categoryRows[0]) setSelectedCategoryId(categoryRows[0].id);
 
     const progressRows = await Promise.all(
@@ -145,8 +162,26 @@ export function SavingGoalsClient() {
     })();
   }
 
+  function selectGoal(goalId: string) {
+    setSelectedGoalId(goalId);
+  }
+
   const accumulationGoals = goals.filter((goal) => goal.goal_type === "accumulation");
   const reductionGoals = goals.filter((goal) => goal.goal_type === "expense_reduction");
+  const orderedGoals = [...accumulationGoals, ...reductionGoals];
+  const selectedGoal = orderedGoals.find((goal) => goal.id === selectedGoalId) ?? orderedGoals[0];
+  const selectedProgress = selectedGoal ? progressByGoalId[selectedGoal.id] : null;
+  const selectedIsAccumulation = selectedGoal?.goal_type === "accumulation";
+  const selectedProgressWidth = selectedProgress
+    ? Math.max(0, Math.min(100, Number(selectedProgress.progress_percent)))
+    : 0;
+  const selectedActualValue = selectedIsAccumulation
+    ? numericAmount(selectedGoal?.current_amount ?? null)
+    : numericAmount(selectedProgress?.actual_spending ?? null);
+  const selectedTargetValue = selectedIsAccumulation
+    ? numericAmount(selectedGoal?.target_amount ?? null)
+    : numericAmount(selectedGoal?.target_spending_amount ?? null);
+  const selectedChartMax = Math.max(selectedActualValue, selectedTargetValue, 1);
 
   return (
     <main className="space-y-6 p-4 sm:p-6 lg:p-8">
@@ -269,18 +304,30 @@ export function SavingGoalsClient() {
           </div>
         ) : null}
 
-        {[...accumulationGoals, ...reductionGoals].map((goal) => {
+        {orderedGoals.map((goal) => {
           const progress = progressByGoalId[goal.id];
           const progressWidth = progress
             ? Math.max(0, Math.min(100, Number(progress.progress_percent)))
             : 0;
           const isAccumulation = goal.goal_type === "accumulation";
+          const isSelected = goal.id === selectedGoal?.id;
           return (
             <article
               key={goal.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              onClick={() => selectGoal(goal.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  selectGoal(goal.id);
+                }
+              }}
               className={cn(
-                "ledger-card rounded-[1.5rem] border border-border/80 bg-card p-5",
+                "ledger-card cursor-pointer rounded-[1.5rem] border border-border/80 bg-card p-5 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
                 isAccumulation ? "bg-primary/5" : "",
+                isSelected ? "border-primary/60 ring-2 ring-primary/20" : "",
               )}
             >
               <div className="flex items-start justify-between gap-3">
@@ -355,10 +402,142 @@ export function SavingGoalsClient() {
                   </ul>
                 </div>
               ) : null}
+              <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-primary">
+                Detaya bak
+              </p>
             </article>
           );
         })}
       </section>
+
+      {selectedGoal ? (
+        <section className="ledger-card rounded-[1.8rem] border border-border/80 bg-card p-5 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                Hedef detayı
+              </p>
+              <h2 className="mt-1 font-display text-3xl font-bold">{selectedGoal.title}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {selectedIsAccumulation
+                  ? "Birikim ilerlemesi, kalan tutar ve aylık katkı planı."
+                  : `${selectedGoal.category_name} harcaması için hedef limit ve taktikler.`}
+              </p>
+            </div>
+            <span className="w-fit rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">
+              {selectedProgress ? statusLabel(selectedProgress.status_label) : "Yükleniyor"}
+            </span>
+          </div>
+
+          {selectedProgress ? (
+            <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+              <div className="space-y-5">
+                <div className="h-4 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${selectedProgressWidth}%` }}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl bg-muted/55 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {selectedIsAccumulation ? "Şu an" : "Şu ana kadar"}
+                    </p>
+                    <p className="font-display text-xl font-bold">
+                      {formatMoney(
+                        selectedIsAccumulation
+                          ? selectedGoal.current_amount
+                          : selectedProgress.actual_spending,
+                      )}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-primary/10 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {selectedIsAccumulation ? "Hedef tutar" : "Hedef limit"}
+                    </p>
+                    <p className="font-display text-xl font-bold text-primary">
+                      {formatMoney(
+                        selectedIsAccumulation
+                          ? selectedGoal.target_amount
+                          : selectedGoal.target_spending_amount,
+                      )}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-accent/10 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {selectedIsAccumulation ? "Kalan" : "Kalan limit"}
+                    </p>
+                    <p className="font-display text-xl font-bold text-accent-foreground">
+                      {formatMoney(
+                        selectedIsAccumulation
+                          ? selectedProgress.remaining_amount
+                          : selectedProgress.remaining_limit,
+                      )}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-muted/55 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {selectedIsAccumulation ? "Hedef tarih" : "Dönem"}
+                    </p>
+                    <p className="font-display text-lg font-bold">
+                      {selectedIsAccumulation
+                        ? formatDate(selectedGoal.end_date)
+                        : `${formatDate(selectedGoal.start_date)}-${formatDate(selectedGoal.end_date)}`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.4rem] border border-border/70 bg-muted/35 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    İlerleme grafiği
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <div className="mb-1 flex justify-between text-xs font-medium">
+                        <span>{selectedIsAccumulation ? "Şu an" : "Bu ay harcama"}</span>
+                        <span>{formatMoney(String(selectedActualValue))}</span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-background">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: barWidth(selectedActualValue, selectedChartMax) }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 flex justify-between text-xs font-medium">
+                        <span>{selectedIsAccumulation ? "Hedef" : "Hedef limit"}</span>
+                        <span>{formatMoney(String(selectedTargetValue))}</span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-background">
+                        <div
+                          className="h-full rounded-full bg-accent"
+                          style={{ width: barWidth(selectedTargetValue, selectedChartMax) }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <aside className="rounded-[1.4rem] border border-dashed border-primary/30 bg-primary/5 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                  AI taktikleri
+                </p>
+                <ul className="mt-3 space-y-2 text-sm text-foreground/85">
+                  {selectedProgress.tactics.map((tactic) => (
+                    <li key={tactic} className="rounded-xl bg-background/75 px-3 py-2">
+                      {tactic}
+                    </li>
+                  ))}
+                </ul>
+              </aside>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">Hedef detayı yükleniyor.</p>
+          )}
+        </section>
+      ) : null}
     </main>
   );
 }

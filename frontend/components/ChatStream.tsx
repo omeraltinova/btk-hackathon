@@ -94,6 +94,7 @@ function describeToolInput(input: ChatToolPayload): string {
     return `${category} / son ${days} gün`;
   }
   if ("only_active" in input) return "Aktif kayıtlar";
+  if ("status" in input) return input.status === "all" ? "Tüm hedefler" : "Aktif hedefler";
   if ("filename" in input) return String(input.filename);
   if ("concept" in input) return String(input.concept);
   if ("scenario" in input) return "Senaryo simülasyonu";
@@ -127,6 +128,12 @@ function describeToolResult(event: Extract<ChatStreamEvent, { type: "tool_result
     const total =
       typeof result.total_amount_formatted === "string" ? result.total_amount_formatted : "0,00 ₺";
     return `Grafik hazır / ${total}`;
+  }
+  if (event.tool_name === "get_saving_goals" || event.tool_name === "visualize_saving_goals") {
+    const count = typeof result.count === "number" ? result.count : 0;
+    return event.tool_name === "visualize_saving_goals"
+      ? `Hedef grafiği hazır / ${count} hedef`
+      : `${count} hedef`;
   }
   if (event.tool_name === "get_user_memory") {
     const count = typeof result.count === "number" ? result.count : 0;

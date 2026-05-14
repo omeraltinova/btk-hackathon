@@ -22,6 +22,7 @@ from app.models.category import Category
 from app.models.conversation import Conversation
 from app.models.memory import AgentMemory
 from app.models.message import Message
+from app.models.saving_goal import SavingGoal
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -420,6 +421,65 @@ def build_saving_goal_progress(
             "category": category_name,
         }
     return _progress_to_tool_result(calculate_saving_goal_progress(db, goal, now=now))
+
+
+def build_saving_goals_overview(
+    db: Session,
+    current_user: User,
+    *,
+    status: str = "active",
+    now: datetime | None = None,
+) -> dict[str, object]:
+    query = select(SavingGoal).where(SavingGoal.user_id.in_(visible_user_ids(current_user)))
+    if status != "all":
+        query = query.where(SavingGoal.status == status)
+    goals = list(db.execute(query.order_by(SavingGoal.created_at.desc())).scalars().all())
+    rows = [
+        _progress_to_tool_result(calculate_saving_goal_progress(db, goal, now=now))
+        for goal in goals
+    ]
+    return {
+        "count": len(rows),
+        "status": status,
+        "goals": rows,
+    }
+
+
+def build_saving_goals_chart(
+    db: Session,
+    current_user: User,
+    *,
+    status: str = "active",
+    now: datetime | None = None,
+) -> dict[str, object]:
+    overview = build_saving_goals_overview(db, current_user, status=status, now=now)
+    goals = overview.get("goals")
+    data: list[dict[str, object]] = []
+    if isinstance(goals, list):
+        for item in goals:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "Hedef")
+            progress = Decimal(str(item.get("progress_percent") or "0"))
+            chart_progress = min(max(progress, Decimal("0")), Decimal("100"))
+            data.append(
+                {
+                    "label": title[:28],
+                    "value": f"{chart_progress:.1f}",
+                    "value_formatted": f"%{chart_progress:.1f}",
+                },
+            )
+    return {
+        **overview,
+        "chart": {
+            "type": "bar",
+            "title": "Aktif hedefler",
+            "subtitle": "Birikim ve tasarruf ilerlemesi",
+            "data": data,
+            "value_label": "İlerleme",
+            "currency": None,
+        },
+    }
 
 
 def build_subscriptions_summary(
@@ -1146,6 +1206,16 @@ def get_saving_goal_progress_tool(
         return build_saving_goal_progress(db, _load_current_user(db, user_id), category=category)
 
 
+@tool("get_saving_goals")
+def get_saving_goals_tool(
+    status: str = "active",
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Kullanıcının mevcut birikim ve tasarruf hedeflerini listeler."""
+    with SessionLocal() as db:
+        return build_saving_goals_overview(db, _load_current_user(db, user_id), status=status)
+
+
 @tool("create_accumulation_goal")
 def create_accumulation_goal_tool(
     title: str,
@@ -1267,6 +1337,16 @@ def visualize_spending_tool(
         )
 
 
+@tool("visualize_saving_goals")
+def visualize_saving_goals_tool(
+    status: str = "active",
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Mevcut birikim ve tasarruf hedefleri için sohbet içi grafik üretir."""
+    with SessionLocal() as db:
+        return build_saving_goals_chart(db, _load_current_user(db, user_id), status=status)
+
+
 @tool("illustrate_concept")
 def illustrate_concept_tool(
     concept: str,
@@ -1287,11 +1367,13 @@ TOOLS = [
     create_saving_goal_tool,
     create_accumulation_goal_tool,
     get_saving_goal_progress_tool,
+    get_saving_goals_tool,
     create_smart_saving_plan_tool,
     analyze_receipt_tool,
     explain_concept_tool,
     simulate_scenario_tool,
     get_user_memory_tool,
     visualize_spending_tool,
+    visualize_saving_goals_tool,
     illustrate_concept_tool,
 ]

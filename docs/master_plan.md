@@ -413,8 +413,9 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     30 gün bazına göre %10–15 düşürmek. `Birikim hedefi`, tatil, okul masrafı
     veya acil durum gibi belirli bir tutara ulaşmayı izler; başlangıç tutarı,
     hedef tutar, hedef tarih ve önerilen aylık katkı saklanır. Agent
-    `create_saving_goal`, `create_accumulation_goal` ve
-    `get_saving_goal_progress` araçlarıyla iki hedef türünü de oluşturur/izler.
+    `create_saving_goal`, `create_accumulation_goal`, `get_saving_goals`,
+    `get_saving_goal_progress` ve `visualize_saving_goals` araçlarıyla iki hedef
+    türünü de oluşturur/izler/görselleştirir.
     Taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe önerisidir. Tutarlar
     `Decimal`, kapsam `user_id` filtresi ve aile görünürlük kurallarıyla
     hesaplanır.
@@ -424,8 +425,10 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     `create_accumulation_goal` akışıyla son 30 günün yüksek harcama kategorilerini
     ve aktif abonelik etkisini inceler. Mevcut `saving_goals` yapısında 1–2
     kategori bazlı tasarruf hedefi ve amaç netse bir birikim hedefi oluşturabilir,
-    haftalık limit/aylık katkı/taktik verir. Bu akış da yatırım tavsiyesi vermez;
-    sadece bütçe ve alışkanlık koçluğu yapar.
+    haftalık limit/aylık katkı/taktik verir. Kullanıcı mevcut hedeflerini sorarsa
+    sohbet içinde bar grafik ve kısa özet gösterilir; `/dashboard/goals` kartları
+    tıklanınca detay, ilerleme grafiği ve taktikler açılır. Bu akış da yatırım
+    tavsiyesi vermez; sadece bütçe ve alışkanlık koçluğu yapar.
 23. **Finans Okulu (hazır AI dersleri):** Frontend, kontrollü bir başlık
     listesiyle (`Faiz`, `Enflasyon`, `Bütçe`, `Tasarruf`, `Kredi kartı asgari
     ödeme`, `Para piyasası fonu nedir?`) kısa ders akışı sunar. Kullanıcı başlığa
@@ -661,7 +664,8 @@ from .tools import (
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
     visualize_spending, illustrate_concept,
-    create_saving_goal, create_accumulation_goal, get_saving_goal_progress
+    create_saving_goal, create_accumulation_goal, get_saving_goals,
+    get_saving_goal_progress, visualize_saving_goals
 )
 from .prompts import build_system_prompt
 
@@ -675,7 +679,8 @@ TOOLS = [
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
     visualize_spending, illustrate_concept,
-    create_saving_goal, create_accumulation_goal, get_saving_goal_progress,
+    create_saving_goal, create_accumulation_goal, get_saving_goals,
+    get_saving_goal_progress, visualize_saving_goals,
 ]
 
 llm = ChatGoogleGenerativeAI(
@@ -1070,8 +1075,12 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.21
-**Son güncelleme:** 14 Mayıs 2026
+**Doküman versiyonu:** 0.22
+**Son güncelleme:** 15 Mayıs 2026
+**v0.22 değişiklikleri:** Akıllı hedeflerde sohbetten mevcut hedefleri listeleme
+ve grafikle gösterme kapsamı netleştirildi. Agent araç setine `get_saving_goals`
+ve `visualize_saving_goals` eklendi; `/dashboard/goals` hedef kartları tıklanabilir
+detay/ilerleme/taktik yüzeyine dönüştü.
 **v0.21 değişiklikleri:** §12.2'de `Akıllı hedefler` kapsamı tasarruf ve
 birikim hedeflerini tek MVP yüzeyinde birleştirdi. `saving_goals` mevcut tablo
 ailesi `goal_type='expense_reduction'|'accumulation'`, `target_amount`,
