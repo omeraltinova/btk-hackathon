@@ -18,6 +18,7 @@ from app.agent.graph import build_agent_graph_from_settings
 from app.agent.tools import (
     build_accumulation_goal_creation,
     build_concept_illustration,
+    build_custom_lesson,
     build_receipt_candidate,
     build_saving_goal_creation,
     build_saving_goal_progress,
@@ -30,6 +31,7 @@ from app.agent.tools import (
     explain_finance_concept,
     infer_category_from_text,
     simulate_finance_scenario,
+    visible_categories,
 )
 from app.config import Settings, get_settings
 from app.models.conversation import Conversation
@@ -81,6 +83,14 @@ MONTHLY_VISUALIZE_HINTS = (
     "month by month",
 )
 MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")
+CUSTOM_LESSON_HINTS = (
+    "özel ders",
+    "ozel ders",
+    "custom ders",
+    "ders oluştur",
+    "ders olustur",
+    "kendi ders",
+)
 SAVING_GOAL_CREATE_HINTS = (
     "azalt",
     "düşür",
@@ -165,6 +175,40 @@ INVESTMENT_ADVICE_PATTERNS = (
 )
 NEGATED_SHORT_TRADE_HINTS = ("al/sat", "al-sat", "al sat tavsiyesi verme")
 MAX_CONTEXT_MESSAGES = 20
+UUID_PATTERN = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+    re.IGNORECASE,
+)
+POSSESSIVE_NAME_PATTERN = re.compile(
+    r"\b(?P<name>[A-Za-zÇĞİÖŞÜçğıöşü]+(?:\s+[A-Za-zÇĞİÖŞÜçğıöşü]+)?)['’]"
+    r"(?:in|ın|un|ün|nin|nın|nun|nün)\b",
+    re.IGNORECASE,
+)
+SCOPE_INJECTION_HINTS = (
+    "user_id",
+    "kullanıcı id",
+    "kullanici id",
+    "başka kullanıcı",
+    "baska kullanici",
+    "başkasının",
+    "baskasinin",
+    "kullanıcısının",
+    "kullanicisinin",
+    "onun ver",
+)
+DATA_ACCESS_HINTS = (
+    "veri",
+    "harcama",
+    "işlem",
+    "islem",
+    "abonelik",
+    "hedef",
+    "göster",
+    "goster",
+    "liste",
+    "özet",
+    "ozet",
+)
 
 
 def _get_or_create_conversation(
@@ -262,6 +306,8 @@ def _wants_concept(message: str) -> bool:
         return False
     if _wants_smart_saving_plan(message):
         return False
+    if _wants_custom_lesson(message):
+        return False
     normalized = message.casefold()
     return any(hint in normalized for hint in CONCEPT_HINTS)
 
@@ -284,6 +330,11 @@ def _wants_monthly_visualization(message: str) -> bool:
 def _wants_memory(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in MEMORY_HINTS)
+
+
+def _wants_custom_lesson(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in CUSTOM_LESSON_HINTS)
 
 
 def _wants_saving_goal_creation(message: str) -> bool:
@@ -336,6 +387,50 @@ def _wants_investment_advice(message: str) -> bool:
     return has_advice_pattern or has_short_trade_action
 
 
+def _normalized_scope_label(value: str | None) -> str:
+    return " ".join((value or "").casefold().split())
+
+
+def _active_profile_name_labels(current_user: User) -> set[str]:
+    normalized_name = _normalized_scope_label(current_user.name)
+    if not normalized_name:
+        return set()
+    labels = {normalized_name}
+    labels.update(part for part in normalized_name.split() if part)
+    return labels
+
+
+def _category_name_labels(db: Session, current_user: User) -> set[str]:
+    return {
+        _normalized_scope_label(category.name) for category in visible_categories(db, current_user)
+    }
+
+
+def _mentions_external_scope_name(db: Session, current_user: User, message: str) -> bool:
+    allowed_labels = _active_profile_name_labels(current_user) | _category_name_labels(
+        db,
+        current_user,
+    )
+    for match in POSSESSIVE_NAME_PATTERN.finditer(message):
+        label = _normalized_scope_label(match.group("name"))
+        first_name = label.split()[0] if label else ""
+        if label not in allowed_labels and first_name not in allowed_labels:
+            return True
+    return False
+
+
+def _wants_scope_injection(db: Session, current_user: User, message: str) -> bool:
+    normalized = message.casefold()
+    has_data_request = any(hint in normalized for hint in DATA_ACCESS_HINTS)
+    if not has_data_request:
+        return False
+    if UUID_PATTERN.search(normalized):
+        return True
+    if _mentions_external_scope_name(db, current_user, message):
+        return True
+    return any(hint in normalized for hint in SCOPE_INJECTION_HINTS)
+
+
 def _wants_envelope_budget(message: str) -> bool:
     normalized = message.casefold()
     return resolve_envelope_category(message) is not None and any(
@@ -385,6 +480,50 @@ def _target_months_from_message(message: str) -> int:
     if year_match:
         return max(1, min(int(year_match.group(1)) * 12, 120))
     return 12
+
+
+def _custom_lesson_field(message: str, key: str) -> str | None:
+    for part in message.split("|"):
+        if ":" not in part:
+            continue
+        field_key, value = part.split(":", 1)
+        if field_key.strip().casefold() == key.casefold():
+            normalized = " ".join(value.split())
+            return normalized or None
+    return None
+
+
+def _truthy_lesson_field(value: str | None, *, default: bool) -> bool:
+    if value is None:
+        return default
+    normalized = value.casefold().strip()
+    return normalized not in {"hayır", "hayir", "false", "0", "yok", "istemiyorum"}
+
+
+def _custom_lesson_input_from_message(message: str) -> dict[str, object]:
+    topic = _custom_lesson_field(message, "Konu")
+    if topic is None:
+        topic = re.sub(
+            r"özel ders(?: oluştur| olustur)?|custom ders|ders oluştur|ders olustur",
+            "",
+            message,
+            flags=re.IGNORECASE,
+        ).strip(" :.-")
+    level = _custom_lesson_field(message, "Seviye") or "beginner"
+    duration_text = _custom_lesson_field(message, "Süre") or _custom_lesson_field(message, "Sure")
+    duration_match = re.search(r"\d{1,2}", duration_text or "")
+    duration_minutes = int(duration_match.group(0)) if duration_match else 5
+    include_examples = _truthy_lesson_field(_custom_lesson_field(message, "Örnekler"), default=True)
+    include_quiz = _truthy_lesson_field(_custom_lesson_field(message, "Mini quiz"), default=True)
+    visual = _truthy_lesson_field(_custom_lesson_field(message, "Görsel"), default=False)
+    return {
+        "topic": topic or "Finansal okuryazarlık",
+        "level": level,
+        "duration_minutes": duration_minutes,
+        "include_examples": include_examples,
+        "include_quiz": include_quiz,
+        "visual": visual,
+    }
 
 
 def _accumulation_title_from_message(message: str) -> str:
@@ -603,6 +742,54 @@ def _accumulation_goal_answer(result: dict[str, object], *, created: bool) -> st
             f"Kalan {remaining}. Aylık yaklaşık {monthly} ayırarak takip edebilirsin."
         )
     return f"{title} için kalan tutar {remaining}; aylık takip tutarı yaklaşık {monthly}."
+
+
+def _scope_refusal_answer() -> str:
+    return (
+        "Başka bir kullanıcı adı veya user_id ile kapsam değiştiremem. "
+        "Yalnızca aktif profilin yetkili veri kapsamındaki bilgileri kullanabilirim. "
+        "İstersen aktif profil için harcama, abonelik veya hedef özetini çıkarabilirim."
+    )
+
+
+def _custom_lesson_answer(result: dict[str, object]) -> str:
+    if "error" in result:
+        return str(result["error"])
+    title = str(result.get("title") or "Özel ders")
+    duration = result.get("duration_minutes")
+    goals = result.get("learning_goals")
+    sections = result.get("sections")
+    examples = result.get("examples")
+    quiz = result.get("mini_quiz")
+    lines = [f"### {title}", f"Süre: {duration} dakika.", ""]
+    if isinstance(goals, list) and goals:
+        lines.append("**Bu derste hedef:**")
+        lines.extend(f"- {goal}" for goal in goals[:3])
+        lines.append("")
+    if isinstance(sections, list) and sections:
+        lines.append("**Ders akışı:**")
+        for section in sections[:4]:
+            if not isinstance(section, dict):
+                continue
+            section_title = str(section.get("title") or "Bölüm")
+            minutes = section.get("minutes")
+            content = str(section.get("content") or "")
+            lines.append(f"- {section_title} ({minutes} dk): {content}")
+        lines.append("")
+    if isinstance(examples, list) and examples:
+        lines.append("**Örnekler:**")
+        lines.extend(f"- {example}" for example in examples[:3])
+        lines.append("")
+    if isinstance(quiz, list) and quiz:
+        lines.append("**Mini quiz:**")
+        for item in quiz[:2]:
+            if isinstance(item, dict):
+                lines.append(f"- Soru: {item.get('question')} Cevap: {item.get('answer')}")
+        lines.append("")
+    safety_note = result.get("safety_note")
+    if isinstance(safety_note, str):
+        lines.append(safety_note)
+    return "\n".join(lines).strip()
 
 
 def _saving_goals_overview_answer(result: dict[str, object]) -> str:
@@ -921,8 +1108,88 @@ def stream_chat_turn(
             "result": receipt_result,
         }
 
+    if _wants_scope_injection(db, current_user, payload.message):
+        answer = _scope_refusal_answer()
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
     if _wants_investment_advice(payload.message):
         answer = _investment_refusal_answer()
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
+    if _wants_custom_lesson(payload.message):
+        lesson_input = _custom_lesson_input_from_message(payload.message)
+        duration_value = lesson_input["duration_minutes"]
+        duration_minutes = (
+            duration_value if isinstance(duration_value, int) else int(str(duration_value))
+        )
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "create_custom_lesson",
+            "input": lesson_input,
+        }
+        result = build_custom_lesson(
+            current_user,
+            topic=str(lesson_input["topic"]),
+            level=str(lesson_input["level"]),
+            duration_minutes=duration_minutes,
+            include_examples=bool(lesson_input["include_examples"]),
+            include_quiz=bool(lesson_input["include_quiz"]),
+            visual=bool(lesson_input["visual"]),
+        )
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Özel ders taslağı oluşturuldu.",
+            tool_name="create_custom_lesson",
+            tool_calls={"input": lesson_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "create_custom_lesson",
+            "result": result,
+        }
+        if result.get("error") is None and lesson_input.get("visual") is True:
+            concept = str(result.get("illustration_prompt") or lesson_input["topic"])
+            lesson_illustration_input: dict[str, object] = {"concept": concept}
+            yield {
+                "type": "tool_call",
+                "conversation_id": conversation_id,
+                "tool_name": "illustrate_concept",
+                "input": lesson_illustration_input,
+            }
+            image_result = build_concept_illustration(db, current_user, concept=concept)
+            _persist_message(
+                db,
+                conversation,
+                role="tool",
+                content="Özel ders görseli hazırlandı.",
+                tool_name="illustrate_concept",
+                tool_calls={"input": lesson_illustration_input, "result": image_result},
+            )
+            yield {
+                "type": "tool_result",
+                "conversation_id": conversation_id,
+                "tool_name": "illustrate_concept",
+                "result": image_result,
+            }
+            image_event = _image_event_from_result(
+                conversation_id=conversation_id,
+                result=image_result,
+            )
+            if image_event is not None:
+                yield image_event
+        answer = _custom_lesson_answer(result)
         for chunk in _chunks(answer):
             yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
         _persist_message(db, conversation, role="assistant", content=answer)

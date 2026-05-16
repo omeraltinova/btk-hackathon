@@ -13,10 +13,13 @@ from sqlalchemy.orm import Session
 from app.auth import hash_password
 from app.db import SessionLocal
 from app.models.category import Category
+from app.models.memory import AgentMemory
+from app.models.saving_goal import SavingGoal
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.services.insights import refresh_insights_for_user
+from app.services.saving_goals import build_accumulation_goal_draft, build_saving_goal_draft
 
 SEED_DESCRIPTION = "demo-family-seed"
 LEGACY_PARENT_EMAILS = ("demo.aile@cuzdan-kocu.local",)
@@ -161,6 +164,29 @@ def _category_id(db: Session, name: str, user: User | None = None) -> UUID | Non
     return category.id if category else None
 
 
+def _goal_category_id(db: Session, *, user: User, name: str) -> UUID | None:
+    recent_cutoff = datetime.now(UTC) - timedelta(days=30)
+    candidates = [
+        candidate
+        for candidate in (_category_id(db, name, user), _category_id(db, name))
+        if candidate is not None
+    ]
+    for category_id in dict.fromkeys(candidates):
+        recent_expense = db.execute(
+            select(Transaction)
+            .where(
+                Transaction.user_id == user.id,
+                Transaction.category_id == category_id,
+                Transaction.type == "expense",
+                Transaction.occurred_at >= recent_cutoff,
+            )
+            .limit(1),
+        ).scalar_one_or_none()
+        if recent_expense is not None:
+            return category_id
+    return candidates[0] if candidates else None
+
+
 def _ensure_transaction(
     db: Session,
     *,
@@ -237,6 +263,140 @@ def _ensure_subscription(
             usage_score=Decimal(usage_score),
         ),
     )
+
+
+def _ensure_expense_reduction_goal(
+    db: Session,
+    *,
+    user: User,
+    title: str,
+    category_name: str,
+    target_reduction_percent: str,
+) -> None:
+    existing = db.execute(
+        select(SavingGoal).where(
+            SavingGoal.user_id == user.id,
+            SavingGoal.goal_type == "expense_reduction",
+            SavingGoal.title == title,
+        ),
+    ).scalar_one_or_none()
+    category_id = _goal_category_id(db, user=user, name=category_name)
+    draft = build_saving_goal_draft(
+        db,
+        user,
+        category_id=category_id,
+        target_reduction_percent=Decimal(target_reduction_percent),
+    )
+    if existing is None:
+        existing = SavingGoal(
+            user_id=user.id,
+            goal_type="expense_reduction",
+            category_id=draft.category.id,
+            title=title,
+            baseline_amount=draft.baseline_amount,
+            target_spending_amount=draft.target_spending_amount,
+            target_saving_amount=draft.target_saving_amount,
+            target_amount=None,
+            current_amount=Decimal("0"),
+            monthly_contribution=None,
+            start_date=draft.start_date,
+            end_date=draft.end_date,
+            status="active",
+            strategy=draft.strategy,
+            created_by="agent",
+        )
+        db.add(existing)
+        return
+    existing.category_id = draft.category.id
+    existing.title = title
+    existing.baseline_amount = draft.baseline_amount
+    existing.target_spending_amount = draft.target_spending_amount
+    existing.target_saving_amount = draft.target_saving_amount
+    existing.target_amount = None
+    existing.current_amount = Decimal("0")
+    existing.monthly_contribution = None
+    existing.start_date = draft.start_date
+    existing.end_date = draft.end_date
+    existing.status = "active"
+    existing.strategy = draft.strategy
+    existing.created_by = "agent"
+
+
+def _ensure_accumulation_goal(
+    db: Session,
+    *,
+    user: User,
+    title: str,
+    target_amount: str,
+    current_amount: str,
+    target_days: int,
+) -> None:
+    existing = db.execute(
+        select(SavingGoal).where(
+            SavingGoal.user_id == user.id,
+            SavingGoal.goal_type == "accumulation",
+            SavingGoal.title == title,
+        ),
+    ).scalar_one_or_none()
+    draft = build_accumulation_goal_draft(
+        target_amount=Decimal(target_amount),
+        current_amount=Decimal(current_amount),
+        target_date=datetime.now(UTC) + timedelta(days=target_days),
+        title=title,
+    )
+    target_saving_amount = draft.target_amount - draft.current_amount
+    if existing is None:
+        existing = SavingGoal(
+            user_id=user.id,
+            goal_type="accumulation",
+            category_id=None,
+            title=draft.title,
+            baseline_amount=draft.current_amount,
+            target_spending_amount=draft.target_amount,
+            target_saving_amount=target_saving_amount,
+            target_amount=draft.target_amount,
+            current_amount=draft.current_amount,
+            monthly_contribution=draft.monthly_contribution,
+            start_date=draft.start_date,
+            end_date=draft.end_date,
+            status="active",
+            strategy=draft.strategy,
+            created_by="agent",
+        )
+        db.add(existing)
+        return
+    existing.category_id = None
+    existing.title = draft.title
+    existing.baseline_amount = draft.current_amount
+    existing.target_spending_amount = draft.target_amount
+    existing.target_saving_amount = target_saving_amount
+    existing.target_amount = draft.target_amount
+    existing.current_amount = draft.current_amount
+    existing.monthly_contribution = draft.monthly_contribution
+    existing.start_date = draft.start_date
+    existing.end_date = draft.end_date
+    existing.status = "active"
+    existing.strategy = draft.strategy
+    existing.created_by = "agent"
+
+
+def _ensure_memory(
+    db: Session,
+    *,
+    user: User,
+    key: str,
+    value: dict[str, str],
+) -> None:
+    existing = db.execute(
+        select(AgentMemory).where(
+            AgentMemory.user_id == user.id,
+            AgentMemory.key == key,
+        ),
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(AgentMemory(user_id=user.id, key=key, value=value))
+        return
+    existing.value = value
 
 
 def seed_demo_family(db: Session) -> None:
@@ -622,6 +782,67 @@ def seed_demo_family(db: Session) -> None:
         category_name="Eğlence",
         days_until_billing=10,
         usage_score="0.95",
+    )
+    db.flush()
+    _ensure_accumulation_goal(
+        db,
+        user=ayse,
+        title="Yaz tatili birikimi",
+        target_amount="24000.00",
+        current_amount="4000.00",
+        target_days=240,
+    )
+    _ensure_expense_reduction_goal(
+        db,
+        user=ayse,
+        title="Market harcamamı azalt",
+        category_name="Market",
+        target_reduction_percent="15",
+    )
+    _ensure_accumulation_goal(
+        db,
+        user=mehmet,
+        title="Acil durum fonu",
+        target_amount="36000.00",
+        current_amount="6000.00",
+        target_days=360,
+    )
+    _ensure_expense_reduction_goal(
+        db,
+        user=mehmet,
+        title="Eğlence harcamamı azalt",
+        category_name="Eğlence",
+        target_reduction_percent="20",
+    )
+    _ensure_memory(
+        db,
+        user=ayse,
+        key="hedef",
+        value={"text": "Yaz tatili için düzenli birikim yapmak istiyor.", "source": "demo_seed"},
+    )
+    _ensure_memory(
+        db,
+        user=ayse,
+        key="tercih",
+        value={
+            "text": "Kısa ve yargılamayan bütçe önerilerini tercih ediyor.",
+            "source": "demo_seed",
+        },
+    )
+    _ensure_memory(
+        db,
+        user=mehmet,
+        key="hedef",
+        value={"text": "Acil durum fonunu büyütmek istiyor.", "source": "demo_seed"},
+    )
+    _ensure_memory(
+        db,
+        user=mehmet,
+        key="abonelik_odagi",
+        value={
+            "text": "Abonelikleri ve tekrarlayan ödemeleri düzenli gözden geçirmek istiyor.",
+            "source": "demo_seed",
+        },
     )
     db.flush()
     refresh_insights_for_user(db, ayse)

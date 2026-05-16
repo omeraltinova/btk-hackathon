@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from app.agent.tools import (
     build_accumulation_goal_creation,
     build_concept_illustration,
+    build_custom_lesson,
     build_saving_goal_creation,
     build_saving_goal_progress,
     build_saving_goals_chart,
@@ -488,6 +489,45 @@ def test_build_concept_illustration_rejects_investment_visuals() -> None:
 
     assert "error" in result
     assert result["concept"] == "Hangi hisseyi alayım?"
+
+
+def test_build_custom_lesson_returns_transient_structured_plan() -> None:
+    user = make_user()
+    user.finance_level = "child"
+
+    result = build_custom_lesson(
+        user,
+        topic="Harçlık planlama",
+        level="çocuk",
+        duration_minutes=20,
+        include_examples=False,
+        include_quiz=True,
+        visual=True,
+    )
+
+    assert result["title"] == "Harçlık planlama: Çocuk dersi"
+    assert result["level"] == "child"
+    assert result["duration_minutes"] == 12
+    assert result["examples"] == []
+    assert result["mini_quiz"]
+    assert result["visual"] is True
+    assert result["illustration_prompt"] == "Harçlık planlama"
+    assert "kalıcı" not in result
+
+
+def test_build_custom_lesson_rejects_product_advice_topics() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(
+        user,
+        topic="Hangi fon alınır?",
+        level="beginner",
+    )
+
+    assert result["topic"] == "Hangi fon alınır?"
+    assert result["error"] == (
+        "Özel ders oluşturabilirim ama belirli ürün, al-sat veya getiri tavsiyesi veremem."
+    )
 
 
 def test_infer_category_from_text_matches_turkish_suffixes() -> None:

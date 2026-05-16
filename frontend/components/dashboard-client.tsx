@@ -7,6 +7,7 @@ import {
   BookOpen,
   CalendarDays,
   Edit3,
+  ImagePlus,
   Loader2,
   PiggyBank,
   Plus,
@@ -23,6 +24,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { InsightBanner } from "@/components/InsightBanner";
+import { ReceiptUploader } from "@/components/ReceiptUploader";
 import { SpendingChart } from "@/components/SpendingChart";
 import { TransactionEditDialog } from "@/components/TransactionEditDialog";
 import { Button } from "@/components/ui/button";
@@ -69,6 +71,7 @@ import type {
 } from "@/lib/types";
 
 type DashboardView = "overview" | "transactions" | "income-expense";
+type EntryMode = "one_time" | "recurring" | "receipt";
 
 type DashboardClientProps = {
   view?: DashboardView;
@@ -158,7 +161,7 @@ function insightHref(insight: ProactiveInsight): string {
     insight.insight_type === "receipt_activity" ||
     insight.action_label?.toLocaleLowerCase("tr-TR").includes("fiş")
   ) {
-    return "/receipts";
+    return "/dashboard/transactions";
   }
   if (insight.action_label?.includes("İşlem")) {
     return "/dashboard/transactions";
@@ -1366,7 +1369,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [editedTransactionId, setEditedTransactionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [type, setType] = useState<TransactionType>("expense");
-  const [entryMode, setEntryMode] = useState<"one_time" | "recurring">("one_time");
+  const [entryMode, setEntryMode] = useState<EntryMode>("one_time");
   const [amount, setAmount] = useState("");
   const [merchant, setMerchant] = useState("");
   const [description, setDescription] = useState("");
@@ -1741,11 +1744,10 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
-  // In kid lite mode we always force the simple one-off entry — recurring
-  // payments belong to the parent surface. We sync the local entryMode so the
-  // form below renders the simpler path even if previous state carried over.
+  // In kid lite mode recurring payments belong to the parent surface, but receipt
+  // scanning remains available as a simple way to add a purchase.
   useEffect(() => {
-    if (isKid && entryMode !== "one_time") {
+    if (isKid && entryMode === "recurring") {
       setEntryMode("one_time");
     }
   }, [isKid, entryMode]);
@@ -1769,6 +1771,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     if (!hasCategoryForType(categories, categoryId, nextType)) {
       setCategoryId("");
     }
+  }
+
+  function handleReceiptConfirmed(transaction: Transaction) {
+    setTransactions((current) => [
+      transaction,
+      ...current.filter((item) => item.id !== transaction.id),
+    ]);
+    void refreshSummary();
+    void refreshInsights().catch(() => undefined);
   }
 
   return (
@@ -1815,7 +1826,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       Bütçe sayfası artık kategorili.
                     </h1>
                     <p className="text-foreground/78 max-w-[62ch] text-base leading-7 sm:text-lg sm:leading-8">
-                      Özet burada kalır; tek seferlik işlem ve tekrarlayan ödeme girişi aynı
+                      Özet burada kalır; tek seferlik işlem, tekrarlayan ödeme ve fiş tarama aynı
                       İşlemler ekranından yönetilir. Böylece kayıt ekleme akışı tek yerde kalır.
                     </p>
                   </div>
@@ -1968,7 +1979,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       : "Bütçe aşımı görünmüyor",
                   ],
                 ] as const)
-            ).map(([label, value, detail], index) => (
+            ).map(([label, value, detail]) => (
               <div key={label} className="cash-envelope min-h-40 p-4 sm:min-h-44 sm:p-5">
                 <div className="relative z-10 flex h-full flex-col justify-between gap-6">
                   <p className="text-sm font-bold text-secondary-foreground/80">{label}</p>
@@ -1978,9 +1989,6 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     </p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p>
                   </div>
-                  <span className="font-display text-xs font-bold text-primary/70">
-                    {isKid ? `KART ${index + 1}` : `ZARF ${index + 1}`}
-                  </span>
                 </div>
               </div>
             ))}
@@ -2021,481 +2029,507 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       ) : null}
 
       {view === "transactions" ? (
-        <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(25rem,0.68fr)_minmax(39rem,1.32fr)]">
-          <section className="ledger-sheet p-4 sm:p-6">
-            <div className="relative z-10 space-y-5">
-              <div>
-                <p className="eyebrow">{isKid ? "Yeni hareket" : "Kayıt girişi"}</p>
-                <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                  {isKid ? "Bir şey ekleyelim mi?" : "Yeni kayıt ekle"}
-                </h2>
-                <p className="mt-2 text-sm leading-5 text-muted-foreground">
-                  {isKid
-                    ? "Aldığın harçlığı veya yaptığın bir alışverişi buraya yazabilirsin."
-                    : "Tek seferlik gelir/gider veya tekrarlayan ödeme aynı ekrandan eklenir."}
-                </p>
-              </div>
-
-              {isKid ? null : (
-                <div className="grid grid-cols-2 gap-2 rounded-[1.5rem] border border-border/70 bg-background/70 p-2">
-                  {(
-                    [
-                      ["one_time", "Tek seferlik", ReceiptText],
-                      ["recurring", "Tekrarlayan", Repeat2],
-                    ] as const
-                  ).map(([mode, label, Icon]) => {
-                    const isActive = entryMode === mode;
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={cn(
-                          "flex min-h-10 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-bold transition-all duration-200 ease-quint",
-                          isActive
-                            ? "bg-primary text-primary-foreground shadow-sm"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                        )}
-                        onClick={() => setEntryMode(mode)}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {label}
-                      </button>
-                    );
-                  })}
+        <>
+          <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(25rem,0.68fr)_minmax(39rem,1.32fr)]">
+            <section className="ledger-sheet p-4 sm:p-6">
+              <div className="relative z-10 space-y-5">
+                <div>
+                  <p className="eyebrow">{isKid ? "Yeni hareket" : "Kayıt girişi"}</p>
+                  <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
+                    {isKid ? "Bir şey ekleyelim mi?" : "Yeni kayıt ekle"}
+                  </h2>
+                  <p className="mt-2 text-sm leading-5 text-muted-foreground">
+                    {isKid
+                      ? "Aldığın harçlığı, yaptığın alışverişi veya fişini bu sayfadan ekleyebilirsin."
+                      : "Tek seferlik gelir/gider, tekrarlayan ödeme ve fiş tarama aynı ekrandan eklenir."}
+                  </p>
                 </div>
-              )}
 
-              <div
-                className={cn(
-                  "bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-3",
-                  isKid && "hidden",
-                )}
-              >
-                <label htmlFor="new-category-name" className="text-sm font-medium">
-                  Yeni kategori
-                </label>
-                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <Input
-                    id="new-category-name"
-                    value={newCategoryName}
-                    onChange={(event) => setNewCategoryName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void handleCreateCategory();
-                      }
-                    }}
-                    placeholder="Kategori adı"
-                  />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="min-h-11"
-                    disabled={isCreatingCategory}
-                    onClick={() => void handleCreateCategory()}
+                {isKid ? null : (
+                  <div
+                    className={cn(
+                      "grid gap-2 rounded-[1.5rem] border border-border/70 bg-background/70 p-2",
+                      isKid ? "grid-cols-2" : "grid-cols-3",
+                    )}
                   >
-                    {isCreatingCategory ? "Ekleniyor..." : "Ekle"}
-                  </Button>
+                    {(isKid
+                      ? ([
+                          ["one_time", "Hareket", ReceiptText],
+                          ["receipt", "Fiş tara", ImagePlus],
+                        ] as const)
+                      : ([
+                          ["one_time", "Tek seferlik", ReceiptText],
+                          ["recurring", "Tekrarlayan", Repeat2],
+                          ["receipt", "Fiş tara", ImagePlus],
+                        ] as const)
+                    ).map(([mode, label, Icon]) => {
+                      const isActive = entryMode === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={cn(
+                            "flex min-h-10 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-bold transition-all duration-200 ease-quint",
+                            isActive
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                          )}
+                          onClick={() => setEntryMode(mode)}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div
+                  className={cn(
+                    "bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-3",
+                    isKid && "hidden",
+                  )}
+                >
+                  <label htmlFor="new-category-name" className="text-sm font-medium">
+                    Yeni kategori
+                  </label>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <Input
+                      id="new-category-name"
+                      value={newCategoryName}
+                      onChange={(event) => setNewCategoryName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleCreateCategory();
+                        }
+                      }}
+                      placeholder="Kategori adı"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="min-h-11"
+                      disabled={isCreatingCategory}
+                      onClick={() => void handleCreateCategory()}
+                    >
+                      {isCreatingCategory ? "Ekleniyor..." : "Ekle"}
+                    </Button>
+                  </div>
                 </div>
-              </div>
 
-              {entryMode === "one_time" ? (
-                <form className="space-y-4" onSubmit={handleSubmit}>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="transaction-type" className="text-sm font-medium">
-                        Tür
-                      </label>
-                      <select
-                        id="transaction-type"
-                        className={selectClassName}
-                        value={type}
-                        onChange={(event) =>
-                          handleTransactionTypeChange(event.target.value as TransactionType)
-                        }
-                      >
-                        <option value="expense">{isKid ? "Harcadım" : "Gider"}</option>
-                        <option value="income">{isKid ? "Aldım" : "Gelir"}</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="transaction-amount" className="text-sm font-medium">
-                        Tutar
-                      </label>
-                      <Input
-                        id="transaction-amount"
-                        inputMode="decimal"
-                        placeholder="Tutar gir"
-                        value={amount}
-                        onChange={(event) => setAmount(event.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="transaction-category" className="text-sm font-medium">
-                        Kategori
-                      </label>
-                      <select
-                        id="transaction-category"
-                        className={selectClassName}
-                        value={categoryId}
-                        onChange={(event) => setCategoryId(event.target.value)}
-                      >
-                        <option value="">Kategori seçme</option>
-                        {transactionCategories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                            {category.user_id ? " · özel" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="transaction-date" className="text-sm font-medium">
-                        Tarih ve saat
-                      </label>
-                      <Input
-                        id="transaction-date"
-                        type="datetime-local"
-                        value={occurredAt}
-                        onChange={(event) => setOccurredAt(event.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="transaction-merchant" className="text-sm font-medium">
-                      Satıcı veya kaynak
-                    </label>
-                    <Input
-                      id="transaction-merchant"
-                      value={merchant}
-                      onChange={(event) => setMerchant(event.target.value)}
-                      placeholder="İsteğe bağlı"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label htmlFor="transaction-description" className="text-sm font-medium">
-                      Not
-                    </label>
-                    <Input
-                      id="transaction-description"
-                      value={description}
-                      onChange={(event) => setDescription(event.target.value)}
-                      placeholder="Kısa açıklama"
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" disabled={isSubmitting}>
-                    {isSubmitting ? "Kaydediliyor..." : "Tek seferlik kaydı ekle"}
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </form>
-              ) : (
-                <form className="space-y-4" onSubmit={handleCreateSubscription}>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-name" className="text-sm font-medium">
-                        Ad
-                      </label>
-                      <Input
-                        id="subscription-name"
-                        value={subscriptionName}
-                        onChange={(event) => setSubscriptionName(event.target.value)}
-                        placeholder="Ödeme adı"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-amount" className="text-sm font-medium">
-                        Tutar
-                      </label>
-                      <Input
-                        id="subscription-amount"
-                        inputMode="decimal"
-                        value={subscriptionAmount}
-                        onChange={(event) => setSubscriptionAmount(event.target.value)}
-                        placeholder="Tutar gir"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-cycle" className="text-sm font-medium">
-                        Yenilenme
-                      </label>
-                      <select
-                        id="subscription-cycle"
-                        className={selectClassName}
-                        value={subscriptionCycle}
-                        onChange={(event) =>
-                          handleSubscriptionCycleChange(event.target.value as BillingCycle)
-                        }
-                      >
-                        <option value="weekly">Haftalık</option>
-                        <option value="monthly">Aylık</option>
-                        <option value="yearly">Yıllık</option>
-                        <option value="custom">Özel</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-next-date" className="text-sm font-medium">
-                        Sonraki tarih
-                      </label>
-                      <Input
-                        id="subscription-next-date"
-                        type="date"
-                        value={subscriptionNextDate}
-                        onChange={(event) => setSubscriptionNextDate(event.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  {subscriptionCycle === "custom" ? (
+                {entryMode === "one_time" ? (
+                  <form className="space-y-4" onSubmit={handleSubmit}>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <label htmlFor="subscription-interval" className="text-sm font-medium">
-                          Tekrar aralığı
+                        <label htmlFor="transaction-type" className="text-sm font-medium">
+                          Tür
+                        </label>
+                        <select
+                          id="transaction-type"
+                          className={selectClassName}
+                          value={type}
+                          onChange={(event) =>
+                            handleTransactionTypeChange(event.target.value as TransactionType)
+                          }
+                        >
+                          <option value="expense">{isKid ? "Harcadım" : "Gider"}</option>
+                          <option value="income">{isKid ? "Aldım" : "Gelir"}</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label htmlFor="transaction-amount" className="text-sm font-medium">
+                          Tutar
                         </label>
                         <Input
-                          id="subscription-interval"
-                          type="number"
-                          min={1}
-                          value={subscriptionInterval}
-                          onChange={(event) => setSubscriptionInterval(event.target.value)}
+                          id="transaction-amount"
+                          inputMode="decimal"
+                          placeholder="Tutar gir"
+                          value={amount}
+                          onChange={(event) => setAmount(event.target.value)}
                           required
                         />
                       </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <label htmlFor="subscription-unit" className="text-sm font-medium">
-                          Aralık birimi
+                        <label htmlFor="transaction-category" className="text-sm font-medium">
+                          Kategori
                         </label>
                         <select
-                          id="subscription-unit"
+                          id="transaction-category"
                           className={selectClassName}
-                          value={subscriptionUnit}
-                          onChange={(event) =>
-                            setSubscriptionUnit(event.target.value as RecurrenceUnit)
-                          }
+                          value={categoryId}
+                          onChange={(event) => setCategoryId(event.target.value)}
                         >
-                          {Object.entries(recurrenceUnitLabels).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
+                          <option value="">Kategori seçme</option>
+                          {transactionCategories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.name}
+                              {category.user_id ? " · özel" : ""}
                             </option>
                           ))}
                         </select>
                       </div>
+                      <div className="space-y-2">
+                        <label htmlFor="transaction-date" className="text-sm font-medium">
+                          Tarih ve saat
+                        </label>
+                        <Input
+                          id="transaction-date"
+                          type="datetime-local"
+                          value={occurredAt}
+                          onChange={(event) => setOccurredAt(event.target.value)}
+                          required
+                        />
+                      </div>
                     </div>
-                  ) : null}
 
-                  <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <label htmlFor="subscription-category" className="text-sm font-medium">
-                        Kategori
-                      </label>
-                      <select
-                        id="subscription-category"
-                        className={selectClassName}
-                        value={subscriptionCategoryId}
-                        onChange={(event) => setSubscriptionCategoryId(event.target.value)}
-                      >
-                        <option value="">Kategori seçme</option>
-                        {subscriptionCategories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                            {category.user_id ? " · özel" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-merchant" className="text-sm font-medium">
-                        Kurum veya satıcı
+                      <label htmlFor="transaction-merchant" className="text-sm font-medium">
+                        Satıcı veya kaynak
                       </label>
                       <Input
-                        id="subscription-merchant"
-                        value={subscriptionMerchant}
-                        onChange={(event) => setSubscriptionMerchant(event.target.value)}
+                        id="transaction-merchant"
+                        value={merchant}
+                        onChange={(event) => setMerchant(event.target.value)}
                         placeholder="İsteğe bağlı"
                       />
                     </div>
-                  </div>
-
-                  <Button type="submit" className="w-full" disabled={isAddingSubscription}>
-                    {isAddingSubscription ? "Kaydediliyor..." : "Tekrarlayan kaydı ekle"}
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </form>
-              )}
-            </div>
-          </section>
-
-          <section className="space-y-5">
-            {error ? <ErrorNote>{error}</ErrorNote> : null}
-
-            {isKid ? null : (
-              <div className="receipt-tape p-4 pt-6 sm:p-5 sm:pt-7">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="eyebrow">Tekrarlayan aylık etki</p>
-                    <h3 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                      {formatKurus(recurringMonthlyTotal)}
-                    </h3>
-                  </div>
-                  <span className="stamp-label bg-background/80">Toplam</span>
-                </div>
-                <div className="mt-4">
-                  <RecurringBars
-                    subscriptions={subscriptions}
-                    limit={RECURRING_BAR_PREVIEW_LIMIT}
-                    onShowAll={() => setIsRecurringImpactOpen(true)}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="eyebrow">Veritabanı kayıtları</p>
-                  <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                    Son işlemler
-                  </h2>
-                </div>
-                <div className="flex items-center gap-2">
-                  {hiddenTransactionCount > 0 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsTransactionListOpen(true)}
-                    >
-                      Tümünü menüde gör
-                      <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
-                        +{hiddenTransactionCount}
-                      </span>
+                    <div className="space-y-2">
+                      <label htmlFor="transaction-description" className="text-sm font-medium">
+                        Not
+                      </label>
+                      <Input
+                        id="transaction-description"
+                        value={description}
+                        onChange={(event) => setDescription(event.target.value)}
+                        placeholder="Kısa açıklama"
+                      />
+                    </div>
+                    <Button type="submit" className="w-full" disabled={isSubmitting}>
+                      {isSubmitting ? "Kaydediliyor..." : "Tek seferlik kaydı ekle"}
+                      <Plus className="h-4 w-4" />
                     </Button>
-                  ) : null}
-                  <ReceiptText className="h-5 w-5 text-primary" />
-                </div>
-              </div>
+                  </form>
+                ) : entryMode === "recurring" ? (
+                  <form className="space-y-4" onSubmit={handleCreateSubscription}>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-name" className="text-sm font-medium">
+                          Ad
+                        </label>
+                        <Input
+                          id="subscription-name"
+                          value={subscriptionName}
+                          onChange={(event) => setSubscriptionName(event.target.value)}
+                          placeholder="Ödeme adı"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-amount" className="text-sm font-medium">
+                          Tutar
+                        </label>
+                        <Input
+                          id="subscription-amount"
+                          inputMode="decimal"
+                          value={subscriptionAmount}
+                          onChange={(event) => setSubscriptionAmount(event.target.value)}
+                          placeholder="Tutar gir"
+                          required
+                        />
+                      </div>
+                    </div>
 
-              {isLoading ? (
-                <div className="receipt-tape flex items-center gap-3 px-4 py-4 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  İşlemler yükleniyor...
-                </div>
-              ) : transactions.length === 0 ? (
-                <div className="receipt-tape px-4 py-6">
-                  <CalendarDays className="h-6 w-6 text-primary" />
-                  <h3 className="mt-4 font-display text-2xl font-black">Henüz işlem yok</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    İlk gerçek gelir veya giderini eklediğinde bu bölüm veritabanından dolacak.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {previewTransactions.map((item) => (
-                    <TransactionRow
-                      key={item.id}
-                      item={item}
-                      categoryNameById={categoryNameById}
-                      onEdit={(transaction) => setEditedTransactionId(transaction.id)}
-                      onDelete={(transactionId) => void handleDelete(transactionId)}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-cycle" className="text-sm font-medium">
+                          Yenilenme
+                        </label>
+                        <select
+                          id="subscription-cycle"
+                          className={selectClassName}
+                          value={subscriptionCycle}
+                          onChange={(event) =>
+                            handleSubscriptionCycleChange(event.target.value as BillingCycle)
+                          }
+                        >
+                          <option value="weekly">Haftalık</option>
+                          <option value="monthly">Aylık</option>
+                          <option value="yearly">Yıllık</option>
+                          <option value="custom">Özel</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-next-date" className="text-sm font-medium">
+                          Sonraki tarih
+                        </label>
+                        <Input
+                          id="subscription-next-date"
+                          type="date"
+                          value={subscriptionNextDate}
+                          onChange={(event) => setSubscriptionNextDate(event.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {subscriptionCycle === "custom" ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <label htmlFor="subscription-interval" className="text-sm font-medium">
+                            Tekrar aralığı
+                          </label>
+                          <Input
+                            id="subscription-interval"
+                            type="number"
+                            min={1}
+                            value={subscriptionInterval}
+                            onChange={(event) => setSubscriptionInterval(event.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label htmlFor="subscription-unit" className="text-sm font-medium">
+                            Aralık birimi
+                          </label>
+                          <select
+                            id="subscription-unit"
+                            className={selectClassName}
+                            value={subscriptionUnit}
+                            onChange={(event) =>
+                              setSubscriptionUnit(event.target.value as RecurrenceUnit)
+                            }
+                          >
+                            {Object.entries(recurrenceUnitLabels).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-category" className="text-sm font-medium">
+                          Kategori
+                        </label>
+                        <select
+                          id="subscription-category"
+                          className={selectClassName}
+                          value={subscriptionCategoryId}
+                          onChange={(event) => setSubscriptionCategoryId(event.target.value)}
+                        >
+                          <option value="">Kategori seçme</option>
+                          {subscriptionCategories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.name}
+                              {category.user_id ? " · özel" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-merchant" className="text-sm font-medium">
+                          Kurum veya satıcı
+                        </label>
+                        <Input
+                          id="subscription-merchant"
+                          value={subscriptionMerchant}
+                          onChange={(event) => setSubscriptionMerchant(event.target.value)}
+                          placeholder="İsteğe bağlı"
+                        />
+                      </div>
+                    </div>
+
+                    <Button type="submit" className="w-full" disabled={isAddingSubscription}>
+                      {isAddingSubscription ? "Kaydediliyor..." : "Tekrarlayan kaydı ekle"}
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="bg-background/72 rounded-[1.5rem] border border-dashed border-primary/35 p-4 text-sm leading-6 text-muted-foreground">
+                    <ImagePlus className="mb-3 h-5 w-5 text-primary" />
+                    Fiş tarama masası bu sayfanın altında açıldı. Fişi yükle, OCR sonucunu kontrol
+                    et ve onayladığında kayıt son işlemlere eklenir.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-5">
+              {error ? <ErrorNote>{error}</ErrorNote> : null}
+
+              {isKid ? null : (
+                <div className="receipt-tape p-4 pt-6 sm:p-5 sm:pt-7">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="eyebrow">Tekrarlayan aylık etki</p>
+                      <h3 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
+                        {formatKurus(recurringMonthlyTotal)}
+                      </h3>
+                    </div>
+                    <span className="stamp-label bg-background/80">Toplam</span>
+                  </div>
+                  <div className="mt-4">
+                    <RecurringBars
+                      subscriptions={subscriptions}
+                      limit={RECURRING_BAR_PREVIEW_LIMIT}
+                      onShowAll={() => setIsRecurringImpactOpen(true)}
                     />
-                  ))}
-                  {hiddenTransactionCount > 0 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => setIsTransactionListOpen(true)}
-                    >
-                      Tüm işlemleri menüde gör
-                      <ArrowRight className="h-4 w-4" />
-                      <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
-                        +{hiddenTransactionCount}
-                      </span>
-                    </Button>
-                  ) : null}
+                  </div>
                 </div>
               )}
-            </div>
 
-            {isKid ? null : (
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="eyebrow">Yenilenen kayıtlar</p>
+                    <p className="eyebrow">Veritabanı kayıtları</p>
                     <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                      Tekrarlayan ödemeler
+                      Son işlemler
                     </h2>
                   </div>
                   <div className="flex items-center gap-2">
-                    {hiddenSubscriptionCount > 0 ? (
+                    {hiddenTransactionCount > 0 ? (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setIsSubscriptionListOpen(true)}
+                        onClick={() => setIsTransactionListOpen(true)}
                       >
                         Tümünü menüde gör
                         <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
-                          +{hiddenSubscriptionCount}
+                          +{hiddenTransactionCount}
                         </span>
                       </Button>
                     ) : null}
-                    <Repeat2 className="h-5 w-5 text-primary" />
+                    <ReceiptText className="h-5 w-5 text-primary" />
                   </div>
                 </div>
 
-                {subscriptions.length === 0 ? (
+                {isLoading ? (
+                  <div className="receipt-tape flex items-center gap-3 px-4 py-4 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    İşlemler yükleniyor...
+                  </div>
+                ) : transactions.length === 0 ? (
                   <div className="receipt-tape px-4 py-6">
-                    <Repeat2 className="h-6 w-6 text-primary" />
-                    <h3 className="mt-4 font-display text-2xl font-black">Tekrarlayan ödeme yok</h3>
+                    <CalendarDays className="h-6 w-6 text-primary" />
+                    <h3 className="mt-4 font-display text-2xl font-black">Henüz işlem yok</h3>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Abonelik veya fatura eklediğinde tekil tutarlar ve aylık toplam burada
-                      görünür.
+                      İlk gerçek gelir veya giderini eklediğinde bu bölüm veritabanından dolacak.
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {previewSubscriptions.map((subscription) => (
-                      <SubscriptionRow
-                        key={subscription.id}
-                        subscription={subscription}
+                    {previewTransactions.map((item) => (
+                      <TransactionRow
+                        key={item.id}
+                        item={item}
                         categoryNameById={categoryNameById}
-                        isUpdating={updatingSubscriptionId === subscription.id}
-                        onManage={(item) => setManagedSubscriptionId(item.id)}
-                        onToggle={(item) => void handleToggleSubscription(item)}
-                        onDelete={(subscriptionId) => void handleDeleteSubscription(subscriptionId)}
+                        onEdit={(transaction) => setEditedTransactionId(transaction.id)}
+                        onDelete={(transactionId) => void handleDelete(transactionId)}
                       />
                     ))}
-                    {hiddenSubscriptionCount > 0 ? (
+                    {hiddenTransactionCount > 0 ? (
                       <Button
                         type="button"
                         variant="outline"
                         className="w-full"
-                        onClick={() => setIsSubscriptionListOpen(true)}
+                        onClick={() => setIsTransactionListOpen(true)}
                       >
-                        Tüm tekrarlayanları menüde gör
+                        Tüm işlemleri menüde gör
                         <ArrowRight className="h-4 w-4" />
                         <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
-                          +{hiddenSubscriptionCount}
+                          +{hiddenTransactionCount}
                         </span>
                       </Button>
                     ) : null}
                   </div>
                 )}
               </div>
-            )}
-          </section>
-        </div>
+
+              {isKid ? null : (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="eyebrow">Yenilenen kayıtlar</p>
+                      <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
+                        Tekrarlayan ödemeler
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {hiddenSubscriptionCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsSubscriptionListOpen(true)}
+                        >
+                          Tümünü menüde gör
+                          <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
+                            +{hiddenSubscriptionCount}
+                          </span>
+                        </Button>
+                      ) : null}
+                      <Repeat2 className="h-5 w-5 text-primary" />
+                    </div>
+                  </div>
+
+                  {subscriptions.length === 0 ? (
+                    <div className="receipt-tape px-4 py-6">
+                      <Repeat2 className="h-6 w-6 text-primary" />
+                      <h3 className="mt-4 font-display text-2xl font-black">
+                        Tekrarlayan ödeme yok
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        Abonelik veya fatura eklediğinde tekil tutarlar ve aylık toplam burada
+                        görünür.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {previewSubscriptions.map((subscription) => (
+                        <SubscriptionRow
+                          key={subscription.id}
+                          subscription={subscription}
+                          categoryNameById={categoryNameById}
+                          isUpdating={updatingSubscriptionId === subscription.id}
+                          onManage={(item) => setManagedSubscriptionId(item.id)}
+                          onToggle={(item) => void handleToggleSubscription(item)}
+                          onDelete={(subscriptionId) =>
+                            void handleDeleteSubscription(subscriptionId)
+                          }
+                        />
+                      ))}
+                      {hiddenSubscriptionCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => setIsSubscriptionListOpen(true)}
+                        >
+                          Tüm tekrarlayanları menüde gör
+                          <ArrowRight className="h-4 w-4" />
+                          <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
+                            +{hiddenSubscriptionCount}
+                          </span>
+                        </Button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+
+          {entryMode === "receipt" ? (
+            <ReceiptUploader showHistory={false} onConfirmed={handleReceiptConfirmed} />
+          ) : null}
+        </>
       ) : null}
 
       <FullListDialog

@@ -4,6 +4,7 @@ import pytest
 from langchain_openai import ChatOpenAI
 
 from app.agent.graph import build_agent_graph_from_settings, build_chat_model
+from app.agent.tools import TOOLS
 from app.config import Settings
 
 
@@ -46,3 +47,7 @@ def test_build_agent_graph_from_settings_requires_gemini_key_by_default() -> Non
 
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
         build_agent_graph_from_settings(settings)
+
+
+def test_agent_tool_registry_includes_custom_lesson_tool() -> None:
+    assert "create_custom_lesson" in {tool.name for tool in TOOLS}

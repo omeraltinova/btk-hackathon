@@ -9,9 +9,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PiggyBank,
-  Receipt,
   Sparkles,
-  Sticker,
   Target,
   UserRound,
   Users,
@@ -36,9 +34,8 @@ const NAV_ITEMS = [
   { href: "/dashboard/goals", label: "Hedefler", section: "04", icon: Target },
   { href: "/learn", label: "Dersler", section: "05", icon: BookOpen },
   { href: "/chat", label: "Sohbet", section: "06", icon: MessageSquare },
-  { href: "/receipts", label: "Fişler", section: "07", icon: Receipt },
-  { href: "/family", label: "Aile", section: "08", icon: Users },
-  { href: "/account", label: "Hesap", section: "09", icon: UserRound },
+  { href: "/family", label: "Aile", section: "07", icon: Users },
+  { href: "/account", label: "Hesap", section: "08", icon: UserRound },
 ] as const;
 
 const KID_NAV_ITEMS = [
@@ -47,8 +44,7 @@ const KID_NAV_ITEMS = [
   { href: "/dashboard/goals", label: "Hedefim", section: "03", icon: Target },
   { href: "/learn", label: "Öğren", section: "04", icon: BookOpen },
   { href: "/chat", label: "Koç", section: "05", icon: Sparkles },
-  { href: "/receipts", label: "Fişlerim", section: "06", icon: Sticker },
-  { href: "/account", label: "Profilim", section: "07", icon: UserRound },
+  { href: "/account", label: "Profilim", section: "06", icon: UserRound },
 ] as const;
 
 const ROLE_LABELS = {

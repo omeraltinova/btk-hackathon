@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -58,6 +59,12 @@ BLOCKED_ILLUSTRATION_TERMS = (
     "hangi fon",
     "hangi altın",
     "hangi döviz",
+)
+CUSTOM_LESSON_LEVELS = {"child", "beginner", "intermediate", "advanced"}
+CUSTOM_LESSON_BLOCKED_ADVICE_PATTERNS = (
+    r"\bhangi\b.*\b(hisse|fon|kripto|coin|alt[ıi]n|d[öo]viz)\b",
+    r"\b(hisse|fon|kripto|coin|alt[ıi]n|d[öo]viz)\b.*\b(alay[ıi]m|almal[ıi]|satay[ıi]m|satmal[ıi]|öner|oner)\b",
+    r"\bgetiri\s+(?:garantisi|vaadi|oran[ıi])\b",
 )
 
 
@@ -1106,6 +1113,171 @@ def explain_finance_concept(current_user: User, *, concept: str) -> dict[str, ob
     return {"concept": normalized, "level": current_user.finance_level, "explanation": explanation}
 
 
+def _normalize_lesson_level(level: str, current_user: User) -> str:
+    normalized = level.casefold().strip()
+    tr_map = {
+        "çocuk": "child",
+        "cocuk": "child",
+        "başlangıç": "beginner",
+        "baslangic": "beginner",
+        "orta": "intermediate",
+        "ileri": "advanced",
+    }
+    normalized = tr_map.get(normalized, normalized)
+    if normalized in CUSTOM_LESSON_LEVELS:
+        return normalized
+    if current_user.finance_level in CUSTOM_LESSON_LEVELS:
+        return current_user.finance_level
+    return "beginner"
+
+
+def _lesson_level_label(level: str) -> str:
+    return {
+        "child": "Çocuk",
+        "beginner": "Başlangıç",
+        "intermediate": "Orta",
+        "advanced": "İleri",
+    }.get(level, "Başlangıç")
+
+
+def _custom_lesson_forbidden(topic: str) -> bool:
+    normalized = topic.casefold()
+    return any(re.search(pattern, normalized) for pattern in CUSTOM_LESSON_BLOCKED_ADVICE_PATTERNS)
+
+
+def _custom_lesson_goals(topic: str, level: str) -> list[str]:
+    if level == "child":
+        return [
+            f"{topic} konusunu günlük hayattan bir örnekle tanımak.",
+            "Harçlık, kumbara veya okul alışverişi üzerinden küçük bir karar vermek.",
+            "Ders sonunda kendi cümlesiyle bir güvenli para alışkanlığı söylemek.",
+        ]
+    return [
+        f"{topic} kavramının aile bütçesine etkisini anlamak.",
+        "Gelir, gider, risk ve zaman etkisini birbirinden ayırmak.",
+        "Kendi bütçesinde uygulanabilir küçük bir takip adımı seçmek.",
+    ]
+
+
+def _custom_lesson_sections(
+    topic: str, level: str, duration_minutes: int
+) -> list[dict[str, object]]:
+    intro_minutes = 1
+    practice_minutes = max(1, duration_minutes - 3)
+    wrap_minutes = max(1, duration_minutes - intro_minutes - practice_minutes)
+    if level == "child":
+        return [
+            {
+                "title": "Kısa hikaye",
+                "minutes": intro_minutes,
+                "content": f"{topic} konusunu harçlık ve kumbara üzerinden tek cümleyle tanıt.",
+            },
+            {
+                "title": "Birlikte düşün",
+                "minutes": practice_minutes,
+                "content": "Bir oyuncak, kantin veya doğum günü hediyesi seçimiyle küçük karar oyunu yap.",
+            },
+            {
+                "title": "Mini söz",
+                "minutes": wrap_minutes,
+                "content": "Çocuğun bugün deneyebileceği tek para alışkanlığını seçtir.",
+            },
+        ]
+    return [
+        {
+            "title": "Temel kavram",
+            "minutes": intro_minutes,
+            "content": f"{topic} nedir, aile bütçesinde hangi satıra dokunur?",
+        },
+        {
+            "title": "Bütçe üzerinde oku",
+            "minutes": practice_minutes,
+            "content": "Gelir, gider, tekrar eden ödeme veya hedef zarfı üzerinden somut bir örnek kur.",
+        },
+        {
+            "title": "Uygulanabilir adım",
+            "minutes": wrap_minutes,
+            "content": "Bugün yapılabilecek tek takip veya karşılaştırma adımını yaz.",
+        },
+    ]
+
+
+def _custom_lesson_examples(topic: str, level: str) -> list[str]:
+    if level == "child":
+        return [
+            f"Kumbaranda 100 ₺ varsa {topic} kararını nasıl etkiler?",
+            "Kantin alışverişinden önce ihtiyaç ve istek ayrımı yap.",
+        ]
+    return [
+        f"Aylık bütçede {topic} için küçük bir kontrol satırı aç.",
+        "Tekrarlayan bir ödemeyi veya hedef katkısını ay sonunda gerçekleşen tutarla karşılaştır.",
+    ]
+
+
+def _custom_lesson_quiz(topic: str, level: str) -> list[dict[str, object]]:
+    if level == "child":
+        return [
+            {
+                "question": f"{topic} kararında ilk neye bakarsın?",
+                "answer": "Gerçekten gerekli mi ve kumbaramdaki hedefi etkiler mi diye bakarım.",
+            },
+            {
+                "question": "Küçük birikim neden işe yarar?",
+                "answer": "Çünkü küçük tutarlar zamanla büyür ve hedefe yaklaşmayı gösterir.",
+            },
+        ]
+    return [
+        {
+            "question": f"{topic} bütçede hangi soruyla kontrol edilir?",
+            "answer": "Gelirimi, giderimi, riskimi veya hedef süremi nasıl etkiliyor?",
+        },
+        {
+            "question": "Bu ders yatırım tavsiyesi verir mi?",
+            "answer": "Hayır; sadece finansal okuryazarlık ve bütçe alışkanlığı anlatır.",
+        },
+    ]
+
+
+def build_custom_lesson(
+    current_user: User,
+    *,
+    topic: str,
+    level: str = "beginner",
+    duration_minutes: int = 5,
+    include_examples: bool = True,
+    include_quiz: bool = True,
+    visual: bool = False,
+) -> dict[str, object]:
+    """Return a transient Finance School lesson plan without persisting it."""
+    normalized_topic = " ".join(topic.split())
+    if not normalized_topic:
+        return {"error": "Ders konusu boş olamaz."}
+    if _custom_lesson_forbidden(normalized_topic):
+        return {
+            "topic": normalized_topic,
+            "error": "Özel ders oluşturabilirim ama belirli ürün, al-sat veya getiri tavsiyesi veremem.",
+        }
+    safe_duration = max(3, min(duration_minutes, 12))
+    safe_level = _normalize_lesson_level(level, current_user)
+    lesson: dict[str, object] = {
+        "title": f"{normalized_topic}: {_lesson_level_label(safe_level)} dersi",
+        "topic": normalized_topic,
+        "level": safe_level,
+        "level_label": _lesson_level_label(safe_level),
+        "duration_minutes": safe_duration,
+        "learning_goals": _custom_lesson_goals(normalized_topic, safe_level),
+        "sections": _custom_lesson_sections(normalized_topic, safe_level, safe_duration),
+        "examples": _custom_lesson_examples(normalized_topic, safe_level)
+        if include_examples
+        else [],
+        "mini_quiz": _custom_lesson_quiz(normalized_topic, safe_level) if include_quiz else [],
+        "safety_note": "Bu ders eğitim amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi vermez.",
+        "visual": visual,
+        "illustration_prompt": normalized_topic if visual else None,
+    }
+    return lesson
+
+
 def simulate_finance_scenario(
     db: Session,
     current_user: User,
@@ -1296,6 +1468,29 @@ def explain_concept_tool(
         return explain_finance_concept(_load_current_user(db, user_id), concept=concept)
 
 
+@tool("create_custom_lesson")
+def create_custom_lesson_tool(
+    topic: str,
+    level: str = "beginner",
+    duration_minutes: int = 5,
+    include_examples: bool = True,
+    include_quiz: bool = True,
+    visual: bool = False,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Finans Okulu için kalıcı olmayan yapılandırılmış özel ders üretir."""
+    with SessionLocal() as db:
+        return build_custom_lesson(
+            _load_current_user(db, user_id),
+            topic=topic,
+            level=level,
+            duration_minutes=duration_minutes,
+            include_examples=include_examples,
+            include_quiz=include_quiz,
+            visual=visual,
+        )
+
+
 @tool("simulate_scenario")
 def simulate_scenario_tool(
     scenario: str,
@@ -1371,6 +1566,7 @@ TOOLS = [
     create_smart_saving_plan_tool,
     analyze_receipt_tool,
     explain_concept_tool,
+    create_custom_lesson_tool,
     simulate_scenario_tool,
     get_user_memory_tool,
     visualize_spending_tool,

@@ -433,13 +433,17 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     sohbet içinde bar grafik ve kısa özet gösterilir; `/dashboard/goals` kartları
     tıklanınca detay, ilerleme grafiği ve taktikler açılır. Bu akış da yatırım
     tavsiyesi vermez; sadece bütçe ve alışkanlık koçluğu yapar.
-23. **Finans Okulu (hazır AI dersleri):** Frontend, kontrollü bir başlık
+23. **Finans Okulu (hazır + anlık özel AI dersleri):** Frontend, kontrollü bir başlık
     listesiyle (`Faiz`, `Enflasyon`, `Bütçe`, `Tasarruf`, `Kredi kartı asgari
     ödeme`, `Para piyasası fonu nedir?`) kısa ders akışı sunar. Kullanıcı başlığa
     tıklayınca mevcut `/api/chat/stream` üzerinden `explain_concept` ve gerekirse
     `illustrate_concept` kullanılır; sonuç sayfada okunur, tarayıcı
-    text-to-speech ile sesli okutulabilir. Fon/ürün başlıkları yalnızca eğitim
-    amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
+    text-to-speech ile sesli okutulabilir. Kullanıcı ayrıca konu, seviye, süre,
+    örnek/mini quiz ve görsel tercihleriyle anlık özel ders isteyebilir; agent
+    `create_custom_lesson` aracıyla yapılandırılmış ders taslağı üretir ve gerekirse
+    `illustrate_concept` ile görsel anlatımı ekler. Özel dersler ilk MVP'de kalıcı
+    kaydedilmez; chat geçmişinde normal mesaj/tool sonucu olarak kalır. Fon/ürün
+    başlıkları yalnızca eğitim amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
@@ -667,7 +671,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from .tools import (
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
-    visualize_spending, illustrate_concept,
+    visualize_spending, illustrate_concept, create_custom_lesson,
     create_saving_goal, create_accumulation_goal, get_saving_goals,
     get_saving_goal_progress, visualize_saving_goals
 )
@@ -682,9 +686,9 @@ class AgentState(TypedDict):
 TOOLS = [
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
-    visualize_spending, illustrate_concept,
+    visualize_spending, illustrate_concept, create_custom_lesson,
     create_saving_goal, create_accumulation_goal, get_saving_goals,
-    get_saving_goal_progress, visualize_saving_goals,
+    get_saving_goal_progress, visualize_saving_goals, create_custom_lesson,
 ]
 
 llm = ChatGoogleGenerativeAI(
@@ -767,6 +771,19 @@ def visualize_spending(
 @tool
 def illustrate_concept(user_id: str, concept: str) -> dict:
     """Koç modunda finansal kavram için eğitim illüstrasyonu URL'i döner."""
+    ...
+
+@tool
+def create_custom_lesson(
+    user_id: str,
+    topic: str,
+    level: str = "beginner",
+    duration_minutes: int = 5,
+    include_examples: bool = True,
+    include_quiz: bool = True,
+    visual: bool = False,
+) -> dict:
+    """Finans Okulu için kalıcı kaydetmeden anlık, yapılandırılmış özel ders döner."""
     ...
 ```
 
@@ -1079,8 +1096,12 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.23
-**Son güncelleme:** 15 Mayıs 2026
+**Doküman versiyonu:** 0.24
+**Son güncelleme:** 16 Mayıs 2026
+**v0.24 değişiklikleri:** Finans Okulu kapsamı anlık özel ders üretimini içerecek
+şekilde genişletildi. `create_custom_lesson` agent aracıdır; konu/seviye/süre/
+örnek/quiz/görsel tercihleriyle yapılandırılmış ders taslağı üretir, kalıcı ders
+tablosu eklemez ve yatırım tavsiyesi yasağını değiştirmez.
 **v0.23 değişiklikleri:** Akıllı hedef yönetimi kapsamı netleştirildi:
 kullanıcı scoped hedefleri duraklatabilir, yeniden aktif edebilir, tamamlandı
 işaretleyebilir, silebilir ve aktif birikim hedeflerine manuel katkı ekleyebilir. Katkı ekleme işlem defterine

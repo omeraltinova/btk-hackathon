@@ -272,12 +272,12 @@ export function SavingGoalsClient() {
   const selectedChartMax = Math.max(selectedActualValue, selectedTargetValue, 1);
 
   return (
-    <main className="space-y-6 p-4 sm:p-6 lg:p-8">
-      <section className="receipt-tape hard-shadow relative overflow-hidden rounded-[2rem] border border-border/80 bg-card p-5 sm:p-7">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-end">
+    <main className="space-y-5 p-4 sm:p-6 lg:p-8">
+      <section className="receipt-tape hard-shadow relative overflow-hidden rounded-[2rem] border border-border/80 bg-card p-5 sm:p-6">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
           <div className="max-w-2xl space-y-3">
             <span className="stamp-label bg-primary/10 text-primary">Akıllı hedefler</span>
-            <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
+            <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
               Birikimi ve tasarrufu aynı defterde izle
             </h1>
             <p className="text-sm leading-6 text-muted-foreground sm:text-base">
@@ -305,64 +305,76 @@ export function SavingGoalsClient() {
 
           <div className="grid gap-3 rounded-[1.5rem] border border-dashed border-primary/30 bg-primary/5 p-4">
             {mode === "accumulation" ? (
-              <>
-                <label className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                  Hedef adı
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    Hedef adı
+                  </span>
+                  <Input
+                    value={accumulationTitle}
+                    onChange={(event) => setAccumulationTitle(event.target.value)}
+                  />
                 </label>
-                <Input
-                  value={accumulationTitle}
-                  onChange={(event) => setAccumulationTitle(event.target.value)}
-                />
-                <label className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                  Hedef tutar
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    Hedef tarih
+                  </span>
+                  <Input
+                    type="date"
+                    value={targetDate}
+                    onChange={(event) => setTargetDate(event.target.value)}
+                  />
                 </label>
-                <Input
-                  inputMode="decimal"
-                  value={targetAmount}
-                  onChange={(event) => setTargetAmount(event.target.value)}
-                />
-                <label className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                  Şu an ayrılan tutar
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    Hedef tutar
+                  </span>
+                  <Input
+                    inputMode="decimal"
+                    value={targetAmount}
+                    onChange={(event) => setTargetAmount(event.target.value)}
+                  />
                 </label>
-                <Input
-                  inputMode="decimal"
-                  value={currentAmount}
-                  onChange={(event) => setCurrentAmount(event.target.value)}
-                />
-                <label className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                  Hedef tarih
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    Şu an ayrılan tutar
+                  </span>
+                  <Input
+                    inputMode="decimal"
+                    value={currentAmount}
+                    onChange={(event) => setCurrentAmount(event.target.value)}
+                  />
                 </label>
-                <Input
-                  type="date"
-                  value={targetDate}
-                  onChange={(event) => setTargetDate(event.target.value)}
-                />
-              </>
+              </div>
             ) : (
-              <>
-                <label className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                  Kategori
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    Kategori
+                  </span>
+                  <select
+                    className="h-11 rounded-xl border border-input bg-background px-3 text-sm font-medium"
+                    value={selectedCategoryId}
+                    onChange={(event) => setSelectedCategoryId(event.target.value)}
+                  >
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
                 </label>
-                <select
-                  className="h-11 rounded-xl border border-input bg-background px-3 text-sm font-medium"
-                  value={selectedCategoryId}
-                  onChange={(event) => setSelectedCategoryId(event.target.value)}
-                >
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-                <label className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                  Azaltma hedefi (%)
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    Azaltma hedefi (%)
+                  </span>
+                  <Input
+                    inputMode="decimal"
+                    value={targetReductionPercent}
+                    onChange={(event) => setTargetReductionPercent(event.target.value)}
+                  />
                 </label>
-                <Input
-                  inputMode="decimal"
-                  value={targetReductionPercent}
-                  onChange={(event) => setTargetReductionPercent(event.target.value)}
-                />
-              </>
+              </div>
             )}
             <Button
               disabled={(mode === "expense_reduction" && !selectedCategoryId) || isSaving}
@@ -385,7 +397,7 @@ export function SavingGoalsClient() {
         </div>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-3 lg:grid-cols-2">
         {goals.length === 0 ? (
           <div className="ledger-card rounded-[1.5rem] border border-border/80 bg-card p-6 text-sm text-muted-foreground lg:col-span-2">
             Henüz hedef yok. Birikim tutarı veya gider azaltma hedefiyle başlayabilirsin.
@@ -413,7 +425,7 @@ export function SavingGoalsClient() {
                 }
               }}
               className={cn(
-                "ledger-card cursor-pointer rounded-[1.5rem] border border-border/80 bg-card p-5 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+                "ledger-card flex h-full cursor-pointer flex-col rounded-[1.5rem] border border-border/80 bg-card p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:p-5",
                 isAccumulation ? "bg-primary/5" : "",
                 isSelected ? "border-primary/60 ring-2 ring-primary/20" : "",
               )}
@@ -423,19 +435,19 @@ export function SavingGoalsClient() {
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
                     {isAccumulation ? "Birikim" : goal.category_name}
                   </p>
-                  <h2 className="mt-1 font-display text-2xl font-bold">{goal.title}</h2>
+                  <h2 className="mt-1 font-display text-xl font-bold">{goal.title}</h2>
                 </div>
                 <span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">
                   {goalStatusText(goal, progress)}
                 </span>
               </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
                 <div className="rounded-2xl bg-muted/60 p-3">
                   <p className="text-xs text-muted-foreground">
                     {isAccumulation ? "Şu an" : "Geçen dönem"}
                   </p>
-                  <p className="font-display text-xl font-bold">
+                  <p className="font-display text-lg font-bold">
                     {formatMoney(isAccumulation ? goal.current_amount : goal.baseline_amount)}
                   </p>
                 </div>
@@ -443,7 +455,7 @@ export function SavingGoalsClient() {
                   <p className="text-xs text-muted-foreground">
                     {isAccumulation ? "Hedef tutar" : "Bu ay limit"}
                   </p>
-                  <p className="font-display text-xl font-bold text-primary">
+                  <p className="font-display text-lg font-bold text-primary">
                     {formatMoney(isAccumulation ? goal.target_amount : goal.target_spending_amount)}
                   </p>
                 </div>
@@ -451,7 +463,7 @@ export function SavingGoalsClient() {
                   <p className="text-xs text-muted-foreground">
                     {isAccumulation ? "Aylık katkı" : "Beklenen tasarruf"}
                   </p>
-                  <p className="font-display text-xl font-bold text-accent-foreground">
+                  <p className="font-display text-lg font-bold text-accent-foreground">
                     {formatMoney(
                       isAccumulation ? goal.monthly_contribution : goal.target_saving_amount,
                     )}
@@ -460,14 +472,14 @@ export function SavingGoalsClient() {
               </div>
 
               {progress ? (
-                <div className="mt-5 space-y-3">
-                  <div className="h-3 overflow-hidden rounded-full bg-muted">
+                <div className="mt-4 space-y-2">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
                     <div
                       className="h-full rounded-full bg-primary transition-all"
                       style={{ width: `${progressWidth}%` }}
                     />
                   </div>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm leading-5 text-muted-foreground">
                     {isAccumulation ? (
                       <>
                         Kalan tutar {formatMoney(progress.remaining_amount)}. Hedef tarihi:{" "}
@@ -481,16 +493,9 @@ export function SavingGoalsClient() {
                       </>
                     )}
                   </p>
-                  <ul className="space-y-2 text-sm text-foreground/80">
-                    {progress.tactics.slice(0, 3).map((tactic) => (
-                      <li key={tactic} className="rounded-xl bg-muted/45 px-3 py-2">
-                        {tactic}
-                      </li>
-                    ))}
-                  </ul>
                 </div>
               ) : null}
-              <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-primary">
+              <p className="mt-auto pt-4 text-xs font-bold uppercase tracking-[0.16em] text-primary">
                 Detaya bak
               </p>
             </article>

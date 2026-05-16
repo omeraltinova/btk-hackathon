@@ -1,5 +1,6 @@
 node_modules
 .next
+.tmp-chrome-profile
 out
 public
 pnpm-lock.yaml
