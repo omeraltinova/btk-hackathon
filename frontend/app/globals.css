@@ -1,0 +1,700 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme tokens use OKLCH so lightness/chroma steps stay perceptually even. */
+@layer base {
+  :root {
+    --background: 0.985 0.012 92;
+    --foreground: 0.235 0.04 78;
+    --card: 0.995 0.008 92;
+    --card-foreground: 0.235 0.04 78;
+    --popover: 0.995 0.008 92;
+    --popover-foreground: 0.235 0.04 78;
+    --primary: 0.36 0.095 143;
+    --primary-foreground: 0.985 0.012 92;
+    --secondary: 0.91 0.045 115;
+    --secondary-foreground: 0.295 0.06 135;
+    --muted: 0.935 0.025 92;
+    --muted-foreground: 0.49 0.035 82;
+    --accent: 0.8 0.15 76;
+    --accent-foreground: 0.245 0.04 76;
+    --destructive: 0.58 0.19 27;
+    --destructive-foreground: 0.985 0.012 92;
+    --border: 0.865 0.025 88;
+    --input: 0.89 0.022 88;
+    --ring: 0.64 0.12 140;
+    --radius: 1rem;
+    --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    color-scheme: light;
+  }
+
+  .dark {
+    --background: 0.195 0.025 84;
+    --foreground: 0.94 0.018 88;
+    --card: 0.235 0.028 86;
+    --card-foreground: 0.94 0.018 88;
+    --popover: 0.235 0.028 86;
+    --popover-foreground: 0.94 0.018 88;
+    --primary: 0.78 0.105 138;
+    --primary-foreground: 0.18 0.025 86;
+    --secondary: 0.29 0.035 116;
+    --secondary-foreground: 0.88 0.035 116;
+    --muted: 0.29 0.025 86;
+    --muted-foreground: 0.73 0.025 86;
+    --accent: 0.83 0.13 78;
+    --accent-foreground: 0.18 0.025 86;
+    --destructive: 0.64 0.17 27;
+    --destructive-foreground: 0.96 0.015 88;
+    --border: 0.35 0.024 86;
+    --input: 0.35 0.024 86;
+    --ring: 0.78 0.105 138;
+    color-scheme: dark;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      linear-gradient(90deg, oklch(var(--border) / 0.2) 1px, transparent 1px),
+      linear-gradient(oklch(var(--border) / 0.18) 1px, transparent 1px),
+      linear-gradient(115deg, oklch(var(--accent) / 0.1), transparent 32rem),
+      linear-gradient(135deg, oklch(var(--background)), oklch(var(--muted) / 0.68));
+    background-size:
+      44px 44px,
+      44px 44px,
+      auto,
+      auto;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .dark body {
+    background-image:
+      linear-gradient(90deg, oklch(var(--border) / 0.18) 1px, transparent 1px),
+      linear-gradient(oklch(var(--border) / 0.16) 1px, transparent 1px),
+      linear-gradient(115deg, oklch(var(--primary) / 0.12), transparent 34rem),
+      linear-gradient(135deg, oklch(var(--background)), oklch(var(--muted) / 0.72));
+  }
+
+  ::selection {
+    background: oklch(var(--accent) / 0.38);
+    color: oklch(var(--accent-foreground));
+  }
+}
+
+@layer utilities {
+  .surface-panel {
+    border: 1px solid oklch(var(--border) / 0.86);
+    background:
+      linear-gradient(oklch(var(--border) / 0.13) 1px, transparent 1px),
+      color-mix(in oklch, oklch(var(--card)) 92%, oklch(var(--accent)) 8%);
+    background-size:
+      100% 2.35rem,
+      auto;
+    box-shadow:
+      0 1px 0 oklch(var(--foreground) / 0.08),
+      10px 12px 0 oklch(var(--accent) / 0.16);
+  }
+
+  .eyebrow {
+    @apply font-display text-[0.72rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground;
+  }
+
+  .soft-grid {
+    background-image:
+      linear-gradient(oklch(var(--border) / 0.32) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(var(--border) / 0.32) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: radial-gradient(circle at center, black 0%, transparent 68%);
+  }
+
+  .ledger-sheet {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid oklch(var(--border) / 0.9);
+    border-radius: 2rem 2rem 1.25rem 2rem;
+    background:
+      linear-gradient(
+        90deg,
+        transparent 0 4.25rem,
+        oklch(var(--destructive) / 0.28) 4.25rem 4.32rem,
+        transparent 4.32rem
+      ),
+      repeating-linear-gradient(
+        0deg,
+        transparent 0 2.35rem,
+        oklch(var(--border) / 0.62) 2.35rem 2.42rem
+      ),
+      color-mix(in oklch, oklch(var(--card)) 88%, oklch(var(--accent)) 12%);
+    box-shadow:
+      0 24px 80px oklch(var(--foreground) / 0.09),
+      12px 14px 0 oklch(var(--primary) / 0.1);
+  }
+
+  .ledger-sheet::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 5.5rem;
+    height: 5.5rem;
+    background:
+      linear-gradient(135deg, transparent 49%, oklch(var(--border) / 0.52) 50%, transparent 51%),
+      color-mix(in oklch, oklch(var(--accent)) 22%, transparent);
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    opacity: 0.62;
+    pointer-events: none;
+  }
+
+  .receipt-tape {
+    position: relative;
+    background:
+      repeating-linear-gradient(
+        0deg,
+        transparent 0 1.85rem,
+        oklch(var(--border) / 0.52) 1.85rem 1.9rem
+      ),
+      color-mix(in oklch, oklch(var(--card)) 95%, oklch(var(--background)) 5%);
+    clip-path: polygon(
+      0 1rem,
+      5% 0,
+      10% 1rem,
+      15% 0,
+      20% 1rem,
+      25% 0,
+      30% 1rem,
+      35% 0,
+      40% 1rem,
+      45% 0,
+      50% 1rem,
+      55% 0,
+      60% 1rem,
+      65% 0,
+      70% 1rem,
+      75% 0,
+      80% 1rem,
+      85% 0,
+      90% 1rem,
+      95% 0,
+      100% 1rem,
+      100% calc(100% - 1rem),
+      95% 100%,
+      90% calc(100% - 1rem),
+      85% 100%,
+      80% calc(100% - 1rem),
+      75% 100%,
+      70% calc(100% - 1rem),
+      65% 100%,
+      60% calc(100% - 1rem),
+      55% 100%,
+      50% calc(100% - 1rem),
+      45% 100%,
+      40% calc(100% - 1rem),
+      35% 100%,
+      30% calc(100% - 1rem),
+      25% 100%,
+      20% calc(100% - 1rem),
+      15% 100%,
+      10% calc(100% - 1rem),
+      5% 100%,
+      0 calc(100% - 1rem)
+    );
+    box-shadow: 0 18px 42px oklch(var(--foreground) / 0.11);
+  }
+
+  .dark .receipt-tape {
+    background:
+      repeating-linear-gradient(
+        0deg,
+        transparent 0 1.85rem,
+        oklch(var(--border) / 0.45) 1.85rem 1.9rem
+      ),
+      color-mix(in oklch, oklch(var(--card)) 88%, oklch(var(--secondary)) 12%);
+    box-shadow: 0 18px 42px oklch(0.12 0.02 86 / 0.36);
+  }
+
+  .cash-envelope {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid oklch(var(--border) / 0.78);
+    border-radius: 1.75rem 1.75rem 1rem 1.75rem;
+    background:
+      linear-gradient(150deg, transparent 0 49%, oklch(var(--border) / 0.45) 50%, transparent 51%),
+      linear-gradient(30deg, transparent 0 49%, oklch(var(--border) / 0.34) 50%, transparent 51%),
+      color-mix(in oklch, oklch(var(--secondary)) 62%, oklch(var(--card)) 38%);
+  }
+
+  .cash-envelope::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, transparent, oklch(var(--accent) / 0.14), transparent),
+      repeating-linear-gradient(
+        90deg,
+        transparent 0 2.4rem,
+        oklch(var(--border) / 0.16) 2.4rem 2.45rem
+      );
+    pointer-events: none;
+  }
+
+  .dark .cash-envelope {
+    background:
+      linear-gradient(150deg, transparent 0 49%, oklch(var(--border) / 0.36) 50%, transparent 51%),
+      linear-gradient(30deg, transparent 0 49%, oklch(var(--border) / 0.28) 50%, transparent 51%),
+      color-mix(in oklch, oklch(var(--secondary)) 46%, oklch(var(--card)) 54%);
+  }
+
+  .stamp-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: fit-content;
+    border: 1px dashed currentColor;
+    border-radius: 999px;
+    padding: 0.35rem 0.7rem;
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    transform: rotate(-1.5deg);
+  }
+
+  /* Default color sits in :where() so Tailwind text-* utilities (specificity
+     0,1,0) always win over the brand-stamp default. Without this, callers like
+     `stamp-label bg-primary text-primary-foreground` rendered primary text on a
+     primary background and the label became invisible. */
+  :where(.stamp-label) {
+    color: oklch(var(--primary));
+  }
+
+  /* Active-state badge for inline indicators (e.g. the currently-active child
+     profile on /family). Solid, no rotation, distinct from the brand stamp so
+     it does not collide with the same-colored primary button next to it. */
+  .badge-active {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: oklch(var(--accent) / 0.32);
+    color: oklch(var(--accent-foreground));
+    border: 1px solid oklch(var(--accent) / 0.55);
+  }
+
+  .dark .badge-active {
+    background: oklch(var(--accent) / 0.28);
+    color: oklch(var(--foreground));
+    border-color: oklch(var(--accent) / 0.6);
+  }
+
+  .binder-holes {
+    background-image: radial-gradient(
+      circle,
+      oklch(var(--foreground) / 0.2) 0 0.22rem,
+      transparent 0.24rem
+    );
+    background-size: 1rem 4.25rem;
+    background-position: 1.25rem 1.25rem;
+    background-repeat: repeat-y;
+  }
+
+  .tab-chip {
+    clip-path: polygon(0 0, calc(100% - 0.9rem) 0, 100% 50%, calc(100% - 0.9rem) 100%, 0 100%);
+  }
+
+  .hard-shadow-accent {
+    box-shadow: 6px 7px 0 oklch(var(--accent) / 0.28);
+  }
+
+  .hard-shadow-primary {
+    box-shadow: 6px 7px 0 oklch(var(--primary) / 0.12);
+  }
+
+  .page-enter > * {
+    animation: page-rise 680ms var(--ease-out-expo) both;
+  }
+
+  .page-enter > *:nth-child(2) {
+    animation-delay: 90ms;
+  }
+
+  .page-enter > *:nth-child(3) {
+    animation-delay: 160ms;
+  }
+
+  .page-enter > *:nth-child(4) {
+    animation-delay: 230ms;
+  }
+
+  .float-gentle {
+    animation: float-gentle 7s ease-in-out infinite;
+  }
+
+  .pulse-soft {
+    animation: pulse-soft 3.6s ease-in-out infinite;
+  }
+
+  .suggestion-rotate {
+    animation: suggestion-rise 420ms var(--ease-out-quint) both;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    background-size:
+      32px 32px,
+      32px 32px,
+      auto,
+      auto;
+  }
+
+  .ledger-sheet {
+    border-radius: 1.5rem 1.5rem 1rem 1.5rem;
+    background:
+      linear-gradient(
+        90deg,
+        transparent 0 2.4rem,
+        oklch(var(--destructive) / 0.22) 2.4rem 2.46rem,
+        transparent 2.46rem
+      ),
+      repeating-linear-gradient(
+        0deg,
+        transparent 0 2.15rem,
+        oklch(var(--border) / 0.56) 2.15rem 2.2rem
+      ),
+      color-mix(in oklch, oklch(var(--card)) 88%, oklch(var(--accent)) 12%);
+  }
+
+  .binder-holes {
+    background-size: 0.8rem 3.6rem;
+    background-position: 0.75rem 1rem;
+  }
+
+  .receipt-tape {
+    clip-path: polygon(
+      0 0.7rem,
+      7% 0,
+      14% 0.7rem,
+      21% 0,
+      28% 0.7rem,
+      35% 0,
+      42% 0.7rem,
+      49% 0,
+      56% 0.7rem,
+      63% 0,
+      70% 0.7rem,
+      77% 0,
+      84% 0.7rem,
+      91% 0,
+      100% 0.7rem,
+      100% calc(100% - 0.7rem),
+      91% 100%,
+      84% calc(100% - 0.7rem),
+      77% 100%,
+      70% calc(100% - 0.7rem),
+      63% 100%,
+      56% calc(100% - 0.7rem),
+      49% 100%,
+      42% calc(100% - 0.7rem),
+      35% 100%,
+      28% calc(100% - 0.7rem),
+      21% 100%,
+      14% calc(100% - 0.7rem),
+      7% 100%,
+      0 calc(100% - 0.7rem)
+    );
+  }
+}
+
+@keyframes page-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes float-gentle {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0) rotate(2deg);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.58;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.035);
+  }
+}
+
+@keyframes suggestion-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes spending-pie-idle {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+@keyframes spending-pie-label-in {
+  from {
+    opacity: 0;
+    transform: translate3d(-50%, -48%, 0) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(-50%, -50%, 0) scale(1);
+  }
+}
+
+.spending-pie-shell {
+  isolation: isolate;
+}
+
+.spending-pie-wheel {
+  transform-origin: center;
+  animation: spending-pie-idle 18s linear infinite;
+  transition:
+    transform 260ms var(--ease-out-quint),
+    filter 260ms var(--ease-out-quint);
+  will-change: transform;
+}
+
+.spending-pie-shell:has(.spending-pie-slice:hover) .spending-pie-wheel,
+.spending-pie-shell:focus-within .spending-pie-wheel {
+  animation-play-state: paused;
+  filter: drop-shadow(0 12px 18px oklch(var(--foreground) / 0.16));
+  transform: rotate(-90deg) scale(1.025);
+}
+
+.spending-pie-slice {
+  cursor: pointer;
+  transition:
+    filter 180ms var(--ease-out-quint),
+    stroke-width 180ms var(--ease-out-quint);
+}
+
+.spending-pie-slice:hover,
+.spending-pie-slice:focus-visible {
+  filter: brightness(1.07);
+  outline: none;
+  stroke-width: 6.5;
+}
+
+.spending-pie-center-label {
+  animation: spending-pie-label-in 180ms var(--ease-out-quint) both;
+  transition:
+    opacity 240ms var(--ease-out-quint),
+    transform 240ms var(--ease-out-quint);
+}
+
+/* Kid lite mode — softer, brighter, simpler. Triggered by `data-kid-mode="on"`
+   on <html>, set by KidModeProvider when the active profile is a minor. */
+:root[data-kid-mode="on"] {
+  --background: 0.985 0.025 105;
+  --foreground: 0.26 0.06 295;
+  --card: 0.995 0.018 105;
+  --card-foreground: 0.26 0.06 295;
+  --popover: 0.995 0.018 105;
+  --popover-foreground: 0.26 0.06 295;
+  --primary: 0.62 0.18 310;
+  --primary-foreground: 0.99 0.012 110;
+  --secondary: 0.93 0.08 180;
+  --secondary-foreground: 0.32 0.1 235;
+  --muted: 0.95 0.035 105;
+  --muted-foreground: 0.45 0.06 280;
+  --accent: 0.84 0.18 60;
+  --accent-foreground: 0.26 0.08 60;
+  --destructive: 0.65 0.21 25;
+  --destructive-foreground: 0.985 0.012 92;
+  --border: 0.85 0.05 280;
+  --input: 0.9 0.04 280;
+  --ring: 0.7 0.18 310;
+  --radius: 1.5rem;
+}
+
+:root[data-kid-mode="on"].dark {
+  --background: 0.24 0.06 290;
+  --foreground: 0.96 0.025 95;
+  --card: 0.3 0.07 295;
+  --card-foreground: 0.96 0.025 95;
+  --popover: 0.3 0.07 295;
+  --popover-foreground: 0.96 0.025 95;
+  --primary: 0.78 0.16 310;
+  --primary-foreground: 0.22 0.06 295;
+  --secondary: 0.35 0.09 235;
+  --secondary-foreground: 0.94 0.04 200;
+  --muted: 0.32 0.05 295;
+  --muted-foreground: 0.82 0.04 200;
+  --accent: 0.84 0.16 60;
+  --accent-foreground: 0.24 0.06 295;
+  --border: 0.4 0.06 295;
+  --input: 0.4 0.06 295;
+  --ring: 0.78 0.16 310;
+}
+
+:root[data-kid-mode="on"] body {
+  background-image:
+    radial-gradient(circle at 10% 12%, oklch(var(--accent) / 0.32), transparent 30rem),
+    radial-gradient(circle at 92% 18%, oklch(var(--primary) / 0.28), transparent 30rem),
+    radial-gradient(circle at 50% 100%, oklch(var(--secondary) / 0.4), transparent 32rem),
+    linear-gradient(160deg, oklch(var(--background)), oklch(var(--muted) / 0.6));
+  background-size: auto;
+}
+
+:root[data-kid-mode="on"].dark body {
+  background-image:
+    radial-gradient(circle at 10% 12%, oklch(var(--accent) / 0.22), transparent 30rem),
+    radial-gradient(circle at 92% 18%, oklch(var(--primary) / 0.22), transparent 30rem),
+    radial-gradient(circle at 50% 100%, oklch(var(--secondary) / 0.28), transparent 32rem),
+    linear-gradient(160deg, oklch(var(--background)), oklch(var(--muted) / 0.72));
+}
+
+/* Soften the strong ledger/receipt visuals so the kid view feels playful, not
+   bureaucratic. We keep the same components — just override their look. */
+:root[data-kid-mode="on"] .ledger-sheet {
+  border-radius: 2.25rem;
+  border: 2px solid oklch(var(--primary) / 0.35);
+  background:
+    radial-gradient(circle at 88% 12%, oklch(var(--accent) / 0.32), transparent 16rem),
+    radial-gradient(circle at 8% 100%, oklch(var(--secondary) / 0.4), transparent 18rem),
+    color-mix(in oklch, oklch(var(--card)) 90%, oklch(var(--primary)) 10%);
+  box-shadow:
+    0 26px 60px oklch(var(--primary) / 0.18),
+    0 0 0 6px oklch(var(--accent) / 0.18);
+}
+
+:root[data-kid-mode="on"] .ledger-sheet::after {
+  display: none;
+}
+
+:root[data-kid-mode="on"] .binder-holes {
+  background-image: none;
+}
+
+:root[data-kid-mode="on"] .receipt-tape {
+  clip-path: none;
+  border-radius: 1.75rem;
+  border: 2px dashed oklch(var(--primary) / 0.4);
+  background:
+    radial-gradient(circle at 12% 12%, oklch(var(--accent) / 0.28), transparent 12rem),
+    color-mix(in oklch, oklch(var(--card)) 88%, oklch(var(--secondary)) 12%);
+  box-shadow: 0 16px 40px oklch(var(--primary) / 0.18);
+}
+
+:root[data-kid-mode="on"] .cash-envelope {
+  border-radius: 1.85rem;
+  background:
+    radial-gradient(circle at 80% 110%, oklch(var(--primary) / 0.22), transparent 14rem),
+    color-mix(in oklch, oklch(var(--secondary)) 55%, oklch(var(--card)) 45%);
+}
+
+:root[data-kid-mode="on"] .stamp-label {
+  border-style: solid;
+  border-radius: 999px;
+  background: oklch(var(--accent) / 0.32);
+  color: oklch(var(--accent-foreground));
+  transform: none;
+  letter-spacing: 0.08em;
+}
+
+:root[data-kid-mode="on"] .tab-chip {
+  clip-path: none;
+  border-radius: 1.25rem;
+}
+
+:root[data-kid-mode="on"] .hard-shadow-accent {
+  box-shadow: 0 12px 0 oklch(var(--accent) / 0.45);
+}
+
+/* Buttons and inputs feel taller and friendlier in kid mode. */
+:root[data-kid-mode="on"] button,
+:root[data-kid-mode="on"] .button,
+:root[data-kid-mode="on"] [role="button"] {
+  border-radius: 1.25rem;
+}
+
+:root[data-kid-mode="on"] input,
+:root[data-kid-mode="on"] select,
+:root[data-kid-mode="on"] textarea {
+  border-radius: 1.25rem;
+}
+
+.kid-hero-title {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 900;
+  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: oklch(var(--primary));
+}
+
+.kid-balance-bubble {
+  border-radius: 2.5rem;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 12% 18%, oklch(var(--accent) / 0.38), transparent 18rem),
+    radial-gradient(circle at 88% 110%, oklch(var(--secondary) / 0.55), transparent 18rem),
+    color-mix(in oklch, oklch(var(--card)) 92%, oklch(var(--primary)) 8%);
+  border: 2px solid oklch(var(--primary) / 0.32);
+  box-shadow: 0 28px 60px oklch(var(--primary) / 0.18);
+}
+
+.kid-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: oklch(var(--accent) / 0.3);
+  color: oklch(var(--accent-foreground));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

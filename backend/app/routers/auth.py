@@ -1,0 +1,216 @@
+"""Auth router: email/password registration, login, and current user lookup."""
+
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.auth import create_token, get_current_user, hash_password, verify_password
+from app.config import get_settings
+from app.db import get_db
+from app.models.user import User
+from app.schemas.auth import (
+    AccountUpdateRequest,
+    AuthUser,
+    DemoAccount,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+)
+from app.workers.demo_seed import (
+    child_demo_password,
+    deniz_email,
+    elif_email,
+    individual_demo_password,
+    kerem_email,
+    mehmet_email,
+    mehmet_password,
+    parent_email,
+    parent_password,
+    zeynep_email,
+)
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _token_response(user: User) -> TokenResponse:
+    return TokenResponse(
+        access_token=create_token(user.id),
+        expires_in_days=get_settings().jwt_expire_days,
+        user=AuthUser.model_validate(user),
+    )
+
+
+@router.post(
+    "/register",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bu e-posta adresiyle kayıtlı bir hesap var.",
+        )
+
+    user_id = uuid4()
+    user = User(
+        id=user_id,
+        email=payload.email,
+        name=payload.name,
+        role=payload.role,
+        password_hash=hash_password(payload.password),
+        family_id=user_id if payload.role == "parent" else None,
+        birth_date=payload.birth_date,
+        finance_level=payload.finance_level,
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bu e-posta adresiyle kayıtlı bir hesap var.",
+        ) from exc
+    db.refresh(user)
+    return _token_response(user)
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+    if user is None or user.password_hash is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="E-posta veya şifre hatalı.",
+        )
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="E-posta veya şifre hatalı.",
+        )
+    return _token_response(user)
+
+
+def _demo_account_taglines() -> dict[str, tuple[str, str | None]]:
+    """Maps demo email → (tagline, family_label) for the login selector.
+
+    Single source of truth so the seeder and the endpoint cannot drift. Family
+    labels group accounts visually on the login screen; individual demo
+    accounts get None so they render in a separate row.
+    """
+    return {
+        parent_email(): ("Ev bütçesini yöneten ebeveyn", "Yılmaz ailesi"),
+        mehmet_email(): ("Aboneliklerden sorumlu ebeveyn", "Yılmaz ailesi"),
+        elif_email(): ("12 yaşında — çocuk lite mod", "Yılmaz ailesi"),
+        deniz_email(): ("7 yaşında — çocuk lite mod", "Yılmaz ailesi"),
+        zeynep_email(): ("21 yaşında — yetişkin çocuk", "Yılmaz ailesi"),
+        kerem_email(): ("24, yeni mezun — bireysel hesap", None),
+    }
+
+
+def _demo_password_for(email: str) -> str:
+    if email == parent_email():
+        return parent_password()
+    if email == mehmet_email():
+        return mehmet_password()
+    if email == kerem_email():
+        return individual_demo_password()
+    return child_demo_password()
+
+
+@router.get("/demo-accounts", response_model=list[DemoAccount])
+def demo_accounts(db: Session = Depends(get_db)) -> list[DemoAccount]:
+    """Public list of demo accounts shown on the login screen.
+
+    Only returns rows where `is_demo=True` so this endpoint can never leak real
+    user data. Passwords are intentionally exposed because they are
+    well-known, seeder-generated demo passwords (`DEMO_*` env overrides).
+    """
+    taglines = _demo_account_taglines()
+    emails = list(taglines.keys())
+    rows = (
+        db.execute(
+            select(User).where(User.is_demo.is_(True), User.email.in_(emails)),
+        )
+        .scalars()
+        .all()
+    )
+    ordered: list[DemoAccount] = []
+    by_email = {user.email: user for user in rows}
+    for email in emails:
+        user = by_email.get(email)
+        if user is None or user.password_hash is None:
+            continue
+        tagline, family_label = taglines[email]
+        ordered.append(
+            DemoAccount(
+                email=user.email,
+                password=_demo_password_for(user.email),
+                name=user.name,
+                role=user.role,
+                age=user.age,
+                age_status=user.age_status,
+                finance_level=user.finance_level,
+                family_label=family_label,
+                tagline=tagline,
+            ),
+        )
+    return ordered
+
+
+@router.get("/me", response_model=AuthUser)
+def me(current_user: User = Depends(get_current_user)) -> AuthUser:
+    return AuthUser.model_validate(current_user)
+
+
+@router.patch("/me", response_model=AuthUser)
+def update_me(
+    payload: AccountUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AuthUser:
+    if payload.email is not None and payload.email != current_user.email:
+        existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+        if existing is not None and existing.id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bu e-posta adresiyle kayıtlı bir hesap var.",
+            )
+        current_user.email = payload.email
+
+    if payload.name is not None:
+        current_user.name = payload.name
+    if "birth_date" in payload.model_fields_set:
+        current_user.birth_date = payload.birth_date
+    if payload.finance_level is not None:
+        if current_user.role == "child":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Çocuk profili finans seviyesi aile ekranından yönetilir.",
+            )
+        current_user.finance_level = payload.finance_level
+
+    if payload.new_password is not None:
+        if current_user.password_hash is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bu profil için şifre değiştirilemez.",
+            )
+        if payload.current_password is None or not verify_password(
+            payload.current_password,
+            current_user.password_hash,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mevcut şifre hatalı.",
+            )
+        current_user.password_hash = hash_password(payload.new_password)
+
+    db.commit()
+    db.refresh(current_user)
+    return AuthUser.model_validate(current_user)

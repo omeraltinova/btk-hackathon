@@ -1,0 +1,133 @@
+# Cüzdan Koçu — local development stack.
+# All four services live here even on Day 1; backend doesn't talk to MinIO yet
+# but having the service up keeps Day 4 deploy parity painless.
+#
+# Usage:
+#   cp .env.example .env
+#   docker compose up --build
+#
+# After startup:
+#   backend  http://localhost:8000/health
+#   frontend http://localhost:3000
+#   minio    http://localhost:9001  (console; user/pass from .env)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cuzdan-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required. Copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required. Copy .env.example to .env}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required. Copy .env.example to .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: cuzdan-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required. Copy .env.example to .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required. Copy .env.example to .env}
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cuzdan-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      # Pulls everything from the root .env; overrides go here as needed.
+      APP_ENV: ${APP_ENV:-development}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://localhost:3000}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required. Copy .env.example to .env}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_DAYS: ${JWT_EXPIRE_DAYS:-7}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_IMAGE_MODEL: ${GEMINI_IMAGE_MODEL:-gemini-3.1-flash-image-preview}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemini-3.1-flash-lite}
+      OPENROUTER_IMAGE_MODEL: ${OPENROUTER_IMAGE_MODEL:-google/gemini-3.1-flash-image-preview}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-http://localhost:3000}
+      OPENROUTER_APP_TITLE: ${OPENROUTER_APP_TITLE:-Cüzdan Koçu}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      MINIO_BUCKET_RECEIPTS: ${MINIO_BUCKET_RECEIPTS:-receipts}
+      MINIO_BUCKET_ILLUSTRATIONS: ${MINIO_BUCKET_ILLUSTRATIONS:-illustrations}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      ILLUSTRATION_DAILY_LIMIT: ${ILLUSTRATION_DAILY_LIMIT:-10}
+      DEMO_PARENT_EMAIL: ${DEMO_PARENT_EMAIL:-ayse@demo.cuzdan-kocu.app}
+      DEMO_PARENT_PASSWORD: ${DEMO_PARENT_PASSWORD:-demo123}
+      DEMO_MEHMET_EMAIL: ${DEMO_MEHMET_EMAIL:-mehmet@demo.cuzdan-kocu.app}
+      DEMO_ELIF_EMAIL: ${DEMO_ELIF_EMAIL:-elif@demo.cuzdan-kocu.app}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # WHY this command override: enables --reload during dev so code edits in
+    # the mounted volume hot-reload without rebuilding the image.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cuzdan-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PRIVATE_API_URL: ${NEXT_PRIVATE_API_URL:-http://backend:8000}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Cüzdan Koçu}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required. Copy .env.example to .env}
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  minio-data:
