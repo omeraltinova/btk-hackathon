@@ -45,9 +45,14 @@ function ErrorNote({ children }: { children: string }) {
 type ReceiptUploaderProps = {
   showHistory?: boolean;
   onConfirmed?: (transaction: Transaction) => void;
+  compact?: boolean;
 };
 
-export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUploaderProps) {
+export function ReceiptUploader({
+  showHistory = true,
+  onConfirmed,
+  compact = false,
+}: ReceiptUploaderProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [candidate, setCandidate] = useState<ReceiptCandidate | null>(null);
@@ -165,8 +170,8 @@ export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUplo
 
   return (
     <>
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <section className="ledger-sheet p-4 sm:p-6">
+      <div className={cn("grid min-w-0 gap-6", compact ? "" : "lg:grid-cols-[0.95fr_1.05fr]")}>
+        <section className={cn("ledger-sheet p-4 sm:p-6", compact ? "p-3 sm:p-4" : "")}>
           <div className="relative z-10 space-y-5">
             <label
               htmlFor="receipt-file"
@@ -177,7 +182,8 @@ export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUplo
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
               className={cn(
-                "grid min-h-80 cursor-pointer place-items-center rounded-[1.5rem] border border-dashed border-primary/55 bg-secondary/45 p-5 text-center transition-colors sm:min-h-96 sm:p-6",
+                "grid cursor-pointer place-items-center rounded-[1.5rem] border border-dashed border-primary/55 bg-secondary/45 p-5 text-center transition-colors sm:p-6",
+                compact ? "min-h-56 sm:min-h-64" : "min-h-80 sm:min-h-96",
                 isDragging ? "bg-primary/15" : "hover:bg-secondary/60",
               )}
             >
@@ -190,7 +196,12 @@ export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUplo
                 onChange={handleInputChange}
               />
               <div className="space-y-5">
-                <span className="float-gentle hard-shadow-accent mx-auto grid h-20 w-20 place-items-center rounded-[1.5rem_1.5rem_0.8rem_1.5rem] bg-primary text-primary-foreground">
+                <span
+                  className={cn(
+                    "float-gentle hard-shadow-accent mx-auto grid place-items-center rounded-[1.5rem_1.5rem_0.8rem_1.5rem] bg-primary text-primary-foreground",
+                    compact ? "h-16 w-16" : "h-20 w-20",
+                  )}
+                >
                   {isUploading ? (
                     <Loader2 className="h-8 w-8 animate-spin" />
                   ) : (
@@ -198,7 +209,12 @@ export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUplo
                   )}
                 </span>
                 <div>
-                  <h2 className="font-display text-[2rem] font-black leading-none sm:text-3xl">
+                  <h2
+                    className={cn(
+                      "font-display font-black leading-none",
+                      compact ? "text-[1.6rem] sm:text-2xl" : "text-[2rem] sm:text-3xl",
+                    )}
+                  >
                     Fişi masaya bırak
                   </h2>
                   <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
@@ -216,13 +232,23 @@ export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUplo
           </div>
         </section>
 
-        <section className="receipt-tape rotate-[-0.75deg] p-6 pt-9">
+        <section
+          className={cn(
+            "receipt-tape rotate-[-0.75deg] p-6 pt-9",
+            compact ? "p-4 pt-7 sm:p-5 sm:pt-8" : "",
+          )}
+        >
           <div className="flex items-start justify-between gap-4 border-b border-dashed border-border pb-5">
             <div>
               <p className="font-display text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
                 OCR önizleme
               </p>
-              <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+              <h2
+                className={cn(
+                  "mt-2 font-display font-black leading-none",
+                  compact ? "text-[1.55rem] sm:text-2xl" : "text-[2rem] sm:text-3xl",
+                )}
+              >
                 {candidate ? "Fiş adayı hazır" : "OCR sonucu bekleniyor"}
               </h2>
             </div>

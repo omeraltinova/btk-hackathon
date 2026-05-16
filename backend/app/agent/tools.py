@@ -84,8 +84,70 @@ def _decimal_text(value: Decimal) -> str:
     return f"{_money(value):.2f}"
 
 
-def parse_money_text(value: str) -> Decimal:
-    return Decimal(value.replace(".", "").replace(",", "."))
+def _fold_control_text(value: object) -> str:
+    return (
+        " ".join(str(value).casefold().split())
+        .replace("ı", "i")
+        .replace("ğ", "g")
+        .replace("ü", "u")
+        .replace("ş", "s")
+        .replace("ö", "o")
+        .replace("ç", "c")
+    )
+
+
+def parse_money_text(value: object) -> Decimal:
+    normalized = str(value).replace("₺", "").replace("TL", "").replace("tl", "").strip()
+    normalized = re.sub(r"[^\d,.-]", "", normalized)
+    if "," in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    return Decimal(normalized)
+
+
+def parse_int_text(
+    value: object,
+    *,
+    default: int,
+    min_value: int,
+    max_value: int,
+) -> int:
+    match = re.search(r"-?\d+", str(value))
+    if match is None:
+        return default
+    parsed = int(match.group(0))
+    return max(min_value, min(parsed, max_value))
+
+
+def parse_bool_text(value: object, *, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = _fold_control_text(value)
+    if normalized in {"false", "0", "hayir", "no", "all", "hepsi"} or any(
+        hint in normalized for hint in ("tum", "hepsi", "pasif")
+    ):
+        return False
+    if normalized in {"true", "1", "evet", "yes", "active"} or "aktif" in normalized:
+        return True
+    return default
+
+
+def parse_goal_status_text(value: object | None) -> str | None:
+    if value is None:
+        return None
+    normalized = _fold_control_text(value)
+    if normalized in {"active"} or any(
+        hint in normalized for hint in ("aktif", "suruyor", "surdur", "devam")
+    ):
+        return "active"
+    if normalized in {"paused", "pause"} or any(
+        hint in normalized for hint in ("duraklat", "bekle")
+    ):
+        return "paused"
+    if normalized in {"completed", "complete", "done"} or any(
+        hint in normalized for hint in ("tamam", "bitti")
+    ):
+        return "completed"
+    return str(value)
 
 
 def _aware_utc(value: datetime) -> datetime:
@@ -539,16 +601,22 @@ def build_saving_goal_creation(
     current_user: User,
     *,
     category: str,
-    target_reduction_percent: int = 15,
+    target_reduction_percent: object = 15,
     now: datetime | None = None,
 ) -> dict[str, object]:
     category_name = resolve_envelope_category(category) or category
     try:
+        reduction = parse_int_text(
+            target_reduction_percent,
+            default=15,
+            min_value=1,
+            max_value=50,
+        )
         goal = create_saving_goal(
             db,
             current_user,
             category_name=category_name,
-            target_reduction_percent=Decimal(target_reduction_percent),
+            target_reduction_percent=Decimal(reduction),
             created_by="agent",
             now=now,
         )
@@ -565,12 +633,12 @@ def build_accumulation_goal_creation(
     title: str,
     target_amount: Decimal,
     current_amount: Decimal = Decimal("0"),
-    target_months: int = 12,
+    target_months: object = 12,
     monthly_contribution: Decimal | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
     period_start = _aware_utc(now or datetime.now(UTC))
-    safe_months = max(1, min(target_months, 120))
+    safe_months = parse_int_text(target_months, default=12, min_value=1, max_value=120)
     target_date = _add_months(_month_start(period_start), safe_months)
     target_end = datetime(target_date.year, target_date.month, target_date.day, tzinfo=UTC)
     try:
@@ -1625,7 +1693,7 @@ def simulate_finance_scenario(
 @tool("get_spending")
 def get_spending_tool(
     category: str | None = None,
-    days: int = 30,
+    days: int | str = 30,
     user_id: Annotated[str, InjectedState("user_id")] = "",
 ) -> dict[str, object]:
     """Kullanıcının harcama özetini döner. `user_id` sistem durumundan gelir."""
@@ -1634,13 +1702,13 @@ def get_spending_tool(
             db,
             _load_current_user(db, user_id),
             category=category,
-            days=days,
+            days=parse_int_text(days, default=30, min_value=1, max_value=MAX_SPENDING_DAYS),
         )
 
 
 @tool("get_subscriptions")
 def get_subscriptions_tool(
-    only_active: bool = True,
+    only_active: bool | str = True,
     user_id: Annotated[str, InjectedState("user_id")] = "",
 ) -> dict[str, object]:
     """Kullanıcının abonelik ve tekrarlayan ödeme özetini döner."""
@@ -1648,14 +1716,14 @@ def get_subscriptions_tool(
         return build_subscriptions_summary(
             db,
             _load_current_user(db, user_id),
-            only_active=only_active,
+            only_active=parse_bool_text(only_active, default=True),
         )
 
 
 @tool("create_saving_goal")
 def create_saving_goal_tool(
     category: str,
-    target_reduction_percent: int = 15,
+    target_reduction_percent: int | str = 15,
     user_id: Annotated[str, InjectedState("user_id")] = "",
 ) -> dict[str, object]:
     """Bir gider kategorisinde harcama azaltma hedefi oluşturur."""
@@ -1721,7 +1789,7 @@ def update_saving_goal_tool(
             title=title,
             category=category,
             new_title=new_title,
-            status=status,
+            status=parse_goal_status_text(status),
             current_amount=parsed_current,
             contribution_amount=parsed_contribution,
             monthly_contribution=parsed_monthly,
@@ -1751,7 +1819,7 @@ def create_accumulation_goal_tool(
     title: str,
     target_amount: str,
     current_amount: str = "0",
-    target_months: int = 12,
+    target_months: int | str = 12,
     monthly_contribution: str | None = None,
     user_id: Annotated[str, InjectedState("user_id")] = "",
 ) -> dict[str, object]:
@@ -1888,10 +1956,10 @@ def explain_concept_tool(
 def create_custom_lesson_tool(
     topic: str,
     level: str = "beginner",
-    duration_minutes: int = 5,
-    include_examples: bool = True,
-    include_quiz: bool = True,
-    visual: bool = False,
+    duration_minutes: int | str = 5,
+    include_examples: bool | str = True,
+    include_quiz: bool | str = True,
+    visual: bool | str = False,
     user_id: Annotated[str, InjectedState("user_id")] = "",
 ) -> dict[str, object]:
     """Finans Okulu için kalıcı olmayan yapılandırılmış özel ders üretir."""
@@ -1900,10 +1968,10 @@ def create_custom_lesson_tool(
             _load_current_user(db, user_id),
             topic=topic,
             level=level,
-            duration_minutes=duration_minutes,
-            include_examples=include_examples,
-            include_quiz=include_quiz,
-            visual=visual,
+            duration_minutes=parse_int_text(duration_minutes, default=5, min_value=3, max_value=12),
+            include_examples=parse_bool_text(include_examples, default=True),
+            include_quiz=parse_bool_text(include_quiz, default=True),
+            visual=parse_bool_text(visual, default=False),
         )
 
 
@@ -1919,7 +1987,7 @@ def simulate_scenario_tool(
 
 @tool("visualize_spending")
 def visualize_spending_tool(
-    days: int = 30,
+    days: int | str = 30,
     chart_type: str = "bar",
     category: str | None = None,
     target: str | None = None,
@@ -1938,7 +2006,7 @@ def visualize_spending_tool(
         return build_spending_chart(
             db,
             _load_current_user(db, user_id),
-            days=days,
+            days=parse_int_text(days, default=30, min_value=1, max_value=MAX_SPENDING_DAYS),
             chart_type=chart_type,
             category=category,
             target=target,

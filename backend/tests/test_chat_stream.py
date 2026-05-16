@@ -612,6 +612,79 @@ def test_chat_stream_runs_approved_saving_goal_creation() -> None:
     assert fake_session.messages[0].tool_calls["status"] == "approved"
 
 
+def test_chat_stream_runs_approved_saving_goal_with_localized_percent() -> None:
+    user = make_user()
+    category = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    transaction = Transaction(
+        id=uuid4(),
+        user_id=user.id,
+        amount=Decimal("600.00"),
+        type="expense",
+        category_id=category.id,
+        description="Market alışverişi",
+        merchant="Market",
+        occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+        source="manual",
+        receipt_image_url=None,
+        raw_ocr_data=None,
+    )
+    conversation = Conversation(id=uuid4(), user_id=user.id)
+    approval_id = "approval-percent"
+    fake_session = FakeSession(user, [category], [transaction])
+    fake_session.conversations.append(conversation)
+    fake_session.messages.append(
+        Message(
+            id=uuid4(),
+            conversation_id=conversation.id,
+            role="tool",
+            content="Kullanıcı onayı bekleniyor.",
+            tool_name="create_saving_goal",
+            tool_calls={
+                "approval_id": approval_id,
+                "tool_name": "create_saving_goal",
+                "input": {"category": "Market", "target_reduction_percent": "%15"},
+                "action_label": "Tasarruf hedefi oluştur",
+                "summary": "Market kategorisi için %15 azaltma hedefi oluşturulacak.",
+                "details": [],
+                "status": "pending",
+            },
+        ),
+    )
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={
+                "message": "Bu işlemi onaylıyorum.",
+                "conversation_id": str(conversation.id),
+                "approval_id": approval_id,
+                "approval_decision": "approved",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "Onayladığın işlemi tamamlayamadım" not in response.text
+    assert len(fake_session.saving_goals) == 1
+    assert fake_session.saving_goals[0].target_spending_amount == Decimal("510.00")
+    assert fake_session.messages[0].tool_calls is not None
+    assert fake_session.messages[0].tool_calls["status"] == "approved"
+
+
 def test_chat_stream_rejects_pending_approval_without_mutation() -> None:
     user = make_user()
     conversation = Conversation(id=uuid4(), user_id=user.id)
@@ -746,6 +819,67 @@ def test_chat_stream_runs_approved_envelope_with_localized_live_amount() -> None
     )
     assert custom_category.user_id == user.id
     assert custom_category.budget_monthly == Decimal("700.00")
+    assert fake_session.messages[0].tool_calls is not None
+    assert fake_session.messages[0].tool_calls["status"] == "approved"
+
+
+def test_chat_stream_runs_approved_accumulation_with_localized_amounts_and_months() -> None:
+    user = make_user()
+    conversation = Conversation(id=uuid4(), user_id=user.id)
+    approval_id = "approval-accumulation-localized"
+    fake_session = FakeSession(user, [], [])
+    fake_session.conversations.append(conversation)
+    fake_session.messages.append(
+        Message(
+            id=uuid4(),
+            conversation_id=conversation.id,
+            role="tool",
+            content="Kullanıcı onayı bekleniyor.",
+            tool_name="create_accumulation_goal",
+            tool_calls={
+                "approval_id": approval_id,
+                "tool_name": "create_accumulation_goal",
+                "input": {
+                    "title": "Tatil birikimi",
+                    "target_amount": "24.000,00 ₺",
+                    "current_amount": "6.000,00 ₺",
+                    "monthly_contribution": "1.500,00 ₺",
+                    "target_months": "12 ay",
+                },
+                "action_label": "Birikim hedefi oluştur",
+                "summary": "Tatil birikimi için 24.000,00 ₺ hedef açılacak.",
+                "details": [],
+                "status": "pending",
+            },
+        ),
+    )
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={
+                "message": "Bu işlemi onaylıyorum.",
+                "conversation_id": str(conversation.id),
+                "approval_id": approval_id,
+                "approval_decision": "approved",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "Onayladığın işlemi tamamlayamadım" not in response.text
+    assert len(fake_session.saving_goals) == 1
+    goal = fake_session.saving_goals[0]
+    assert goal.target_amount == Decimal("24000.00")
+    assert goal.current_amount == Decimal("6000.00")
+    assert goal.monthly_contribution == Decimal("1500.00")
     assert fake_session.messages[0].tool_calls is not None
     assert fake_session.messages[0].tool_calls["status"] == "approved"
 

@@ -25,6 +25,10 @@ from app.agent.tools import (
     build_subscriptions_summary,
     build_user_memory,
     infer_category_from_text,
+    parse_bool_text,
+    parse_goal_status_text,
+    parse_int_text,
+    parse_money_text,
 )
 from app.models.category import Category
 from app.models.memory import AgentMemory
@@ -292,6 +296,17 @@ def make_subscription(
         detected_from_transactions=False,
         usage_score=Decimal("0.50"),
     )
+
+
+def test_agent_input_parsers_accept_localized_model_values() -> None:
+    assert parse_money_text("1.250,50 ₺") == Decimal("1250.50")
+    assert parse_money_text("700,00 TL") == Decimal("700.00")
+    assert parse_int_text("%15 azalt", default=10, min_value=1, max_value=50) == 15
+    assert parse_int_text("12 ay", default=6, min_value=1, max_value=120) == 12
+    assert parse_bool_text("tüm kayıtlar", default=True) is False
+    assert parse_bool_text("evet", default=False) is True
+    assert parse_goal_status_text("duraklatıldı") == "paused"
+    assert parse_goal_status_text("aktif yap") == "active"
 
 
 def test_build_spending_summary_uses_parent_visible_scope_and_decimal_format() -> None:
@@ -757,6 +772,34 @@ def test_build_saving_goal_creation_uses_decimal_category_spending() -> None:
     assert db.saving_goals[0].created_by == "agent"
 
 
+def test_build_saving_goal_creation_accepts_localized_reduction_percent() -> None:
+    user = make_user()
+    market = make_category("Market")
+    db = FakeSession(
+        categories=[market],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=market.id,
+                amount="600.00",
+                occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_creation(
+        db,
+        user,
+        category="Market",
+        target_reduction_percent="%15",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert result["target_spending_amount"] == "510.00"
+    assert db.saving_goals[0].strategy["reduction_percent"] == "15.0"
+
+
 def test_build_accumulation_goal_creation_tracks_target_without_float() -> None:
     user = make_user()
     db = FakeSession()
@@ -781,6 +824,24 @@ def test_build_accumulation_goal_creation_tracks_target_without_float() -> None:
     assert len(db.saving_goals) == 1
     assert db.saving_goals[0].category_id is None
     assert db.saving_goals[0].baseline_amount == Decimal("6000.00")
+
+
+def test_build_accumulation_goal_creation_accepts_localized_months_text() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_accumulation_goal_creation(
+        db,
+        user,
+        title="Tatil birikimi",
+        target_amount=Decimal("24000.00"),
+        current_amount=Decimal("6000.00"),
+        target_months="12 ay",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert result["end_date_formatted"] == "01.05.2027"
 
 
 def test_build_saving_goal_progress_reads_active_scoped_goal() -> None:

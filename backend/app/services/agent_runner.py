@@ -36,6 +36,8 @@ from app.agent.tools import (
     build_user_memory,
     explain_finance_concept,
     infer_category_from_text,
+    parse_goal_status_text,
+    parse_int_text,
     simulate_finance_scenario,
     visible_categories,
 )
@@ -846,6 +848,21 @@ def _optional_decimal(value: object) -> Decimal | None:
         return None
 
 
+def _optional_int(
+    value: object,
+    *,
+    default: int,
+    min_value: int,
+    max_value: int,
+) -> int:
+    return parse_int_text(
+        value if value is not None else default,
+        default=default,
+        min_value=min_value,
+        max_value=max_value,
+    )
+
+
 def _matching_envelope_slug(
     db: Session,
     current_user: User,
@@ -889,7 +906,12 @@ def _execute_approved_tool(
             return {"error": "Birikim hedefi için hedef tutarı net okuyamadım."}
         current_amount = _optional_decimal(tool_input.get("current_amount")) or Decimal("0")
         monthly_contribution = _optional_decimal(tool_input.get("monthly_contribution"))
-        target_months = int(str(tool_input.get("target_months") or 12))
+        target_months = _optional_int(
+            tool_input.get("target_months"),
+            default=12,
+            min_value=1,
+            max_value=120,
+        )
         return build_accumulation_goal_creation(
             db,
             current_user,
@@ -913,7 +935,12 @@ def _execute_approved_tool(
             )
         if category is None:
             return {"error": "Hangi kategoride tasarruf hedefi oluşturulacağını netleştiremedim."}
-        reduction = int(str(tool_input.get("target_reduction_percent") or 15))
+        reduction = _optional_int(
+            tool_input.get("target_reduction_percent"),
+            default=15,
+            min_value=1,
+            max_value=50,
+        )
         return build_saving_goal_creation(
             db,
             current_user,
@@ -928,7 +955,7 @@ def _execute_approved_tool(
             title=_optional_str(tool_input.get("title")),
             category=_optional_str(tool_input.get("category")),
             new_title=_optional_str(tool_input.get("new_title")),
-            status=_optional_str(tool_input.get("status")),
+            status=parse_goal_status_text(_optional_str(tool_input.get("status"))),
             current_amount=_optional_decimal(tool_input.get("current_amount")),
             contribution_amount=_optional_decimal(tool_input.get("contribution_amount")),
             monthly_contribution=_optional_decimal(tool_input.get("monthly_contribution")),

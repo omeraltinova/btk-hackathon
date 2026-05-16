@@ -2332,7 +2332,12 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
 
       {view === "transactions" ? (
         <>
-          <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(25rem,0.68fr)_minmax(39rem,1.32fr)]">
+          <div
+            className={cn(
+              "grid min-w-0 gap-5",
+              "2xl:grid-cols-[minmax(25rem,0.68fr)_minmax(39rem,1.32fr)]",
+            )}
+          >
             <section className="ledger-sheet p-4 sm:p-6">
               <div className="relative z-10 space-y-5">
                 <div>
@@ -2607,10 +2612,12 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     </Button>
                   </form>
                 ) : (
-                  <div className="bg-background/72 rounded-[1.5rem] border border-dashed border-primary/35 p-4 text-sm leading-6 text-muted-foreground">
-                    <ImagePlus className="mb-3 h-5 w-5 text-primary" />
-                    Fiş tarama masası bu sayfanın altında açıldı. Fişi yükle, OCR sonucunu kontrol
-                    et ve onayladığında kayıt son işlemlere eklenir.
+                  <div className="min-w-0">
+                    <ReceiptUploader
+                      compact
+                      showHistory={false}
+                      onConfirmed={handleReceiptConfirmed}
+                    />
                   </div>
                 )}
               </div>
@@ -2781,10 +2788,6 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
               )}
             </section>
           </div>
-
-          {entryMode === "receipt" ? (
-            <ReceiptUploader showHistory={false} onConfirmed={handleReceiptConfirmed} />
-          ) : null}
         </>
       ) : null}
 
