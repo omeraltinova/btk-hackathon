@@ -60,6 +60,33 @@ BLOCKED_ILLUSTRATION_TERMS = (
     "hangi altın",
     "hangi döviz",
 )
+BLOCKED_MEMORY_KEYWORDS = (
+    "api key",
+    "apikey",
+    "token",
+    "jwt",
+    "secret",
+    "şifre",
+    "sifre",
+    "parola",
+    "password",
+    "iban",
+    "kart numarası",
+    "kart numarasi",
+    "kredi kartı",
+    "kredi karti",
+    "tc kimlik",
+    "tckn",
+    "raw ocr",
+    "ham ocr",
+    "base64",
+    "fiş görseli",
+    "fis gorseli",
+)
+IBAN_PATTERN = re.compile(r"\bTR\d{2}[\s-]?(?:\d[\s-]?){20}\d\b", re.IGNORECASE)
+CARD_NUMBER_PATTERN = re.compile(r"\b(?:\d[ -]?){13,19}\b")
+TCKN_PATTERN = re.compile(r"\b\d{11}\b")
+BASE64ISH_PATTERN = re.compile(r"\b[A-Za-z0-9+/]{80,}={0,2}\b")
 CUSTOM_LESSON_LEVELS = {"child", "beginner", "intermediate", "advanced"}
 CUSTOM_LESSON_BLOCKED_ADVICE_PATTERNS = (
     r"\bhangi\b.*\b(hisse|fon|kripto|coin|alt[ıi]n|d[öo]viz)\b",
@@ -88,6 +115,22 @@ def _normalized_days(days: int) -> int:
 
 def _normalized_text(value: str | None) -> str:
     return " ".join((value or "").casefold().split())
+
+
+def _memory_key_from_text(text: str) -> str:
+    words = re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşü]+", _normalized_text(text))
+    slug = "_".join(words[:6])[:48].strip("_")
+    return f"note_{slug}" if slug else "note"
+
+
+def _memory_text_is_safe(text: str) -> bool:
+    normalized = _normalized_text(text)
+    if any(keyword in normalized for keyword in BLOCKED_MEMORY_KEYWORDS):
+        return False
+    return not any(
+        pattern.search(text)
+        for pattern in (IBAN_PATTERN, CARD_NUMBER_PATTERN, TCKN_PATTERN, BASE64ISH_PATTERN)
+    )
 
 
 def _matches_text(known_label: str | None, candidates: Iterable[str]) -> bool:
@@ -577,6 +620,49 @@ def build_user_memory(
         "key": key,
         "count": len(memories),
         "entries": [{"key": memory.key, "value": memory.value} for memory in memories],
+    }
+
+
+def build_memory_upsert(
+    db: Session,
+    current_user: User,
+    *,
+    text: str,
+    key: str | None = None,
+    source: str = "chat",
+) -> dict[str, object]:
+    """Store an explicit, safe memory entry for the active profile only."""
+    clean_text = " ".join(text.strip().split())
+    if not clean_text:
+        return {"saved": False, "error": "Hatırlanacak bilgi boş olamaz."}
+    if not _memory_text_is_safe(clean_text):
+        return {
+            "saved": False,
+            "blocked": True,
+            "error": "Bu bilgi hassas görünüyor; güvenlik için hafızaya kaydetmedim.",
+        }
+
+    memory_key = key or _memory_key_from_text(clean_text)
+    existing = db.execute(
+        select(AgentMemory).where(
+            AgentMemory.user_id == current_user.id,
+            AgentMemory.key == memory_key,
+        ),
+    ).scalar_one_or_none()
+    value: dict[str, object] = {"text": clean_text, "source": source}
+    created = existing is None
+    if existing is None:
+        existing = AgentMemory(user_id=current_user.id, key=memory_key, value=value)
+        db.add(existing)
+    else:
+        existing.value = value
+    db.commit()
+    db.refresh(existing)
+    return {
+        "saved": True,
+        "created": created,
+        "key": existing.key,
+        "value": existing.value,
     }
 
 
@@ -1440,6 +1526,17 @@ def get_user_memory_tool(
         return build_user_memory(db, _load_current_user(db, user_id), key=key)
 
 
+@tool("remember_user_memory")
+def remember_user_memory_tool(
+    text: str,
+    key: str | None = None,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Açık kullanıcı onayıyla mevcut profil için güvenli hafıza kaydı yazar."""
+    with SessionLocal() as db:
+        return build_memory_upsert(db, _load_current_user(db, user_id), text=text, key=key)
+
+
 @tool("analyze_receipt")
 def analyze_receipt_tool(
     image_base64: str,
@@ -1569,6 +1666,7 @@ TOOLS = [
     create_custom_lesson_tool,
     simulate_scenario_tool,
     get_user_memory_tool,
+    remember_user_memory_tool,
     visualize_spending_tool,
     visualize_saving_goals_tool,
     illustrate_concept_tool,

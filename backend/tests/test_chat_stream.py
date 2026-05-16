@@ -16,6 +16,7 @@ from app.db import get_db
 from app.main import app
 from app.models.category import Category
 from app.models.conversation import Conversation
+from app.models.memory import AgentMemory
 from app.models.message import Message
 from app.models.saving_goal import SavingGoal
 from app.models.subscription import Subscription
@@ -56,6 +57,7 @@ class FakeSession:
         self.transactions = transactions
         self.subscriptions = subscriptions or []
         self.saving_goals: list[SavingGoal] = []
+        self.memories: list[AgentMemory] = []
         self.conversations: list[Conversation] = []
         self.messages: list[Message] = []
 
@@ -97,6 +99,10 @@ class FakeSession:
             return FakeResult(
                 [goal for goal in self.saving_goals if self._matches_goal(statement, goal)],
             )
+        if entity is AgentMemory:
+            return FakeResult(
+                [memory for memory in self.memories if self._matches_memory(statement, memory)],
+            )
         return FakeResult([])
 
     def add(self, item: object) -> None:
@@ -112,6 +118,10 @@ class FakeSession:
             if item.id is None:
                 item.id = uuid4()
             self.saving_goals.append(item)
+        if isinstance(item, AgentMemory):
+            if item.id is None:
+                item.id = uuid4()
+            self.memories.append(item)
 
     def commit(self) -> None:
         return None
@@ -120,6 +130,8 @@ class FakeSession:
         if isinstance(item, Conversation) and item.id is None:
             item.id = uuid4()
         if isinstance(item, SavingGoal) and item.id is None:
+            item.id = uuid4()
+        if isinstance(item, AgentMemory) and item.id is None:
             item.id = uuid4()
 
     @staticmethod
@@ -168,6 +180,16 @@ class FakeSession:
             if column_name == "category_id" and goal.category_id != value:
                 return False
             if column_name == "status" and goal.status != value:
+                return False
+        return True
+
+    def _matches_memory(self, statement: object, memory: AgentMemory) -> bool:
+        for criterion in getattr(statement, "_where_criteria", ()):
+            column_name = getattr(getattr(criterion, "left", None), "name", None)
+            value = getattr(getattr(criterion, "right", None), "value", None)
+            if column_name == "user_id" and not self._matches_user_id(value, memory.user_id):
+                return False
+            if column_name == "key" and memory.key != value:
                 return False
         return True
 
@@ -940,6 +962,94 @@ def test_chat_stream_can_read_current_profile_memory() -> None:
     assert "Hafızamda bu profil için" in response.text
     assert "kayıtlı bir bilgi" in response.text
     assert "bulamadım" in response.text
+
+
+def test_chat_stream_can_write_explicit_current_profile_memory() -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Bunu hatırla: kahveyi şekersiz içerim"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "remember_user_memory"' in response.text
+    assert "hafızasına kaydettim" in response.text
+    assert len(fake_session.memories) == 1
+    assert fake_session.memories[0].user_id == user.id
+    assert fake_session.memories[0].value == {
+        "text": "kahveyi şekersiz içerim",
+        "source": "chat",
+    }
+
+
+def test_chat_stream_memory_write_bypasses_live_agent(monkeypatch: MonkeyPatch) -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    monkeypatch.setattr("app.services.agent_runner._live_agent_available", lambda settings: True)
+
+    def fail_live_agent(*args: object, **kwargs: object) -> Iterator[dict[str, object]]:
+        raise AssertionError("explicit memory writes must not route through the live agent")
+        yield {}
+
+    monkeypatch.setattr("app.services.agent_runner._stream_live_graph", fail_live_agent)
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Bunu hatırla: markette nakit kullanmayı severim"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "remember_user_memory"' in response.text
+    assert len(fake_session.memories) == 1
+
+
+def test_chat_stream_blocks_sensitive_memory_write() -> None:
+    user = make_user()
+    fake_session = FakeSession(user, [], [])
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Bunu hatırla: IBAN TR120006200119000006672315"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "remember_user_memory"' in response.text
+    assert "hassas görünüyor" in response.text
+    assert fake_session.memories == []
+    tool_message = next(message for message in fake_session.messages if message.role == "tool")
+    assert tool_message.tool_calls is not None
+    assert tool_message.tool_calls["input"] == {"text": "[redacted]"}
+    assert "TR120006200119000006672315" not in str(tool_message.tool_calls)
 
 
 def test_chat_stream_emits_image_event_for_concept_illustration(

@@ -5,15 +5,19 @@ import {
   CheckCircle2,
   ImagePlus,
   Loader2,
+  MessageSquareText,
   ReceiptText,
   UploadCloud,
+  X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ReceiptConfirmDialog } from "@/components/ReceiptConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
+import { rememberPendingChatMessage } from "@/lib/chat-session";
 import { amountToKurus, formatDateTR, formatKurus } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Category, ReceiptCandidate, Transaction, TransactionCreateInput } from "@/lib/types";
@@ -48,6 +52,7 @@ type ReceiptUploaderProps = {
 };
 
 export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUploaderProps) {
+  const router = useRouter();
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [candidate, setCandidate] = useState<ReceiptCandidate | null>(null);
@@ -58,6 +63,7 @@ export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUplo
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastConfirmed, setLastConfirmed] = useState<Transaction | null>(null);
 
   const loadData = useCallback(async () => {
     setError(null);
@@ -155,6 +161,7 @@ export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUplo
       onConfirmed?.(created);
       setCandidate(null);
       setIsConfirmOpen(false);
+      setLastConfirmed(created);
       toast.success("Fiş işleme dönüştü.");
     } catch (err) {
       setError(friendlyError(err, "Fiş işleme yazılamadı, tekrar dener misin?"));
@@ -163,8 +170,52 @@ export function ReceiptUploader({ showHistory = true, onConfirmed }: ReceiptUplo
     }
   }
 
+  function askCoachAboutMerchant(transaction: Transaction) {
+    const merchant = transaction.merchant?.trim();
+    const message = merchant
+      ? `${merchant}'a bu ay ne kadar harcadım?`
+      : "Bu ay markete ne kadar harcadım?";
+    rememberPendingChatMessage({
+      source: "dashboard",
+      title: merchant ? `${merchant} harcaması` : "Fiş harcaması",
+      startNew: true,
+      message,
+    });
+    router.push("/chat");
+  }
+
   return (
     <>
+      {lastConfirmed ? (
+        <div className="mb-4 flex flex-col gap-3 rounded-[1.4rem] border border-primary/40 bg-primary/10 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div className="flex min-w-0 items-start gap-3">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <div className="min-w-0">
+              <p className="font-display text-lg font-bold leading-tight">Fiş işleme dönüştü.</p>
+              <p className="mt-1 truncate text-sm text-muted-foreground">
+                {lastConfirmed.merchant ?? "Fiş"} ·{" "}
+                {formatKurus(amountToKurus(lastConfirmed.amount))}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" onClick={() => askCoachAboutMerchant(lastConfirmed)}>
+              <MessageSquareText className="h-4 w-4" />
+              Koça sor
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label="Bildirimi kapat"
+              onClick={() => setLastConfirmed(null)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid min-w-0 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <section className="ledger-sheet p-4 sm:p-6">
           <div className="relative z-10 space-y-5">

@@ -444,14 +444,33 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     `illustrate_concept` ile görsel anlatımı ekler. Özel dersler ilk MVP'de kalıcı
     kaydedilmez; chat geçmişinde normal mesaj/tool sonucu olarak kalır. Fon/ürün
     başlıkları yalnızca eğitim amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
+24. **Sesli koç (Web Speech MVP):** `/chat` ekranında destekleyen tarayıcılarda
+    Web Speech API ile Türkçe sesli giriş yapılabilir; metin kutusuna yazılan
+    transkript kullanıcı onayıyla gönderilir. Asistan yanıtları kullanıcı isterse
+    tarayıcı `speechSynthesis` ile `tr-TR` okunur; çocuk modunda bu tercih
+    varsayılan olarak açılır. Harici ses servisi, gerçek zamanlı görüşme veya yeni
+    backend endpoint'i yoktur.
+25. **Bildirim merkezi (mevcut insight yüzeyi + idempotent yenileme):** Sidebar
+    üzerinde zil ikonu, mevcut scoped `/api/insights` sonuçlarını sayar ve son
+    bildirimleri açılır panelde gösterir. Kullanıcı bildirimi kapatırsa mevcut
+    `PATCH /api/insights/{id}/dismiss` endpoint'i kullanılır. Insight yenileme
+    aynı scoped candidate için açık bildirimi günceller; tekrar tekrar aynı
+    bildirimi çoğaltmaz. Tarayıcı push, service worker veya yeni insight tipi bu
+    MVP kapsamına dahil değildir.
+26. **Açık onaylı agent hafızası yazma:** Kullanıcı sohbet içinde açıkça
+    "bunu hatırla" benzeri bir istek verdiğinde agent yalnızca aktif profil için
+    `agent_memory` kaydı yazar/günceller. Yazma işlemi hassas veri korumalıdır:
+    şifre, token/API anahtarı, IBAN, kart numarası, TC kimlik numarası, ham OCR
+    veya base64 fiş verisi hafızaya alınmaz. Parent, child hafızasına yalnızca
+    family-switch ile aktif profil child olduğunda yazabilir; prompt'tan gelen
+    `user_id` kullanılmaz.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-24. Sesli giriş (Web Speech API)
-25. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
-26. Quiz modu
-27. CSV export
-28. Magic link auth (email-only login, parola yok)
+27. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
+28. Quiz modu
+29. CSV export
+30. Magic link auth (email-only login, parola yok)
 
 ---
 
@@ -1096,8 +1115,21 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.24
+**Doküman versiyonu:** 0.27
 **Son güncelleme:** 16 Mayıs 2026
+**v0.27 değişiklikleri:** Bildirim yenileme tekrarlarında aynı açık insight'ın
+çoğalmaması için idempotent güncelleme kapsamı eklendi. Sohbette açık onaylı
+"bunu hatırla" istekleri için aktif profile scoped, hassas veri korumalı
+`agent_memory` yazma/güncelleme kapsamı tanımlandı; prompt'tan gelen `user_id`
+kullanılmaz.
+**v0.26 değişiklikleri:** Bildirim merkezi mevcut proactive insight verisine
+frontend yüzeyi olarak eklendi. Sidebar zil ikonu scoped `/api/insights`
+sonuçlarını gösterir ve mevcut dismiss endpoint'ini kullanır; tarayıcı push,
+service worker, yeni insight tipi veya memory write kapsamı eklenmez.
+**v0.25 değişiklikleri:** `/chat` için Web Speech tabanlı sesli koç MVP'si
+core demo kapsamına alındı. Sesli giriş destekleyen tarayıcıda çalışır, yanıt
+okuma tarayıcı `speechSynthesis` ile yapılır, çocuk modunda varsayılan açıktır;
+yeni backend endpoint'i veya gerçek zamanlı ses servisi eklenmez.
 **v0.24 değişiklikleri:** Finans Okulu kapsamı anlık özel ders üretimini içerecek
 şekilde genişletildi. `create_custom_lesson` agent aracıdır; konu/seviye/süre/
 örnek/quiz/görsel tercihleriyle yapılandırılmış ders taslağı üretir, kalıcı ders

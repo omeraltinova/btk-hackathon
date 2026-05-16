@@ -2,6 +2,7 @@
 
 import {
   CheckCircle2,
+  ListChecks,
   MessageCircle,
   PauseCircle,
   PlayCircle,
@@ -11,18 +12,53 @@ import {
   Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiError, api } from "@/lib/api";
 import { rememberPendingChatMessage } from "@/lib/chat-session";
+import { useKidMode } from "@/lib/kid-mode";
 import { isValidAmount, normalizeAmountInput } from "@/lib/money-input";
-import type { Category, SavingGoal, SavingGoalProgress, SavingGoalUpdateInput } from "@/lib/types";
+import type {
+  Category,
+  SavingGoal,
+  SavingGoalProgress,
+  SavingGoalUpdateInput,
+  Transaction,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type GoalMode = "accumulation" | "expense_reduction";
+
+type GoalTemplate = {
+  title: string;
+  amount: string;
+  label: string;
+};
+
+const ADULT_GOAL_TEMPLATES: GoalTemplate[] = [
+  { title: "Bayram parası", amount: "1000", label: "Bayram parası — 1.000 ₺" },
+  { title: "Diş parası", amount: "500", label: "Diş parası — 500 ₺" },
+  { title: "Yeni okul", amount: "2500", label: "Yeni okul — 2.500 ₺" },
+  { title: "Doğum günü hediyesi", amount: "750", label: "Doğum günü hediyesi — 750 ₺" },
+  { title: "Acil durum", amount: "5000", label: "Acil durum — 5.000 ₺" },
+];
+
+const KID_GOAL_TEMPLATES: GoalTemplate[] = [
+  { title: "Kumbara", amount: "200", label: "Kumbara — 200 ₺" },
+  { title: "Bayram param", amount: "300", label: "Bayram param — 300 ₺" },
+  { title: "Oyuncak", amount: "500", label: "Oyuncak — 500 ₺" },
+  { title: "Dondurma bütçem", amount: "100", label: "Dondurma bütçem — 100 ₺" },
+];
+
+const GOAL_MILESTONES = [
+  { threshold: 25, message: "Güzel başlangıç! Hedefin %25'ine ulaştın." },
+  { threshold: 50, message: "Yarısını geçtin. Hedefin %50'si tamam." },
+  { threshold: 75, message: "Son düzlük. Hedefin %75'ine ulaştın." },
+  { threshold: 100, message: "Hedef tamamlandı. Harika iş!" },
+] as const;
 
 function formatMoney(value: string | null): string {
   if (value === null) return "0,00 ₺";
@@ -59,6 +95,18 @@ function defaultTargetDate(): string {
   return value.toISOString().slice(0, 10);
 }
 
+function dateAfterMonths(monthCount: number): string {
+  const value = new Date();
+  value.setMonth(value.getMonth() + monthCount);
+  return value.toISOString().slice(0, 10);
+}
+
+function clampedProgress(value: string | null | undefined): number {
+  const numeric = Number(value ?? "0");
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(100, numeric));
+}
+
 function statusLabel(status: SavingGoalProgress["status_label"]): string {
   if (status === "on_track") return "İyi gidiyor";
   if (status === "at_risk") return "Riskte";
@@ -76,8 +124,67 @@ function friendlyError(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
 
+function RelatedSpendingList({
+  transactions,
+  categoryId,
+  userId,
+  categoryName,
+}: {
+  transactions: Transaction[];
+  categoryId: string;
+  userId: string;
+  categoryName: string;
+}) {
+  const related = transactions
+    .filter(
+      (transaction) =>
+        transaction.type === "expense" &&
+        transaction.user_id === userId &&
+        transaction.category_id === categoryId,
+    )
+    .slice(0, 8);
+
+  return (
+    <div className="mt-6 rounded-[1.4rem] border border-border/70 bg-muted/35 p-4">
+      <div className="flex items-center gap-2">
+        <ListChecks className="h-4 w-4 text-primary" />
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+          {categoryName} hedefiyle ilgili son hareketler
+        </p>
+      </div>
+      {related.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Bu hedefe ait yakın zamanda kayıtlı bir harcama bulunamadı.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-border/60">
+          {related.map((transaction) => (
+            <li
+              key={transaction.id}
+              className="flex items-center justify-between gap-3 py-2 text-sm"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-foreground">
+                  {transaction.merchant?.trim() || transaction.description?.trim() || "Harcama"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {formatDate(transaction.occurred_at)}
+                </p>
+              </div>
+              <span className="font-display text-base font-bold tabular-nums">
+                {formatMoney(transaction.amount)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function SavingGoalsClient() {
   const router = useRouter();
+  const { isKid } = useKidMode();
   const [categories, setCategories] = useState<Category[]>([]);
   const [goals, setGoals] = useState<SavingGoal[]>([]);
   const [progressByGoalId, setProgressByGoalId] = useState<Record<string, SavingGoalProgress>>({});
@@ -93,14 +200,19 @@ export function SavingGoalsClient() {
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [actionGoalId, setActionGoalId] = useState<string | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const milestoneProgressRef = useRef<Record<string, number>>({});
+  const milestoneReadyRef = useRef(false);
 
   async function loadGoals() {
-    const [categoryRows, goalRows] = await Promise.all([
+    const [categoryRows, goalRows, transactionRows] = await Promise.all([
       api<Category[]>("/api/categories", { silent: true }),
       api<SavingGoal[]>("/api/saving-goals", { silent: true }),
+      api<Transaction[]>("/api/transactions?limit=100", { silent: true }),
     ]);
     setCategories(categoryRows);
     setGoals(goalRows);
+    setTransactions(transactionRows);
     if (goalRows.length === 0) {
       setSelectedGoalId(null);
     } else if (!selectedGoalId || !goalRows.some((goal) => goal.id === selectedGoalId)) {
@@ -134,6 +246,40 @@ export function SavingGoalsClient() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only; form state should not refetch.
   }, []);
+
+  useEffect(() => {
+    if (goals.length === 0) {
+      milestoneProgressRef.current = {};
+      milestoneReadyRef.current = false;
+      return;
+    }
+
+    const allProgressLoaded = goals.every((goal) => progressByGoalId[goal.id] !== undefined);
+    if (!allProgressLoaded) return;
+
+    const nextProgress: Record<string, number> = {};
+    for (const goal of goals) {
+      const progress = clampedProgress(progressByGoalId[goal.id]?.progress_percent);
+      nextProgress[goal.id] = progress;
+      const previous = milestoneProgressRef.current[goal.id];
+      if (!milestoneReadyRef.current || previous === undefined) continue;
+      const crossed = [...GOAL_MILESTONES]
+        .reverse()
+        .find((milestone) => previous < milestone.threshold && progress >= milestone.threshold);
+      if (crossed) toast.success(`${goal.title}: ${crossed.message}`);
+    }
+
+    milestoneProgressRef.current = nextProgress;
+    milestoneReadyRef.current = true;
+  }, [goals, progressByGoalId]);
+
+  function applyGoalTemplate(template: GoalTemplate) {
+    setAccumulationTitle(template.title);
+    setTargetAmount(template.amount);
+    setCurrentAmount("0");
+    setTargetDate(dateAfterMonths(6));
+    setMode("accumulation");
+  }
 
   function handleCreateGoal() {
     setIsSaving(true);
@@ -270,6 +416,7 @@ export function SavingGoalsClient() {
     ? numericAmount(selectedGoal?.target_amount ?? null)
     : numericAmount(selectedGoal?.target_spending_amount ?? null);
   const selectedChartMax = Math.max(selectedActualValue, selectedTargetValue, 1);
+  const goalTemplates = isKid ? KID_GOAL_TEMPLATES : ADULT_GOAL_TEMPLATES;
 
   return (
     <main className="space-y-5 p-4 sm:p-6 lg:p-8">
@@ -305,46 +452,65 @@ export function SavingGoalsClient() {
 
           <div className="grid gap-3 rounded-[1.5rem] border border-dashed border-primary/30 bg-primary/5 p-4">
             {mode === "accumulation" ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1.5">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                    Hedef adı
-                  </span>
-                  <Input
-                    value={accumulationTitle}
-                    onChange={(event) => setAccumulationTitle(event.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1.5">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                    Hedef tarih
-                  </span>
-                  <Input
-                    type="date"
-                    value={targetDate}
-                    onChange={(event) => setTargetDate(event.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1.5">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                    Hedef tutar
-                  </span>
-                  <Input
-                    inputMode="decimal"
-                    value={targetAmount}
-                    onChange={(event) => setTargetAmount(event.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1.5">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                    Şu an ayrılan tutar
-                  </span>
-                  <Input
-                    inputMode="decimal"
-                    value={currentAmount}
-                    onChange={(event) => setCurrentAmount(event.target.value)}
-                  />
-                </label>
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-1.5">
+                    <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                      Hedef adı
+                    </span>
+                    <Input
+                      value={accumulationTitle}
+                      onChange={(event) => setAccumulationTitle(event.target.value)}
+                    />
+                  </label>
+                  <label className="grid gap-1.5">
+                    <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                      Hedef tarih
+                    </span>
+                    <Input
+                      type="date"
+                      value={targetDate}
+                      onChange={(event) => setTargetDate(event.target.value)}
+                    />
+                  </label>
+                  <label className="grid gap-1.5">
+                    <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                      Hedef tutar
+                    </span>
+                    <Input
+                      inputMode="decimal"
+                      value={targetAmount}
+                      onChange={(event) => setTargetAmount(event.target.value)}
+                    />
+                  </label>
+                  <label className="grid gap-1.5">
+                    <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                      Şu an ayrılan tutar
+                    </span>
+                    <Input
+                      inputMode="decimal"
+                      value={currentAmount}
+                      onChange={(event) => setCurrentAmount(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="rounded-[1.2rem] border border-dashed border-primary/20 bg-background/55 p-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    Hızlı şablonlar
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {goalTemplates.map((template) => (
+                      <button
+                        key={template.label}
+                        type="button"
+                        onClick={() => applyGoalTemplate(template)}
+                        className="rounded-full border border-border/70 bg-card/75 px-3 py-1.5 text-xs font-bold text-foreground transition-colors hover:border-primary/45 hover:bg-primary/10"
+                      >
+                        {template.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -396,112 +562,6 @@ export function SavingGoalsClient() {
           {error}
         </div>
       ) : null}
-
-      <section className="grid gap-3 lg:grid-cols-2">
-        {goals.length === 0 ? (
-          <div className="ledger-card rounded-[1.5rem] border border-border/80 bg-card p-6 text-sm text-muted-foreground lg:col-span-2">
-            Henüz hedef yok. Birikim tutarı veya gider azaltma hedefiyle başlayabilirsin.
-          </div>
-        ) : null}
-
-        {orderedGoals.map((goal) => {
-          const progress = progressByGoalId[goal.id];
-          const progressWidth = progress
-            ? Math.max(0, Math.min(100, Number(progress.progress_percent)))
-            : 0;
-          const isAccumulation = goal.goal_type === "accumulation";
-          const isSelected = goal.id === selectedGoal?.id;
-          return (
-            <article
-              key={goal.id}
-              role="button"
-              tabIndex={0}
-              aria-pressed={isSelected}
-              onClick={() => selectGoal(goal.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  selectGoal(goal.id);
-                }
-              }}
-              className={cn(
-                "ledger-card flex h-full cursor-pointer flex-col rounded-[1.5rem] border border-border/80 bg-card p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:p-5",
-                isAccumulation ? "bg-primary/5" : "",
-                isSelected ? "border-primary/60 ring-2 ring-primary/20" : "",
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                    {isAccumulation ? "Birikim" : goal.category_name}
-                  </p>
-                  <h2 className="mt-1 font-display text-xl font-bold">{goal.title}</h2>
-                </div>
-                <span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">
-                  {goalStatusText(goal, progress)}
-                </span>
-              </div>
-
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <div className="rounded-2xl bg-muted/60 p-3">
-                  <p className="text-xs text-muted-foreground">
-                    {isAccumulation ? "Şu an" : "Geçen dönem"}
-                  </p>
-                  <p className="font-display text-lg font-bold">
-                    {formatMoney(isAccumulation ? goal.current_amount : goal.baseline_amount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-primary/10 p-3">
-                  <p className="text-xs text-muted-foreground">
-                    {isAccumulation ? "Hedef tutar" : "Bu ay limit"}
-                  </p>
-                  <p className="font-display text-lg font-bold text-primary">
-                    {formatMoney(isAccumulation ? goal.target_amount : goal.target_spending_amount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-accent/10 p-3">
-                  <p className="text-xs text-muted-foreground">
-                    {isAccumulation ? "Aylık katkı" : "Beklenen tasarruf"}
-                  </p>
-                  <p className="font-display text-lg font-bold text-accent-foreground">
-                    {formatMoney(
-                      isAccumulation ? goal.monthly_contribution : goal.target_saving_amount,
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {progress ? (
-                <div className="mt-4 space-y-2">
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all"
-                      style={{ width: `${progressWidth}%` }}
-                    />
-                  </div>
-                  <p className="text-sm leading-5 text-muted-foreground">
-                    {isAccumulation ? (
-                      <>
-                        Kalan tutar {formatMoney(progress.remaining_amount)}. Hedef tarihi:{" "}
-                        {formatDate(goal.end_date)}.
-                      </>
-                    ) : (
-                      <>
-                        Şu ana kadar {formatMoney(progress.actual_spending)} harcandı. Kalan limit{" "}
-                        {formatMoney(progress.remaining_limit)}. Hedef dönemi:{" "}
-                        {formatDate(goal.start_date)}-{formatDate(goal.end_date)}.
-                      </>
-                    )}
-                  </p>
-                </div>
-              ) : null}
-              <p className="mt-auto pt-4 text-xs font-bold uppercase tracking-[0.16em] text-primary">
-                Detaya bak
-              </p>
-            </article>
-          );
-        })}
-      </section>
 
       {selectedGoal ? (
         <section className="ledger-card rounded-[1.8rem] border border-border/80 bg-card p-5 sm:p-6">
@@ -719,8 +779,123 @@ export function SavingGoalsClient() {
           ) : (
             <p className="mt-4 text-sm text-muted-foreground">Hedef detayı yükleniyor.</p>
           )}
+
+          {selectedGoal.goal_type === "expense_reduction" && selectedGoal.category_id ? (
+            <RelatedSpendingList
+              transactions={transactions}
+              categoryId={selectedGoal.category_id}
+              userId={selectedGoal.user_id}
+              categoryName={selectedGoal.category_name}
+            />
+          ) : null}
         </section>
       ) : null}
+
+      <section className="grid gap-3 lg:grid-cols-2">
+        {goals.length === 0 ? (
+          <div className="ledger-card rounded-[1.5rem] border border-border/80 bg-card p-6 text-sm text-muted-foreground lg:col-span-2">
+            Henüz hedef yok. Birikim tutarı veya gider azaltma hedefiyle başlayabilirsin.
+          </div>
+        ) : null}
+
+        {orderedGoals.map((goal) => {
+          const progress = progressByGoalId[goal.id];
+          const progressWidth = progress
+            ? Math.max(0, Math.min(100, Number(progress.progress_percent)))
+            : 0;
+          const isAccumulation = goal.goal_type === "accumulation";
+          const isSelected = goal.id === selectedGoal?.id;
+          return (
+            <article
+              key={goal.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              onClick={() => selectGoal(goal.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  selectGoal(goal.id);
+                }
+              }}
+              className={cn(
+                "ledger-card flex h-full cursor-pointer flex-col rounded-[1.5rem] border border-border/80 bg-card p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:p-5",
+                isAccumulation ? "bg-primary/5" : "",
+                isSelected ? "border-primary/60 ring-2 ring-primary/20" : "",
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    {isAccumulation ? "Birikim" : goal.category_name}
+                  </p>
+                  <h2 className="mt-1 font-display text-xl font-bold">{goal.title}</h2>
+                </div>
+                <span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">
+                  {goalStatusText(goal, progress)}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <div className="rounded-2xl bg-muted/60 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    {isAccumulation ? "Şu an" : "Geçen dönem"}
+                  </p>
+                  <p className="font-display text-lg font-bold">
+                    {formatMoney(isAccumulation ? goal.current_amount : goal.baseline_amount)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-primary/10 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    {isAccumulation ? "Hedef tutar" : "Bu ay limit"}
+                  </p>
+                  <p className="font-display text-lg font-bold text-primary">
+                    {formatMoney(isAccumulation ? goal.target_amount : goal.target_spending_amount)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-accent/10 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    {isAccumulation ? "Aylık katkı" : "Beklenen tasarruf"}
+                  </p>
+                  <p className="font-display text-lg font-bold text-accent-foreground">
+                    {formatMoney(
+                      isAccumulation ? goal.monthly_contribution : goal.target_saving_amount,
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {progress ? (
+                <div className="mt-4 space-y-2">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${progressWidth}%` }}
+                    />
+                  </div>
+                  <p className="text-sm leading-5 text-muted-foreground">
+                    {isAccumulation ? (
+                      <>
+                        Kalan tutar {formatMoney(progress.remaining_amount)}. Hedef tarihi:{" "}
+                        {formatDate(goal.end_date)}.
+                      </>
+                    ) : (
+                      <>
+                        Şu ana kadar {formatMoney(progress.actual_spending)} harcandı. Kalan limit{" "}
+                        {formatMoney(progress.remaining_limit)}. Hedef dönemi:{" "}
+                        {formatDate(goal.start_date)}-{formatDate(goal.end_date)}.
+                      </>
+                    )}
+                  </p>
+                </div>
+              ) : null}
+              <p className="mt-auto pt-4 text-xs font-bold uppercase tracking-[0.16em] text-primary">
+                Detaya bak
+              </p>
+            </article>
+          );
+        })}
+      </section>
     </main>
   );
 }

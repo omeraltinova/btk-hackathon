@@ -19,6 +19,7 @@ from app.agent.tools import (
     build_accumulation_goal_creation,
     build_concept_illustration,
     build_custom_lesson,
+    build_memory_upsert,
     build_receipt_candidate,
     build_saving_goal_creation,
     build_saving_goal_progress,
@@ -83,6 +84,12 @@ MONTHLY_VISUALIZE_HINTS = (
     "month by month",
 )
 MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")
+MEMORY_WRITE_PATTERNS = (
+    re.compile(r"(?:bunu|şunu|sunu)?\s*hat[ıi]rla\s*[:,-]?\s*(?P<text>.+)", re.IGNORECASE),
+    re.compile(r"haf[ıi]zana\s+yaz\s*[:,-]?\s*(?P<text>.+)", re.IGNORECASE),
+    re.compile(r"akl[ıi]nda\s+tut\s*[:,-]?\s*(?P<text>.+)", re.IGNORECASE),
+    re.compile(r"not\s+al\s*[:,-]?\s*(?P<text>.+)", re.IGNORECASE),
+)
 CUSTOM_LESSON_HINTS = (
     "özel ders",
     "ozel ders",
@@ -330,6 +337,17 @@ def _wants_monthly_visualization(message: str) -> bool:
 def _wants_memory(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in MEMORY_HINTS)
+
+
+def _memory_write_text(message: str) -> str | None:
+    stripped = message.strip()
+    for pattern in MEMORY_WRITE_PATTERNS:
+        match = pattern.search(stripped)
+        if match is None:
+            continue
+        text = " ".join(match.group("text").strip().split())
+        return text or None
+    return None
 
 
 def _wants_custom_lesson(message: str) -> bool:
@@ -689,6 +707,13 @@ def _memory_answer(result: dict[str, object]) -> str:
     if labels:
         return f"Hafızamda bu profil için {count} kayıt var: {', '.join(labels)}."
     return f"Hafızamda bu profil için {count} kayıt var."
+
+
+def _memory_write_answer(result: dict[str, object]) -> str:
+    if result.get("saved") is True:
+        return "Bunu aktif profilin hafızasına kaydettim. İstersen Hesap > Hafıza ekranından silebilirsin."
+    error = str(result.get("error") or "Bu bilgiyi hafızaya kaydedemedim.")
+    return error
 
 
 def _saving_goal_answer(result: dict[str, object], *, created: bool) -> str:
@@ -1196,6 +1221,42 @@ def stream_chat_turn(
         yield {"type": "done", "conversation_id": conversation_id}
         return
 
+    memory_text = _memory_write_text(payload.message)
+    if memory_text is not None:
+        memory_write_input: dict[str, object] = {"text": memory_text}
+        result = build_memory_upsert(db, current_user, text=memory_text)
+        memory_trace_input: dict[str, object] = (
+            {"text": "[redacted]"} if result.get("blocked") is True else memory_write_input
+        )
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "remember_user_memory",
+            "input": memory_trace_input,
+        }
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Hafıza kaydı güncellendi."
+            if result.get("saved")
+            else "Hafıza kaydı reddedildi.",
+            tool_name="remember_user_memory",
+            tool_calls={"input": memory_trace_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "remember_user_memory",
+            "result": result,
+        }
+        answer = _memory_write_answer(result)
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
     settings = get_settings()
     if _live_agent_available(settings):
         try:
@@ -1233,12 +1294,12 @@ def stream_chat_turn(
         return
 
     if _wants_memory(payload.message):
-        memory_input: dict[str, object] = {}
+        memory_read_input: dict[str, object] = {}
         yield {
             "type": "tool_call",
             "conversation_id": conversation_id,
             "tool_name": "get_user_memory",
-            "input": memory_input,
+            "input": memory_read_input,
         }
         result = build_user_memory(db, current_user)
         _persist_message(
@@ -1247,7 +1308,7 @@ def stream_chat_turn(
             role="tool",
             content="Hafıza kayıtları alındı.",
             tool_name="get_user_memory",
-            tool_calls={"input": memory_input, "result": result},
+            tool_calls={"input": memory_read_input, "result": result},
         )
         yield {
             "type": "tool_result",
