@@ -13,6 +13,7 @@ from app.agent.tools import (
     build_envelope_budget_delete,
     build_envelope_budget_overview,
     build_envelope_budget_update,
+    build_memory_upsert,
     build_saving_goal_creation,
     build_saving_goal_delete,
     build_saving_goal_progress,
@@ -108,6 +109,10 @@ class FakeSession:
             if item.id is None:
                 item.id = uuid4()
             self.saving_goals.append(item)
+        if isinstance(item, AgentMemory):
+            if item.id is None:
+                item.id = uuid4()
+            self.memories.append(item)
 
     def commit(self) -> None:
         return None
@@ -116,6 +121,8 @@ class FakeSession:
         if isinstance(item, Category) and item.id is None:
             item.id = uuid4()
         if isinstance(item, SavingGoal) and item.id is None:
+            item.id = uuid4()
+        if isinstance(item, AgentMemory) and item.id is None:
             item.id = uuid4()
 
     def delete(self, item: object) -> None:
@@ -520,6 +527,49 @@ def test_build_user_memory_reads_current_user_only() -> None:
 
     assert result["count"] == 1
     assert result["entries"] == [{"key": "hedef", "value": {"text": "birikim"}}]
+
+
+def test_build_memory_upsert_writes_current_user_memory() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(db, user, text="Kahveyi şekersiz içerim")
+
+    assert result["saved"] is True
+    assert result["created"] is True
+    assert len(db.memories) == 1
+    assert db.memories[0].user_id == user.id
+    assert db.memories[0].key == "note_kahveyi_şekersiz_içerim"
+    assert db.memories[0].value == {"text": "Kahveyi şekersiz içerim", "source": "chat"}
+
+
+def test_build_memory_upsert_updates_existing_key() -> None:
+    user = make_user()
+    memory = AgentMemory(
+        id=uuid4(),
+        user_id=user.id,
+        key="note_kahve",
+        value={"text": "Eski bilgi", "source": "chat"},
+    )
+    db = FakeSession(memories=[memory])
+
+    result = build_memory_upsert(db, user, text="Yeni bilgi", key="note_kahve")
+
+    assert result["saved"] is True
+    assert result["created"] is False
+    assert len(db.memories) == 1
+    assert memory.value == {"text": "Yeni bilgi", "source": "chat"}
+
+
+def test_build_memory_upsert_blocks_sensitive_values() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(db, user, text="IBAN TR120006200119000006672315")
+
+    assert result["saved"] is False
+    assert result["blocked"] is True
+    assert db.memories == []
 
 
 def test_build_concept_illustration_rejects_investment_visuals() -> None:

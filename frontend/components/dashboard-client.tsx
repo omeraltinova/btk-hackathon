@@ -405,6 +405,57 @@ function SummaryStatus({ summary }: { summary: TransactionSummary | null }) {
   );
 }
 
+function MonthEndProjection({ summary }: { summary: TransactionSummary | null }) {
+  const today = new Date();
+  const elapsedDays = Math.max(today.getDate(), 1);
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysLeft = Math.max(daysInMonth - elapsedDays, 0);
+  const currentExpense = amountToKurus(summary?.expense ?? "0");
+  const remainingBudget = amountToKurus(summary?.remaining_budget ?? "0");
+  const projectedExpense = Math.round((currentExpense * daysInMonth) / elapsedDays);
+  const safeDaily = daysLeft > 0 ? Math.max(0, Math.round(remainingBudget / daysLeft)) : 0;
+
+  return (
+    <section className="ledger-sheet p-5 sm:p-7">
+      <div className="relative z-10 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+        <div>
+          <p className="eyebrow">Ay sonu projeksiyonu</p>
+          <h2 className="mt-2 font-display text-[1.75rem] font-black leading-none sm:text-3xl">
+            Bu ay sonu ne olur?
+          </h2>
+          <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
+            Bu kart kesin taahhüt değil; sadece bugüne kadarki harcama temposunu aya yayarak görünür
+            kılar.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[28rem]">
+          <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              Mevcut hızla
+            </p>
+            <p className="mt-3 font-display text-2xl font-black tabular-nums text-primary">
+              {formatKurus(projectedExpense)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">ay sonu gider tahmini</p>
+          </div>
+          <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+              Güvenli günlük tempo
+            </p>
+            <p className="mt-3 font-display text-2xl font-black tabular-nums text-accent-foreground">
+              {formatKurus(safeDaily)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {daysLeft > 0 ? `${daysLeft} gün için yaklaşık üst sınır` : "Ay bugün kapanıyor"}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function RecurringBars({
   subscriptions,
   limit,
@@ -2321,6 +2372,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   isLoading={isLoading}
                 />
               </div>
+              <MonthEndProjection summary={summary} />
               <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
                 <SummaryStatus summary={summary} />
                 <SpendingChart summary={summary} />

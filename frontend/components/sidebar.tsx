@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useKidMode } from "@/lib/kid-mode";
 import { cn } from "@/lib/utils";
 
@@ -119,21 +120,24 @@ export function Sidebar({ user }: SidebarProps) {
             <p className="text-xs text-muted-foreground">{brandSubtitle}</p>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="hidden rounded-[1rem] lg:inline-flex"
-          aria-label={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
-          title={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
-          onClick={handleToggleSidebar}
-        >
-          {isCollapsed ? (
-            <PanelLeftOpen className="h-4 w-4" />
-          ) : (
-            <PanelLeftClose className="h-4 w-4" />
-          )}
-        </Button>
+        <div className={cn("flex shrink-0 items-center gap-2", isCollapsed && "lg:flex-col")}>
+          <NotificationBell collapsed={isCollapsed} />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="hidden rounded-[1rem] lg:inline-flex"
+            aria-label={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
+            title={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
+            onClick={handleToggleSidebar}
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
         <span
           className={cn(
             "stamp-label shrink-0 bg-background/65 text-primary lg:mt-6 lg:inline-flex",
