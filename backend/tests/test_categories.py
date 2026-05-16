@@ -10,8 +10,14 @@ from fastapi import HTTPException
 
 from app.models.category import Category
 from app.models.user import User
-from app.routers.categories import create_category, list_categories
-from app.schemas.category import CategoryCreate
+from app.routers.categories import (
+    create_category,
+    create_envelope_budget,
+    delete_envelope_budget,
+    list_categories,
+    update_envelope_budget,
+)
+from app.schemas.category import CategoryBudgetUpdate, CategoryCreate, EnvelopeCreate
 
 
 class FakeScalars:
@@ -48,9 +54,27 @@ class FakeSession:
             return FakeResult([])
 
         text = str(statement)
+        for criterion in getattr(statement, "_where_criteria", ()):
+            column_name = getattr(getattr(criterion, "left", None), "name", None)
+            value = getattr(getattr(criterion, "right", None), "value", None)
+            if column_name == "id":
+                return FakeResult(
+                    [category for category in self.categories if category.id == value]
+                )
         if "lower(categories.name)" in text:
+            requested_name = None
+            for criterion in getattr(statement, "_where_criteria", ()):
+                left_text = str(getattr(criterion, "left", "")).lower()
+                value = getattr(getattr(criterion, "right", None), "value", None)
+                if "lower" in left_text and isinstance(value, str):
+                    requested_name = value.lower()
             return FakeResult(
-                [category for category in self.categories if category.user_id == self.user_ids[0]],
+                [
+                    category
+                    for category in self.categories
+                    if category.user_id == self.user_ids[0]
+                    and (requested_name is None or category.name.lower() == requested_name)
+                ],
             )
 
         return FakeResult(
@@ -99,6 +123,106 @@ def make_category(name: str, user_id: UUID | None = None) -> Category:
         parent_id=None,
         budget_monthly=None,
     )
+
+
+def test_update_envelope_budget_creates_user_shadow_for_system_category() -> None:
+    user = make_user()
+    system_market = make_category("Market")
+    db = FakeSession([system_market], user_ids=[user.id])
+
+    result = update_envelope_budget(
+        "market",
+        CategoryBudgetUpdate(budget_monthly=Decimal("3200.00")),
+        db=db,
+        current_user=user,
+    )
+
+    assert result.user_id == user.id
+    assert result.name == "Market"
+    assert result.budget_monthly == Decimal("3200.00")
+    assert system_market.budget_monthly is None
+    assert db.committed is True
+
+
+def test_update_envelope_budget_updates_existing_user_category() -> None:
+    user = make_user()
+    user_bill = make_category("Fatura", user.id)
+    user_bill.budget_monthly = Decimal("900.00")
+    db = FakeSession([make_category("Fatura"), user_bill], user_ids=[user.id])
+
+    result = update_envelope_budget(
+        "fatura",
+        CategoryBudgetUpdate(budget_monthly=Decimal("1200.00")),
+        db=db,
+        current_user=user,
+    )
+
+    assert result is user_bill
+    assert user_bill.budget_monthly == Decimal("1200.00")
+    assert db.committed is True
+
+
+def test_update_envelope_budget_accepts_zero_to_disable_user_zarf() -> None:
+    user = make_user()
+    user_transport = make_category("Ulaşım", user.id)
+    user_transport.budget_monthly = Decimal("750.00")
+    db = FakeSession([make_category("Ulaşım"), user_transport], user_ids=[user.id])
+
+    result = update_envelope_budget(
+        "ulasim",
+        CategoryBudgetUpdate(budget_monthly=Decimal("0.00")),
+        db=db,
+        current_user=user,
+    )
+
+    assert result is user_transport
+    assert user_transport.budget_monthly == Decimal("0.00")
+    assert db.committed is True
+
+
+def test_delete_envelope_budget_disables_instead_of_mutating_system_default() -> None:
+    user = make_user()
+    system_school = make_category("Eğitim")
+    system_school.budget_monthly = Decimal("1500.00")
+    db = FakeSession([system_school], user_ids=[user.id])
+
+    response = delete_envelope_budget("okul", db=db, current_user=user)
+
+    user_shadow = next(category for category in db.categories if category.user_id == user.id)
+    assert response.status_code == 204
+    assert user_shadow.name == "Eğitim"
+    assert user_shadow.budget_monthly == 0
+    assert system_school.budget_monthly == Decimal("1500.00")
+    assert db.committed is True
+
+
+def test_create_envelope_budget_creates_custom_category_zarf() -> None:
+    user = make_user()
+    db = FakeSession(user_ids=[user.id])
+
+    result = create_envelope_budget(
+        EnvelopeCreate(name="Evcil hayvan", budget_monthly=Decimal("850.00")),
+        db=db,
+        current_user=user,
+    )
+
+    assert result.user_id == user.id
+    assert result.name == "Evcil hayvan"
+    assert result.budget_monthly == Decimal("850.00")
+    assert db.committed is True
+
+
+def test_delete_custom_envelope_budget_sets_zero_on_owner_category() -> None:
+    user = make_user()
+    custom = make_category("Evcil hayvan", user.id)
+    custom.budget_monthly = Decimal("850.00")
+    db = FakeSession([custom], user_ids=[user.id])
+
+    response = delete_envelope_budget(f"custom-{custom.id}", db=db, current_user=user)
+
+    assert response.status_code == 204
+    assert custom.budget_monthly == Decimal("0.00")
+    assert db.committed is True
 
 
 def test_list_categories_returns_defaults_and_user_categories_without_shadowed_default() -> None:

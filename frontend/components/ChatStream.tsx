@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  Check,
   ImagePlus,
   Loader2,
   MessageSquareText,
@@ -10,6 +11,7 @@ import {
   Sparkles,
   Wrench,
   X,
+  XCircle,
 } from "lucide-react";
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
@@ -48,6 +50,7 @@ type ChatMessageItem = {
   content: string;
   isStreaming?: boolean;
   attachments?: ChatAttachmentItem[];
+  approval?: ApprovalRequestItem;
 };
 
 type ChatPanel = "chat" | "tools";
@@ -63,6 +66,16 @@ type ReceiptAttachment = {
   filename: string;
   contentType: string;
   base64: string;
+};
+
+type ApprovalRequestItem = {
+  approvalId: string;
+  toolName: string;
+  actionLabel: string;
+  summary: string;
+  details: string[];
+  input: ChatToolPayload;
+  status: "pending" | "approved" | "rejected";
 };
 
 const ADULT_SUGGESTIONS = [
@@ -145,6 +158,35 @@ function describeToolResult(event: Extract<ChatStreamEvent, { type: "tool_result
   return "Sonuç alındı";
 }
 
+function approvalFromEvent(
+  event: Extract<ChatStreamEvent, { type: "approval_required" }>,
+): ApprovalRequestItem {
+  return {
+    approvalId: event.approval_id,
+    toolName: event.tool_name,
+    actionLabel: event.action_label,
+    summary: event.summary,
+    details: event.details,
+    input: event.input,
+    status: "pending",
+  };
+}
+
+function approvalStatusText(status: ApprovalRequestItem["status"]): string {
+  if (status === "approved") return "Onaylandı";
+  if (status === "rejected") return "Reddedildi";
+  return "Onay bekliyor";
+}
+
+function renderApprovalInput(input: ChatToolPayload): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (value === null || value === undefined || key === "message") continue;
+    parts.push(`${key}: ${String(value)}`);
+  }
+  return parts.join(" · ");
+}
+
 function renderAttachment(attachment: ChatAttachmentItem) {
   if (attachment.type === "chart") {
     return <ChatChart key={attachment.id} spec={attachment.spec} />;
@@ -160,6 +202,88 @@ function renderAttachment(attachment: ChatAttachmentItem) {
         {attachment.altText}
       </figcaption>
     </figure>
+  );
+}
+
+function ApprovalCard({
+  approval,
+  disabled,
+  onDecision,
+}: {
+  approval: ApprovalRequestItem;
+  disabled: boolean;
+  onDecision: (approval: ApprovalRequestItem, decision: "approved" | "rejected") => void;
+}) {
+  const inputText = renderApprovalInput(approval.input);
+
+  return (
+    <section className="cash-envelope overflow-hidden px-4 py-4 text-sm shadow-sm sm:px-5">
+      <div className="relative z-10 space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="eyebrow">Onay fişi</p>
+            <h4 className="mt-1 font-display text-xl font-black tracking-tight">
+              {approval.actionLabel}
+            </h4>
+          </div>
+          <span
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-[0.7rem] font-black uppercase tracking-[0.12em]",
+              approval.status === "pending"
+                ? "border-accent/55 bg-accent/25 text-accent-foreground"
+                : "bg-primary/12 border-primary/35 text-foreground",
+            )}
+          >
+            {approvalStatusText(approval.status)}
+          </span>
+        </div>
+        <p className="font-semibold leading-6 text-foreground">{approval.summary}</p>
+        {approval.details.length > 0 ? (
+          <ul className="space-y-1 text-muted-foreground">
+            {approval.details.map((detail) => (
+              <li key={detail} className="flex gap-2">
+                <span aria-hidden="true">-</span>
+                <span>{detail}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {inputText ? (
+          <p className="rounded-2xl border border-border/65 bg-background/55 px-3 py-2 text-xs font-semibold text-muted-foreground">
+            {inputText}
+          </p>
+        ) : null}
+        {approval.status === "pending" ? (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onDecision(approval, "approved")}
+              disabled={disabled}
+              className="min-h-10"
+            >
+              {disabled ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
+              Onayla
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onDecision(approval, "rejected")}
+              disabled={disabled}
+              className="min-h-10"
+            >
+              <XCircle className="h-4 w-4" />
+              Reddet
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -391,6 +515,22 @@ export function ChatStream() {
       );
       return;
     }
+    if (event.type === "approval_required") {
+      const approval = approvalFromEvent(event);
+      setMessages((current) =>
+        current.map((message) => (message.id === assistantId ? { ...message, approval } : message)),
+      );
+      setToolTrace((current) => [
+        {
+          id: crypto.randomUUID(),
+          name: event.tool_name,
+          status: "running",
+          detail: "Kullanıcı onayı bekleniyor",
+        },
+        ...current,
+      ]);
+      return;
+    }
     if (event.type === "delta") {
       setMessages((current) =>
         current.map((message) =>
@@ -413,7 +553,12 @@ export function ChatStream() {
   const sendMessage = useCallback(
     async (
       text: string,
-      options: { receipt?: ReceiptAttachment | null; resetConversation?: boolean } = {},
+      options: {
+        receipt?: ReceiptAttachment | null;
+        resetConversation?: boolean;
+        approvalId?: string;
+        approvalDecision?: "approved" | "rejected";
+      } = {},
     ): Promise<boolean> => {
       const trimmedText = text.trim();
       if (!trimmedText || isStreaming || isHydrating) return false;
@@ -453,6 +598,8 @@ export function ChatStream() {
             receipt_image_base64: receipt?.base64 ?? null,
             receipt_filename: receipt?.filename ?? null,
             receipt_content_type: receipt?.contentType ?? null,
+            approval_id: options.approvalId ?? null,
+            approval_decision: options.approvalDecision ?? null,
           },
           (streamEvent) => applyStreamEvent(streamEvent, assistantId),
           { signal: controller.signal },
@@ -484,6 +631,31 @@ export function ChatStream() {
     clearPendingChatMessage();
     void sendMessage(pendingMessage.message, { resetConversation: pendingMessage.startNew });
   }, [isHydrating, isStreaming, sendMessage]);
+
+  const sendApprovalDecision = useCallback(
+    (approval: ApprovalRequestItem, decision: "approved" | "rejected") => {
+      if (isStreaming || isHydrating) return;
+      setMessages((current) =>
+        current.map((message) =>
+          message.approval?.approvalId === approval.approvalId
+            ? {
+                ...message,
+                approval: {
+                  ...message.approval,
+                  status: decision === "approved" ? "approved" : "rejected",
+                },
+              }
+            : message,
+        ),
+      );
+      const text = decision === "approved" ? "Bu işlemi onaylıyorum." : "Bu işlemi reddediyorum.";
+      void sendMessage(text, {
+        approvalId: approval.approvalId,
+        approvalDecision: decision,
+      });
+    },
+    [isHydrating, isStreaming, sendMessage],
+  );
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -646,6 +818,13 @@ export function ChatStream() {
                     isStreaming={message.isStreaming}
                   >
                     {message.attachments?.map(renderAttachment)}
+                    {message.approval ? (
+                      <ApprovalCard
+                        approval={message.approval}
+                        disabled={isStreaming || isHydrating}
+                        onDecision={sendApprovalDecision}
+                      />
+                    ) : null}
                   </ChatMessage>
                 ))
               )}

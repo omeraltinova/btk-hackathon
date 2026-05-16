@@ -272,6 +272,7 @@ def get_transaction_summary(
                 "used_percent": envelope.used_percent,
                 "status": envelope.status,
                 "is_savings_goal": envelope.is_savings_goal,
+                "is_custom": envelope.is_custom,
             }
             for envelope in budget_summary.envelopes
         ],

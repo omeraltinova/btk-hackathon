@@ -7,7 +7,7 @@ import re
 from collections.abc import Iterator
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -19,9 +19,15 @@ from app.agent.tools import (
     build_accumulation_goal_creation,
     build_concept_illustration,
     build_custom_lesson,
+    build_envelope_budget_creation,
+    build_envelope_budget_delete,
+    build_envelope_budget_overview,
+    build_envelope_budget_update,
     build_receipt_candidate,
     build_saving_goal_creation,
+    build_saving_goal_delete,
     build_saving_goal_progress,
+    build_saving_goal_update,
     build_saving_goals_chart,
     build_saving_goals_overview,
     build_spending_chart,
@@ -50,6 +56,10 @@ class ChatStreamEvent(TypedDict, total=False):
     tool_name: str
     input: dict[str, object]
     result: dict[str, object]
+    approval_id: str
+    action_label: str
+    summary: str
+    details: list[str]
     image_url: str
     alt_text: str
 
@@ -128,6 +138,26 @@ SMART_PLAN_HINTS = (
     "akıllı hedef",
     "akilli hedef",
 )
+APPROVAL_TOOL_NAMES = {
+    "create_saving_goal",
+    "create_accumulation_goal",
+    "update_saving_goal",
+    "delete_saving_goal",
+    "create_envelope_budget",
+    "update_envelope_budget",
+    "delete_envelope_budget",
+    "create_smart_saving_plan",
+}
+APPROVAL_ACTIONS_BY_TOOL = {
+    "create_saving_goal": "Tasarruf hedefi oluştur",
+    "create_accumulation_goal": "Birikim hedefi oluştur",
+    "update_saving_goal": "Hedefi güncelle",
+    "delete_saving_goal": "Hedefi sil",
+    "create_envelope_budget": "Zarf ekle",
+    "update_envelope_budget": "Zarf limitini güncelle",
+    "delete_envelope_budget": "Zarfı kapat",
+    "create_smart_saving_plan": "Akıllı hedef planı oluştur",
+}
 ENVELOPE_BUDGET_HINTS = (
     "zarf",
     "bütçe",
@@ -256,6 +286,123 @@ def _persist_message(
     db.add(message)
     db.commit()
     return message
+
+
+def _approval_id() -> str:
+    return f"approval-{uuid4()}"
+
+
+def _approval_record(
+    *,
+    approval_id: str,
+    tool_name: str,
+    tool_input: dict[str, object],
+    action_label: str,
+    summary: str,
+    details: list[str],
+) -> dict[str, object]:
+    return {
+        "approval_id": approval_id,
+        "tool_name": tool_name,
+        "input": tool_input,
+        "action_label": action_label,
+        "summary": summary,
+        "details": details,
+        "status": "pending",
+    }
+
+
+def _pending_approval_message(
+    db: Session,
+    conversation: Conversation,
+    approval_id: str,
+) -> Message | None:
+    rows = list(
+        db.execute(
+            select(Message)
+            .where(
+                Message.conversation_id == conversation.id,
+                Message.role == "tool",
+            )
+            .order_by(desc(Message.created_at))
+            .limit(MAX_CONTEXT_MESSAGES),
+        )
+        .scalars()
+        .all(),
+    )
+    for message in rows:
+        tool_calls = message.tool_calls or {}
+        if tool_calls.get("approval_id") == approval_id and tool_calls.get("status") == "pending":
+            return message
+    return None
+
+
+def _latest_pending_approval_message(db: Session, conversation: Conversation) -> Message | None:
+    rows = list(
+        db.execute(
+            select(Message)
+            .where(
+                Message.conversation_id == conversation.id,
+                Message.role == "tool",
+            )
+            .order_by(desc(Message.created_at))
+            .limit(MAX_CONTEXT_MESSAGES),
+        )
+        .scalars()
+        .all(),
+    )
+    for message in rows:
+        tool_calls = message.tool_calls or {}
+        if tool_calls.get("status") == "pending" and isinstance(tool_calls.get("approval_id"), str):
+            return message
+    return None
+
+
+def _approval_from_message(message: Message) -> dict[str, object]:
+    return _json_payload(message.tool_calls or {})
+
+
+def _store_pending_approval(
+    db: Session,
+    conversation: Conversation,
+    approval: dict[str, object],
+) -> None:
+    _persist_message(
+        db,
+        conversation,
+        role="tool",
+        content="Kullanıcı onayı bekleniyor.",
+        tool_name=str(approval["tool_name"]),
+        tool_calls=approval,
+    )
+
+
+def _mark_approval_status(message: Message, status_value: str) -> None:
+    payload = {**(message.tool_calls or {}), "status": status_value}
+    message.tool_calls = payload
+
+
+def _approval_event(conversation_id: str, approval: dict[str, object]) -> ChatStreamEvent:
+    details_value = approval.get("details", [])
+    details = details_value if isinstance(details_value, list) else []
+    return {
+        "type": "approval_required",
+        "conversation_id": conversation_id,
+        "approval_id": str(approval["approval_id"]),
+        "tool_name": str(approval["tool_name"]),
+        "action_label": str(approval["action_label"]),
+        "summary": str(approval["summary"]),
+        "details": [str(detail) for detail in details if isinstance(detail, str)],
+        "input": _json_payload(approval.get("input", {})),
+    }
+
+
+def _approval_needed_answer() -> str:
+    return "Bu işlem verilerini değiştirecek. Onaylıyor musun? Aşağıdaki kartı onaylarsan devam edeceğim."
+
+
+def _approval_rejected_answer() -> str:
+    return "İşlemi iptal ettim; herhangi bir değişiklik yapmadım."
 
 
 def _sanitize_payload(value: object) -> object:
@@ -436,6 +583,427 @@ def _wants_envelope_budget(message: str) -> bool:
     return resolve_envelope_category(message) is not None and any(
         hint in normalized for hint in ENVELOPE_BUDGET_HINTS
     )
+
+
+def _budget_amount_from_message(message: str) -> Decimal | None:
+    return _target_amount_from_message(message)
+
+
+def _envelope_name_from_message(message: str) -> str | None:
+    normalized = message.casefold()
+    known = resolve_envelope_category(message)
+    if known is not None:
+        return known
+    patterns = (
+        r"([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,40})\s+zarf(?:ı|i|ını|ini|[ıi]n[ıi])\s+"
+        r"(?:sil|kapat|güncelle|guncelle|değiştir|degistir)",
+        r"([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,40})\s+zarf[ıi]\s+(?:oluştur|olustur|aç|ac|ekle)",
+        r"([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,40})\s+için\s+zarf",
+        r"zarf\s+(?:oluştur|olustur|aç|ac|ekle)\s+([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,40})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.IGNORECASE)
+        if match:
+            value = " ".join((match.group(1) or "").split())
+            value = re.sub(r"\b(?:için|icin|limit|bütçe|butce|tl|lira)\b.*$", "", value).strip()
+            if len(value) >= 2:
+                return value.title()
+    return None
+
+
+def _wants_envelope_mutation(message: str) -> bool:
+    normalized = message.casefold()
+    return "zarf" in normalized and any(
+        hint in normalized
+        for hint in (
+            "oluştur",
+            "olustur",
+            "ekle",
+            "aç",
+            "ac",
+            "limit koy",
+            "limit belirle",
+            "güncelle",
+            "guncelle",
+            "değiştir",
+            "degistir",
+            "sil",
+            "kapat",
+        )
+    )
+
+
+def _goal_title_from_message(message: str) -> str | None:
+    normalized = message.casefold()
+    patterns = (
+        r"([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,60})\s+hedef(?:i|imi|ini|[ıi]n[ıi]|im|in)?\s+"
+        r"(?:sil|kaldır|kaldir|duraklat|sürdür|surdur|tamamla|tamamlandı|tamamlandi|"
+        r"güncelle|guncelle|değiştir|degistir|katkı|katki)",
+        r"hedef(?:i|imi|ini|[ıi]n[ıi]|im|in)?\s+([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,60})\s+"
+        r"(?:sil|kaldır|kaldir|duraklat|sürdür|surdur|tamamla|tamamlandı|tamamlandi|"
+        r"güncelle|guncelle|değiştir|degistir|katkı|katki)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.IGNORECASE)
+        if match:
+            value = " ".join((match.group(1) or "").split())
+            value = re.sub(r"\b(?:tasarruf|birikim|hedef|hedefi)\b", "", value).strip()
+            if len(value) >= 2:
+                return value.title()
+    return None
+
+
+def _saving_goal_mutation_approval(
+    db: Session,
+    current_user: User,
+    message: str,
+) -> dict[str, object] | None:
+    normalized = message.casefold()
+    if "hedef" not in normalized:
+        return None
+    title = _goal_title_from_message(message)
+    category = infer_category_from_text(db, current_user, message)
+    target_input: dict[str, object] = {
+        "title": title,
+        "category": category,
+    }
+    target_input = {key: value for key, value in target_input.items() if value is not None}
+    target_label = title or category or "Seçilecek hedef"
+
+    if any(hint in normalized for hint in ("sil", "kaldır", "kaldir")):
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="delete_saving_goal",
+            tool_input=target_input,
+            action_label="Hedefi sil",
+            summary=f"{target_label} hedefi silinecek.",
+            details=[
+                "Bu işlem hedef kaydını kaldırır.",
+                "İşlem defterindeki gelir/gider kayıtları değişmez.",
+            ],
+        )
+
+    status_value: str | None = None
+    status_label: str | None = None
+    if any(hint in normalized for hint in ("duraklat", "beklet")):
+        status_value = "paused"
+        status_label = "duraklatılacak"
+    elif any(hint in normalized for hint in ("sürdür", "surdur", "aktif yap", "devam")):
+        status_value = "active"
+        status_label = "aktif yapılacak"
+    elif any(hint in normalized for hint in ("tamamla", "tamamlandı", "tamamlandi", "bitti")):
+        status_value = "completed"
+        status_label = "tamamlandı yapılacak"
+
+    contribution = _target_amount_from_message(message)
+    wants_contribution = any(
+        hint in normalized for hint in ("katkı", "katki", "ekle", "biriktirdim")
+    )
+    if status_value is None and not wants_contribution:
+        return None
+
+    tool_input: dict[str, object] = {**target_input}
+    details = ["Hedef ilerlemesi güncellenecek."]
+    if status_value is not None:
+        tool_input["status"] = status_value
+        summary = f"{target_label} hedefi {status_label}."
+    else:
+        summary = f"{target_label} hedefine katkı eklenecek."
+    if wants_contribution:
+        if contribution is None:
+            return None
+        tool_input["contribution_amount"] = f"{contribution:.2f}"
+        summary = (
+            f"{target_label} hedefine {format_amount_text(str(contribution))} katkı eklenecek."
+        )
+        details.append("Katkı işlem defterine otomatik gelir/gider yazmaz.")
+    return _approval_record(
+        approval_id=_approval_id(),
+        tool_name="update_saving_goal",
+        tool_input=tool_input,
+        action_label="Hedefi güncelle",
+        summary=summary,
+        details=details,
+    )
+
+
+def _envelope_mutation_approval(message: str) -> dict[str, object] | None:
+    normalized = message.casefold()
+    if not _wants_envelope_mutation(message):
+        return None
+    amount = _budget_amount_from_message(message)
+    name = _envelope_name_from_message(message)
+    if "sil" in normalized or "kapat" in normalized:
+        if name is None:
+            return None
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="delete_envelope_budget",
+            tool_input={"slug": "__lookup_required__", "name": name},
+            action_label="Zarfı kapat",
+            summary=f"{name} zarfı aktif profil için kapatılacak.",
+            details=["Kategori silinmez.", "Zarf limiti 0,00 ₺ yapılır."],
+        )
+    if amount is None:
+        return None
+    if name is None:
+        name = "Özel zarf"
+    action = (
+        "update_envelope_budget"
+        if any(h in normalized for h in ("güncelle", "guncelle", "değiştir", "degistir"))
+        else "create_envelope_budget"
+    )
+    return _approval_record(
+        approval_id=_approval_id(),
+        tool_name=action,
+        tool_input={"name": name, "budget_monthly": f"{amount:.2f}"}
+        if action == "create_envelope_budget"
+        else {"slug": "__lookup_required__", "name": name, "budget_monthly": f"{amount:.2f}"},
+        action_label="Zarf limiti kaydet"
+        if action == "create_envelope_budget"
+        else "Zarf limitini güncelle",
+        summary=f"{name} zarfı için aylık limit {format_amount_text(str(amount))} yapılacak.",
+        details=[
+            "Hazır zarf adıysa mevcut zarf açılır/güncellenir.",
+            "Farklı adsa özel zarf oluşturulur.",
+        ],
+    )
+
+
+def _mutating_fallback_approval(
+    db: Session,
+    current_user: User,
+    message: str,
+) -> dict[str, object] | None:
+    envelope = _envelope_mutation_approval(message)
+    if envelope is not None:
+        return envelope
+    if _wants_accumulation_goal_creation(message):
+        amount = _target_amount_from_message(message)
+        if amount is None:
+            return None
+        title = _accumulation_title_from_message(message)
+        months = _target_months_from_message(message)
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="create_accumulation_goal",
+            tool_input={"title": title, "target_amount": f"{amount:.2f}", "target_months": months},
+            action_label="Birikim hedefi oluştur",
+            summary=f"{title} için {format_amount_text(str(amount))} hedef açılacak.",
+            details=[
+                f"Hedef süresi yaklaşık {months} ay.",
+                "İşlem defterine otomatik gelir/gider yazılmaz.",
+            ],
+        )
+    if _wants_smart_saving_plan(message):
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="create_smart_saving_plan",
+            tool_input={"message": message},
+            action_label="Akıllı hedef planı oluştur",
+            summary="Son 30 gün verisine göre hedef planı oluşturulacak.",
+            details=[
+                "Uygun kategoriler için tasarruf hedefi açılabilir.",
+                "Amaç netse birikim hedefi de açılabilir.",
+            ],
+        )
+    goal_mutation = _saving_goal_mutation_approval(db, current_user, message)
+    if goal_mutation is not None:
+        return goal_mutation
+    if _wants_saving_goal_creation(message):
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="create_saving_goal",
+            tool_input={"category": "__infer__", "target_reduction_percent": 15},
+            action_label="Tasarruf hedefi oluştur",
+            summary="Belirttiğin kategori için %15 azaltma hedefi oluşturulacak.",
+            details=[
+                "Kategori aktif profil verisinden bulunacak.",
+                "Hedef yatırım tavsiyesi değildir.",
+            ],
+        )
+    return None
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _optional_decimal(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    raw_value = str(value).strip()
+    normalized = raw_value.replace("₺", "").replace("TL", "").replace("tl", "").strip()
+    normalized = re.sub(r"[^\d,.-]", "", normalized)
+    if "," in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    try:
+        return Decimal(normalized)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _matching_envelope_slug(
+    db: Session,
+    current_user: User,
+    *,
+    slug: str | None,
+    name: str | None,
+) -> str | None:
+    if slug and slug != "__lookup_required__":
+        return slug
+    if not name:
+        return None
+    overview = build_envelope_budget_overview(db, current_user)
+    envelopes = overview.get("envelopes")
+    if not isinstance(envelopes, list):
+        return None
+    normalized_name = _normalized_scope_label(name.removesuffix(" zarfı").removesuffix(" zarf"))
+    for item in envelopes:
+        if not isinstance(item, dict):
+            continue
+        labels = [
+            _normalized_scope_label(_optional_str(item.get("slug"))),
+            _normalized_scope_label(_optional_str(item.get("label"))),
+            _normalized_scope_label(_optional_str(item.get("category_name"))),
+        ]
+        if normalized_name and any(
+            label and (normalized_name in label or label in normalized_name) for label in labels
+        ):
+            return _optional_str(item.get("slug"))
+    return None
+
+
+def _execute_approved_tool(
+    db: Session,
+    current_user: User,
+    tool_name: str,
+    tool_input: dict[str, object],
+) -> dict[str, object]:
+    if tool_name == "create_accumulation_goal":
+        target_amount = _optional_decimal(tool_input.get("target_amount"))
+        if target_amount is None:
+            return {"error": "Birikim hedefi için hedef tutarı net okuyamadım."}
+        current_amount = _optional_decimal(tool_input.get("current_amount")) or Decimal("0")
+        monthly_contribution = _optional_decimal(tool_input.get("monthly_contribution"))
+        target_months = int(str(tool_input.get("target_months") or 12))
+        return build_accumulation_goal_creation(
+            db,
+            current_user,
+            title=_optional_str(tool_input.get("title")) or "Birikim hedefi",
+            target_amount=target_amount,
+            current_amount=current_amount,
+            target_months=target_months,
+            monthly_contribution=monthly_contribution,
+        )
+    if tool_name == "create_smart_saving_plan":
+        return build_smart_saving_plan(
+            db,
+            current_user,
+            message=_optional_str(tool_input.get("message")) or "Akıllı hedef planı",
+        )
+    if tool_name == "create_saving_goal":
+        category = _optional_str(tool_input.get("category"))
+        if category == "__infer__":
+            category = infer_category_from_text(
+                db, current_user, _optional_str(tool_input.get("message")) or ""
+            )
+        if category is None:
+            return {"error": "Hangi kategoride tasarruf hedefi oluşturulacağını netleştiremedim."}
+        reduction = int(str(tool_input.get("target_reduction_percent") or 15))
+        return build_saving_goal_creation(
+            db,
+            current_user,
+            category=category,
+            target_reduction_percent=reduction,
+        )
+    if tool_name == "update_saving_goal":
+        return build_saving_goal_update(
+            db,
+            current_user,
+            goal_id=_optional_str(tool_input.get("goal_id")),
+            title=_optional_str(tool_input.get("title")),
+            category=_optional_str(tool_input.get("category")),
+            new_title=_optional_str(tool_input.get("new_title")),
+            status=_optional_str(tool_input.get("status")),
+            current_amount=_optional_decimal(tool_input.get("current_amount")),
+            contribution_amount=_optional_decimal(tool_input.get("contribution_amount")),
+            monthly_contribution=_optional_decimal(tool_input.get("monthly_contribution")),
+        )
+    if tool_name == "delete_saving_goal":
+        return build_saving_goal_delete(
+            db,
+            current_user,
+            goal_id=_optional_str(tool_input.get("goal_id")),
+            title=_optional_str(tool_input.get("title")),
+            category=_optional_str(tool_input.get("category")),
+        )
+    if tool_name == "create_envelope_budget":
+        budget = _optional_decimal(tool_input.get("budget_monthly"))
+        if budget is None:
+            return {"error": "Zarf limitini net okuyamadım."}
+        return build_envelope_budget_creation(
+            db,
+            current_user,
+            name=_optional_str(tool_input.get("name")) or "Özel zarf",
+            budget_monthly=budget,
+        )
+    if tool_name == "update_envelope_budget":
+        budget = _optional_decimal(tool_input.get("budget_monthly"))
+        slug = _matching_envelope_slug(
+            db,
+            current_user,
+            slug=_optional_str(tool_input.get("slug")),
+            name=_optional_str(tool_input.get("name")),
+        )
+        if budget is None:
+            return {"error": "Zarf limitini net okuyamadım."}
+        if slug is None:
+            return {"error": "Güncellenecek zarfı netleştiremedim."}
+        return build_envelope_budget_update(db, current_user, slug=slug, budget_monthly=budget)
+    if tool_name == "delete_envelope_budget":
+        slug = _matching_envelope_slug(
+            db,
+            current_user,
+            slug=_optional_str(tool_input.get("slug")),
+            name=_optional_str(tool_input.get("name")),
+        )
+        if slug is None:
+            return {"error": "Kapatılacak zarfı netleştiremedim."}
+        return build_envelope_budget_delete(db, current_user, slug=slug)
+    return {"error": "Bu işlem için onaylı araç bulunamadı.", "tool_name": tool_name}
+
+
+def _approved_tool_answer(tool_name: str, result: dict[str, object]) -> str:
+    if "error" in result:
+        return f"Onayladığın işlemi tamamlayamadım: {result['error']}"
+    if tool_name == "create_accumulation_goal":
+        return _accumulation_goal_answer(result, created=True)
+    if tool_name == "create_saving_goal":
+        return _saving_goal_answer(result, created=True)
+    if tool_name == "create_smart_saving_plan":
+        return _smart_saving_plan_answer(result)
+    if tool_name == "update_saving_goal":
+        title = str(result.get("title") or "Hedef")
+        return f"{title} hedefini güncelledim. Yeni durumu hedefler ekranında görebilirsin."
+    if tool_name == "delete_saving_goal":
+        title = str(result.get("title") or "Hedef")
+        return f"{title} hedefini sildim."
+    if tool_name == "create_envelope_budget":
+        name = str(result.get("category_name") or "Zarf")
+        amount = str(result.get("budget_monthly_formatted") or "0,00 ₺")
+        return f"{name} zarfını {amount} aylık limit ile kaydettim."
+    if tool_name == "update_envelope_budget":
+        name = str(result.get("category_name") or "Zarf")
+        amount = str(result.get("budget_monthly_formatted") or "0,00 ₺")
+        return f"{name} zarfının aylık limitini {amount} yaptım."
+    if tool_name == "delete_envelope_budget":
+        name = str(result.get("category_name") or "Zarf")
+        return f"{name} zarfını aktif profil için kapattım. Kategori silinmedi; limit 0,00 ₺ oldu."
+    return "Onayladığın işlemi tamamladım."
 
 
 def _int_result(result: dict[str, object], key: str) -> int:
@@ -946,6 +1514,92 @@ def _tool_call_args(call: dict[str, Any]) -> dict[str, object]:
     return _json_payload(args if isinstance(args, dict) else {})
 
 
+def _approval_summary_for_tool(tool_name: str, tool_input: dict[str, object]) -> str:
+    if tool_name == "create_saving_goal":
+        category = _optional_str(tool_input.get("category")) or "Seçilecek kategori"
+        reduction = _optional_str(tool_input.get("target_reduction_percent")) or "15"
+        return f"{category} kategorisi için %{reduction} azaltma hedefi oluşturulacak."
+    if tool_name == "create_accumulation_goal":
+        title = _optional_str(tool_input.get("title")) or "Birikim hedefi"
+        amount = _optional_str(tool_input.get("target_amount"))
+        amount_text = format_amount_text(amount) if amount else "hedef tutar"
+        return f"{title} için {amount_text} hedef açılacak."
+    if tool_name == "create_smart_saving_plan":
+        return "Son 30 gün verisine göre hedef planı oluşturulacak."
+    if tool_name == "update_saving_goal":
+        title = (
+            _optional_str(tool_input.get("title"))
+            or _optional_str(tool_input.get("category"))
+            or "Seçilecek hedef"
+        )
+        return f"{title} hedefi güncellenecek."
+    if tool_name == "delete_saving_goal":
+        title = (
+            _optional_str(tool_input.get("title"))
+            or _optional_str(tool_input.get("category"))
+            or "Seçilecek hedef"
+        )
+        return f"{title} hedefi silinecek."
+    if tool_name == "create_envelope_budget":
+        name = _optional_str(tool_input.get("name")) or "Yeni zarf"
+        amount = _optional_str(tool_input.get("budget_monthly"))
+        amount_text = format_amount_text(amount) if amount else "aylık limit"
+        return f"{name} zarfı için aylık limit {amount_text} yapılacak."
+    if tool_name == "update_envelope_budget":
+        name = (
+            _optional_str(tool_input.get("name"))
+            or _optional_str(tool_input.get("slug"))
+            or "Seçilecek zarf"
+        )
+        amount = _optional_str(tool_input.get("budget_monthly"))
+        amount_text = format_amount_text(amount) if amount else "aylık limit"
+        return f"{name} zarfı için aylık limit {amount_text} yapılacak."
+    if tool_name == "delete_envelope_budget":
+        name = (
+            _optional_str(tool_input.get("name"))
+            or _optional_str(tool_input.get("slug"))
+            or "Seçilecek zarf"
+        )
+        return f"{name} zarfı aktif profil için kapatılacak."
+    return "Bu işlem aktif profil verilerini değiştirecek."
+
+
+def _approval_details_for_tool(tool_name: str) -> list[str]:
+    if tool_name == "create_envelope_budget":
+        return [
+            "Hazır zarf adıysa mevcut zarf açılır/güncellenir.",
+            "Farklı adsa özel zarf oluşturulur.",
+        ]
+    if tool_name == "update_envelope_budget":
+        return ["Zarf limiti aktif profil için güncellenir."]
+    if tool_name == "delete_envelope_budget":
+        return ["Kategori silinmez.", "Zarf limiti 0,00 ₺ yapılır."]
+    if tool_name in {"create_accumulation_goal", "update_saving_goal"}:
+        return ["İşlem defterine otomatik gelir/gider yazılmaz."]
+    if tool_name == "delete_saving_goal":
+        return [
+            "Bu işlem hedef kaydını kaldırır.",
+            "İşlem defterindeki gelir/gider kayıtları değişmez.",
+        ]
+    if tool_name == "create_smart_saving_plan":
+        return [
+            "Uygun kategoriler için tasarruf hedefi açılabilir.",
+            "Amaç netse birikim hedefi de açılabilir.",
+        ]
+    return ["Hedef yatırım tavsiyesi değildir."]
+
+
+def _approval_from_tool_call(tool_name: str, tool_input: dict[str, object]) -> dict[str, object]:
+    return _approval_record(
+        approval_id=_approval_id(),
+        tool_name=tool_name,
+        tool_input=tool_input,
+        action_label=APPROVAL_ACTIONS_BY_TOOL.get(tool_name, "İşlemi onayla"),
+        summary=_approval_summary_for_tool(tool_name, tool_input),
+        details=_approval_details_for_tool(tool_name),
+    )
+
+
 def _graph_context_messages(
     db: Session,
     conversation: Conversation,
@@ -1022,6 +1676,19 @@ def _stream_live_graph(
                     for call in tool_calls:
                         tool_name = _tool_call_name(call)
                         tool_input = _tool_call_args(call)
+                        if tool_name in APPROVAL_TOOL_NAMES:
+                            approval = _approval_from_tool_call(tool_name, tool_input)
+                            _store_pending_approval(db, conversation, approval)
+                            answer = _approval_needed_answer()
+                            for chunk in _chunks(answer):
+                                yield {
+                                    "type": "delta",
+                                    "conversation_id": str(conversation.id),
+                                    "content": chunk,
+                                }
+                            yield _approval_event(str(conversation.id), approval)
+                            _persist_message(db, conversation, role="assistant", content=answer)
+                            return
                         yield {
                             "type": "tool_call",
                             "conversation_id": str(conversation.id),
@@ -1074,6 +1741,75 @@ def stream_chat_turn(
     yield {"type": "message_start", "conversation_id": conversation_id, "role": "assistant"}
     current_user_message = _persist_message(db, conversation, role="user", content=payload.message)
 
+    if payload.approval_decision is not None:
+        if payload.approval_id is None:
+            answer = "Onay bilgisini eşleştiremedim; işlemi çalıştırmadım."
+            for chunk in _chunks(answer):
+                yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+            _persist_message(db, conversation, role="assistant", content=answer)
+            yield {"type": "done", "conversation_id": conversation_id}
+            return
+        approval_message = _pending_approval_message(db, conversation, payload.approval_id)
+        if approval_message is None:
+            answer = "Bu onay isteği artık geçerli değil; herhangi bir değişiklik yapmadım."
+            for chunk in _chunks(answer):
+                yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+            _persist_message(db, conversation, role="assistant", content=answer)
+            yield {"type": "done", "conversation_id": conversation_id}
+            return
+        approval = _approval_from_message(approval_message)
+        tool_name = str(approval.get("tool_name") or approval_message.tool_name or "")
+        tool_input = _json_payload(approval.get("input", {}))
+        if payload.approval_decision == "rejected":
+            _mark_approval_status(approval_message, "rejected")
+            db.commit()
+            answer = _approval_rejected_answer()
+            for chunk in _chunks(answer):
+                yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+            _persist_message(db, conversation, role="assistant", content=answer)
+            yield {"type": "done", "conversation_id": conversation_id}
+            return
+        _mark_approval_status(approval_message, "approved")
+        db.commit()
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": tool_name,
+            "input": tool_input,
+        }
+        result = _execute_approved_tool(db, current_user, tool_name, tool_input)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Onaylanan araç sonucu alındı.",
+            tool_name=tool_name,
+            tool_calls={"input": tool_input, "result": result, "approval_id": payload.approval_id},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": tool_name,
+            "result": result,
+        }
+        answer = _approved_tool_answer(tool_name, result)
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
+    latest_pending_approval = _latest_pending_approval_message(db, conversation)
+    if latest_pending_approval is not None:
+        approval = _approval_from_message(latest_pending_approval)
+        answer = "Önce bekleyen onay kartını yanıtlaman gerekiyor; yeni değişiklik yapmadım."
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        yield _approval_event(conversation_id, approval)
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
     receipt_result: dict[str, object] | None = None
     if payload.receipt_image_base64 is not None:
         receipt_tool_input: dict[str, object] = {
@@ -1120,6 +1856,35 @@ def stream_chat_turn(
         answer = _investment_refusal_answer()
         for chunk in _chunks(answer):
             yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
+    pending_approval = _mutating_fallback_approval(db, current_user, payload.message)
+    if pending_approval is not None:
+        if pending_approval["tool_name"] == "create_saving_goal":
+            tool_input = _json_payload(pending_approval.get("input", {}))
+            category = infer_category_from_text(db, current_user, payload.message)
+            if category is None:
+                answer = "Hangi kategoride tasarruf hedefi oluşturmak istediğini söyler misin?"
+                for chunk in _chunks(answer):
+                    yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+                _persist_message(db, conversation, role="assistant", content=answer)
+                yield {"type": "done", "conversation_id": conversation_id}
+                return
+            pending_approval["input"] = {
+                **tool_input,
+                "category": category,
+                "message": payload.message,
+            }
+            pending_approval["summary"] = (
+                f"{category} kategorisi için %15 azaltma hedefi oluşturulacak."
+            )
+        _store_pending_approval(db, conversation, pending_approval)
+        answer = _approval_needed_answer()
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        yield _approval_event(conversation_id, pending_approval)
         _persist_message(db, conversation, role="assistant", content=answer)
         yield {"type": "done", "conversation_id": conversation_id}
         return

@@ -64,6 +64,15 @@ export type CategoryCreateInput = {
   budget_monthly?: string | null;
 };
 
+export type CategoryBudgetUpdateInput = {
+  budget_monthly: string;
+};
+
+export type EnvelopeCreateInput = {
+  name: string;
+  budget_monthly: string;
+};
+
 export type Transaction = {
   id: string;
   user_id: string;
@@ -146,6 +155,7 @@ export type TransactionBudgetEnvelope = {
   used_percent: string | null;
   status: "safe" | "watch" | "over";
   is_savings_goal: boolean;
+  is_custom: boolean;
 };
 
 export type TransactionSummary = {
@@ -247,6 +257,8 @@ export type ChatStreamRequest = {
   receipt_image_base64?: string | null;
   receipt_filename?: string | null;
   receipt_content_type?: string | null;
+  approval_id?: string | null;
+  approval_decision?: "approved" | "rejected" | null;
 };
 
 export type ChatToolPayload = Record<string, unknown>;
@@ -292,6 +304,16 @@ export type ChatStreamEvent =
       conversation_id: string;
       image_url: string;
       alt_text: string;
+    }
+  | {
+      type: "approval_required";
+      conversation_id: string;
+      approval_id: string;
+      tool_name: string;
+      action_label: string;
+      summary: string;
+      details: string[];
+      input: ChatToolPayload;
     }
   | {
       type: "delta";

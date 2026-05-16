@@ -59,6 +59,8 @@ import type {
   CategoryCreateInput,
   ProactiveInsight,
   RecurrenceUnit,
+  SavingGoal,
+  SavingGoalProgress,
   Subscription,
   SubscriptionCreateInput,
   SubscriptionUpdateInput,
@@ -1266,113 +1268,268 @@ const envelopeStatusLabels: Record<TransactionBudgetEnvelope["status"], string> 
   over: "Aşıldı",
 };
 
+function goalSummaryTone(goal: SavingGoal) {
+  if (goal.goal_type === "accumulation") {
+    return {
+      badge: "border-primary/40 bg-primary/10 text-primary",
+      progress: "bg-primary",
+      row: "border-primary/25 bg-primary/10",
+      text: "text-primary",
+      label: "Birikim",
+    };
+  }
+  return {
+    badge: "border-accent/60 bg-accent/25 text-accent-foreground",
+    progress: "bg-accent",
+    row: "border-accent/40 bg-accent/15",
+    text: "text-accent-foreground",
+    label: "Tasarruf",
+  };
+}
+
+function GoalSlider({
+  goals,
+  progressByGoalId,
+  isLoading,
+}: {
+  goals: SavingGoal[];
+  progressByGoalId: Record<string, SavingGoalProgress>;
+  isLoading: boolean;
+}) {
+  const activeGoals = goals.filter((goal) => goal.status === "active");
+
+  return (
+    <section className="ledger-sheet p-4 sm:p-5">
+      <div className="relative z-10 space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="eyebrow">Hedef rayı</p>
+            <h2 className="mt-1 font-display text-2xl font-black leading-none sm:text-[1.7rem]">
+              Birikim ve tasarruf
+            </h2>
+          </div>
+          <Button asChild size="sm" variant="secondary" className="w-fit">
+            <Link href="/dashboard/goals">
+              Hedefleri aç
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 rounded-[1.25rem] border border-border/70 bg-background/70 p-3 text-sm font-bold text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Hedefler yükleniyor.
+          </div>
+        ) : activeGoals.length === 0 ? (
+          <p className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3 text-sm font-bold text-muted-foreground">
+            Aktif hedef yok. Birikim veya tasarruf hedefi eklediğinde burada kayan liste görünür.
+          </p>
+        ) : (
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {activeGoals.slice(0, 6).map((goal) => {
+              const tone = goalSummaryTone(goal);
+              const progress = progressByGoalId[goal.id];
+              const progressWidth = progress
+                ? Math.max(0, Math.min(100, Number(progress.progress_percent)))
+                : 0;
+              const remaining =
+                goal.goal_type === "accumulation"
+                  ? (progress?.remaining_amount ?? goal.target_amount ?? "0")
+                  : (progress?.remaining_limit ?? goal.target_spending_amount);
+              return (
+                <Link
+                  key={goal.id}
+                  href={`/dashboard/goals?hedef=${encodeURIComponent(goal.id)}`}
+                  className={cn(
+                    "min-w-0 rounded-[1.25rem] border p-3 transition-transform duration-200 ease-quint hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    tone.row,
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-flex rounded-full border px-2.5 py-1 text-[0.68rem] font-black",
+                      tone.badge,
+                    )}
+                  >
+                    {tone.label}
+                  </span>
+                  <p className="mt-2 truncate font-display text-lg font-black">{goal.title}</p>
+                  <p className="mt-1 text-xs font-bold text-muted-foreground">
+                    {goal.goal_type === "accumulation" ? "Kalan tutar" : goal.category_name}
+                  </p>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-background/80">
+                    <div
+                      className={cn("h-full rounded-full", tone.progress)}
+                      style={{ width: `${progressWidth}%` }}
+                    />
+                  </div>
+                  <p
+                    className={cn(
+                      "mt-3 truncate font-display text-lg font-black tabular-nums",
+                      tone.text,
+                    )}
+                  >
+                    {formatKurus(amountToKurus(remaining))}
+                  </p>
+                </Link>
+              );
+            })}
+            {activeGoals.length > 6 ? (
+              <Link
+                href="/dashboard/goals"
+                className="grid min-h-32 place-items-center rounded-[1.25rem] border border-dashed border-border/80 bg-background/65 p-3 text-center text-sm font-black text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                +{activeGoals.length - 6} hedef daha
+              </Link>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }) {
   const envelopes = summary?.envelopes ?? [];
   const savingsEnvelope = envelopes.find((envelope) => envelope.is_savings_goal) ?? null;
+  const orderedEnvelopes = envelopes
+    .map((envelope, index) => ({ envelope, index }))
+    .sort((first, second) => {
+      const priority = (envelope: TransactionBudgetEnvelope) => {
+        if (envelope.status === "over") return 0;
+        if (envelope.status === "watch") return 1;
+        if (envelope.is_savings_goal) return 2;
+        return 3;
+      };
+      return priority(first.envelope) - priority(second.envelope) || first.index - second.index;
+    })
+    .map(({ envelope }) => envelope);
+  const previewEnvelopes = orderedEnvelopes.slice(0, 4);
+  const hiddenEnvelopeCount = Math.max(orderedEnvelopes.length - previewEnvelopes.length, 0);
 
-  return (
-    <section className="ledger-sheet p-5 sm:p-8">
-      <div className="relative z-10 space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="eyebrow">Zarf bütçesi</p>
-            <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
-              Aile bütçesi zarflara ayrıldı
-            </h2>
-            <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
-              Market, fatura, okul, ulaşım, harçlık ve birikim hedefi aynı aylık bütçe penceresinde
-              izlenir.
+  function renderEnvelopeRow(envelope: TransactionBudgetEnvelope) {
+    const budget = amountToKurus(envelope.budget);
+    const spent = amountToKurus(envelope.spent);
+    const remaining = amountToKurus(envelope.remaining);
+    const safeDailyAmount = amountToKurus(envelope.safe_daily_amount);
+    const progress = budget > 0 ? Math.min(100, Math.max(0, (spent / budget) * 100)) : 0;
+    const label = envelope.is_savings_goal ? "Birikim" : envelopeStatusLabels[envelope.status];
+
+    return (
+      <div
+        key={envelope.slug}
+        className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3"
+      >
+        <div className="grid gap-3 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(13rem,1.2fr)_auto] sm:items-center">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/dashboard/goals?zarf=${encodeURIComponent(envelope.slug)}`}
+                className={cn(
+                  "truncate font-display text-lg font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  envelope.is_savings_goal ? "hover:text-primary" : "hover:text-foreground",
+                )}
+              >
+                {envelope.label}
+              </Link>
+              <span
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[0.68rem] font-black",
+                  envelope.is_savings_goal
+                    ? "border border-primary/40 bg-primary/10 text-primary"
+                    : envelope.status === "over"
+                      ? "bg-destructive text-destructive-foreground"
+                      : envelope.status === "watch"
+                        ? "bg-accent text-accent-foreground"
+                        : "border border-border/70 bg-muted text-foreground",
+                )}
+              >
+                {label}
+              </span>
+            </div>
+            <p className="mt-1 text-xs font-bold text-muted-foreground">
+              {formatUsedPercent(envelope.used_percent)}
             </p>
           </div>
-          {savingsEnvelope ? (
-            <div className="cash-envelope min-w-64 p-4">
-              <div className="relative z-10">
-                <p className="flex items-center gap-2 text-sm font-bold text-secondary-foreground/80">
-                  <PiggyBank className="h-4 w-4" />
-                  Birikim hedefi
-                </p>
-                <p className="mt-3 font-display text-2xl font-black tabular-nums">
-                  {formatKurus(amountToKurus(savingsEnvelope.budget))}
-                </p>
-                <p className="mt-1 text-xs font-bold text-muted-foreground">
-                  Kalan {formatKurus(amountToKurus(savingsEnvelope.remaining))}
-                </p>
-              </div>
+
+          <div className="space-y-2">
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  "h-full rounded-full",
+                  envelope.is_savings_goal
+                    ? "bg-primary"
+                    : envelope.status === "over"
+                      ? "bg-destructive"
+                      : envelope.status === "watch"
+                        ? "bg-accent"
+                        : "bg-muted-foreground/45",
+                )}
+                style={{ width: `${progress}%` }}
+              />
             </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-bold text-muted-foreground">
+              <span>Bütçe {formatKurus(budget)}</span>
+              <span>Harcanan {formatKurus(spent)}</span>
+              <span>
+                {envelope.is_savings_goal ? "Günlük hedef" : "Güvenli günlük"}{" "}
+                {formatKurus(safeDailyAmount)}
+              </span>
+            </div>
+          </div>
+
+          <div className="sm:text-right">
+            <p className="text-xs font-bold text-muted-foreground">Kalan</p>
+            <p
+              className={cn(
+                "font-display text-2xl font-black tabular-nums leading-none",
+                remaining < 0 ? "text-destructive" : "text-foreground",
+              )}
+            >
+              {formatKurus(remaining)}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <section className="ledger-sheet p-4 sm:p-5">
+      <div className="relative z-10 space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="eyebrow">Zarf özeti</p>
+            <h2 className="mt-1 font-display text-2xl font-black leading-none sm:text-[1.7rem]">
+              Aylık sınırlar kısa görünümde
+            </h2>
+          </div>
+          {savingsEnvelope ? (
+            <p className="flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-2 text-xs font-black text-primary">
+              <PiggyBank className="h-4 w-4" />
+              Birikim hedefi {formatKurus(amountToKurus(savingsEnvelope.budget))}
+            </p>
           ) : null}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {envelopes.map((envelope) => {
-            const budget = amountToKurus(envelope.budget);
-            const spent = amountToKurus(envelope.spent);
-            const remaining = amountToKurus(envelope.remaining);
-            const progress = budget > 0 ? Math.min(100, Math.max(0, (spent / budget) * 100)) : 0;
-            return (
-              <div key={envelope.slug} className="cash-envelope min-h-56 p-5">
-                <div className="relative z-10 flex h-full flex-col justify-between gap-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-display text-xl font-black">{envelope.label}</p>
-                      <p className="mt-1 text-xs font-bold text-muted-foreground">
-                        {formatUsedPercent(envelope.used_percent)}
-                      </p>
-                    </div>
-                    <span
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs font-black",
-                        envelope.is_savings_goal
-                          ? "bg-background/75 text-primary"
-                          : envelope.status === "over"
-                            ? "bg-destructive text-destructive-foreground"
-                            : envelope.status === "watch"
-                              ? "bg-accent text-accent-foreground"
-                              : "bg-background/75 text-primary",
-                      )}
-                    >
-                      {envelope.is_savings_goal ? "Hedef" : envelopeStatusLabels[envelope.status]}
-                    </span>
-                  </div>
+        {previewEnvelopes.length > 0 ? (
+          <div className="grid gap-3">{previewEnvelopes.map(renderEnvelopeRow)}</div>
+        ) : (
+          <p className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3 text-sm font-bold text-muted-foreground">
+            Zarf verisi oluşunca burada kısa bir liste görünür.
+          </p>
+        )}
 
-                  <div className="space-y-3">
-                    <div className="h-3 overflow-hidden rounded-full bg-background/75">
-                      <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-2xl bg-background/60 p-3">
-                        <p className="font-bold text-muted-foreground">Bütçe</p>
-                        <p className="mt-1 font-display text-lg font-black tabular-nums">
-                          {formatKurus(budget)}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl bg-background/60 p-3">
-                        <p className="font-bold text-muted-foreground">Harcanan</p>
-                        <p className="mt-1 font-display text-lg font-black tabular-nums">
-                          {formatKurus(spent)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-bold text-muted-foreground">Kalan</p>
-                    <p className="mt-1 font-display text-3xl font-black tabular-nums">
-                      {formatKurus(remaining)}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Ay sonuna {envelope.days_left_in_month} gün var;{" "}
-                      {envelope.is_savings_goal ? "günlük hedef" : "günlük güvenli tutar"} yaklaşık{" "}
-                      {formatKurus(amountToKurus(envelope.safe_daily_amount))}.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {orderedEnvelopes.length > 0 ? (
+          <Button asChild size="sm" variant="secondary" className="w-fit">
+            <Link href="/dashboard/goals?sekme=zarflar">
+              Tüm zarfları göster
+              {hiddenEnvelopeCount > 0 ? ` (+${hiddenEnvelopeCount})` : null}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        ) : null}
       </div>
     </section>
   );
@@ -1414,6 +1571,10 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [savingGoals, setSavingGoals] = useState<SavingGoal[]>([]);
+  const [savingGoalProgress, setSavingGoalProgress] = useState<Record<string, SavingGoalProgress>>(
+    {},
+  );
   const [insights, setInsights] = useState<ProactiveInsight[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1448,18 +1609,28 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const loadDashboardData = useCallback(async () => {
     setError(null);
     try {
-      const [transactionData, categoryData, summaryData, subscriptionData, insightData] =
+      const [transactionData, categoryData, summaryData, subscriptionData, goalData, insightData] =
         await Promise.all([
           api<Transaction[]>("/api/transactions", { silent: true }),
           api<Category[]>("/api/categories", { silent: true }),
           api<TransactionSummary>("/api/transactions/summary", { silent: true }),
           api<Subscription[]>("/api/subscriptions", { silent: true }),
+          api<SavingGoal[]>("/api/saving-goals?status=active", { silent: true }),
           api<ProactiveInsight[]>("/api/insights", { silent: true }),
         ]);
       setTransactions(transactionData);
       setCategories(sortCategories(categoryData));
       setSummary(summaryData);
       setSubscriptions(subscriptionData);
+      setSavingGoals(goalData);
+      const progressRows = await Promise.all(
+        goalData.map((goal) =>
+          api<SavingGoalProgress>(`/api/saving-goals/${goal.id}/progress`, { silent: true }),
+        ),
+      );
+      setSavingGoalProgress(
+        Object.fromEntries(progressRows.map((progress) => [progress.goal.id, progress])),
+      );
       setInsights(insightData);
     } catch (err) {
       setError(friendlyError(err, "Bütçe verileri yüklenemedi, biraz sonra tekrar dener misin?"));
@@ -2142,7 +2313,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
             </div>
           ) : (
             <>
-              <BudgetEnvelopeBoard summary={summary} />
+              <div className="grid min-w-0 gap-6 2xl:grid-cols-[1fr_1fr]">
+                <BudgetEnvelopeBoard summary={summary} />
+                <GoalSlider
+                  goals={savingGoals}
+                  progressByGoalId={savingGoalProgress}
+                  isLoading={isLoading}
+                />
+              </div>
               <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
                 <SummaryStatus summary={summary} />
                 <SpendingChart summary={summary} />

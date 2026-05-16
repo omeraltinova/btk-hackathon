@@ -28,8 +28,15 @@ from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
-from app.schemas.saving_goal import SavingGoalProgressRead
-from app.services.envelopes import build_envelope_budget_summary, resolve_envelope_category
+from app.routers.categories import create_envelope_category, set_envelope_budget
+from app.schemas.saving_goal import SavingGoalProgressRead, SavingGoalStatus, SavingGoalUpdate
+from app.services.envelopes import (
+    BudgetEnvelope,
+    build_envelope_budget_summary,
+    custom_envelope_category_id,
+    envelope_definition_for_slug,
+    resolve_envelope_category,
+)
 from app.services.image_gen import IllustrationService, IllustrationUnavailableError
 from app.services.ocr import ReceiptOcrError, ReceiptOcrService, ReceiptOcrUnavailableError
 from app.services.saving_goals import (
@@ -37,6 +44,7 @@ from app.services.saving_goals import (
     create_accumulation_goal,
     create_saving_goal,
     find_active_saving_goal,
+    update_saving_goal,
 )
 from app.services.smart_plans import build_smart_saving_plan
 from app.utils.date_format import format_tr_date
@@ -74,6 +82,10 @@ def _money(value: Decimal) -> Decimal:
 
 def _decimal_text(value: Decimal) -> str:
     return f"{_money(value):.2f}"
+
+
+def parse_money_text(value: str) -> Decimal:
+    return Decimal(value.replace(".", "").replace(",", "."))
 
 
 def _aware_utc(value: datetime) -> datetime:
@@ -354,6 +366,174 @@ def _progress_to_tool_result(progress: SavingGoalProgressRead) -> dict[str, obje
     }
 
 
+def _envelope_to_tool_result(envelope: BudgetEnvelope) -> dict[str, object]:
+    used_percent = envelope.used_percent
+    return {
+        "slug": envelope.slug,
+        "label": envelope.label,
+        "category_name": envelope.category_name,
+        "budget": _decimal_text(envelope.budget),
+        "budget_formatted": format_tl(envelope.budget),
+        "spent": _decimal_text(envelope.spent),
+        "spent_formatted": format_tl(envelope.spent),
+        "remaining": _decimal_text(envelope.remaining),
+        "remaining_formatted": format_tl(envelope.remaining),
+        "days_left_in_month": envelope.days_left_in_month,
+        "safe_daily_amount": _decimal_text(envelope.safe_daily_amount),
+        "safe_daily_amount_formatted": format_tl(envelope.safe_daily_amount),
+        "used_percent": f"{used_percent:.1f}" if used_percent is not None else None,
+        "status": envelope.status,
+        "is_savings_goal": envelope.is_savings_goal,
+        "is_custom": envelope.is_custom,
+    }
+
+
+def build_envelope_budget_overview(
+    db: Session,
+    current_user: User,
+    *,
+    slug: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    categories = visible_categories(db, current_user)
+    period_end = _aware_utc(now or datetime.now(UTC))
+    current_month_start = _local_month_start_utc(period_end)
+    category_totals: dict[UUID | None, Decimal] = {}
+    transactions = list(
+        db.execute(
+            select(Transaction).where(
+                Transaction.user_id.in_(visible_user_ids(current_user)),
+                Transaction.occurred_at >= current_month_start,
+                Transaction.type == "expense",
+            ),
+        )
+        .scalars()
+        .all(),
+    )
+    for transaction in transactions:
+        category_totals[transaction.category_id] = category_totals.get(
+            transaction.category_id,
+            Decimal("0"),
+        ) + Decimal(transaction.amount)
+    summary = build_envelope_budget_summary(
+        categories=categories,
+        current_category_totals=category_totals,
+        now=period_end,
+    )
+    envelopes = [_envelope_to_tool_result(envelope) for envelope in summary.envelopes]
+    if slug is not None:
+        definition = envelope_definition_for_slug(slug)
+        custom_category_id = custom_envelope_category_id(slug)
+        if definition is None and custom_category_id is None:
+            return {"error": "Zarf bulunamadı.", "slug": slug}
+        expected_slug = definition.slug if definition is not None else slug
+        envelopes = [item for item in envelopes if item["slug"] == expected_slug]
+    return {
+        "count": len(envelopes),
+        "budgeted_month": _decimal_text(summary.budgeted_month),
+        "budgeted_month_formatted": format_tl(summary.budgeted_month),
+        "spent_month": _decimal_text(summary.spent_month),
+        "spent_month_formatted": format_tl(summary.spent_month),
+        "remaining_budget": _decimal_text(summary.remaining_budget),
+        "remaining_budget_formatted": format_tl(summary.remaining_budget),
+        "envelopes": envelopes,
+    }
+
+
+def build_envelope_budget_update(
+    db: Session,
+    current_user: User,
+    *,
+    slug: str,
+    budget_monthly: Decimal,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    definition = envelope_definition_for_slug(slug)
+    custom_category_id = custom_envelope_category_id(slug)
+    if definition is None and custom_category_id is None:
+        return {"error": "Zarf bulunamadı.", "slug": slug}
+    resolved_slug = definition.slug if definition is not None else slug
+    category = set_envelope_budget(
+        slug=resolved_slug,
+        budget_monthly=_money(budget_monthly),
+        db=db,
+        current_user=current_user,
+    )
+    overview = build_envelope_budget_overview(db, current_user, slug=resolved_slug, now=now)
+    envelopes = overview.get("envelopes")
+    envelope = envelopes[0] if isinstance(envelopes, list) and envelopes else None
+    return {
+        "updated": True,
+        "slug": resolved_slug,
+        "category_id": str(category.id),
+        "category_name": category.name,
+        "budget_monthly": _decimal_text(_money(budget_monthly)),
+        "budget_monthly_formatted": format_tl(_money(budget_monthly)),
+        "envelope": envelope,
+    }
+
+
+def build_envelope_budget_creation(
+    db: Session,
+    current_user: User,
+    *,
+    name: str,
+    budget_monthly: Decimal,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    normalized_name = " ".join(name.split())
+    if len(normalized_name) < 2:
+        return {"error": "Zarf adı boş olamaz.", "name": name}
+    category = create_envelope_category(
+        name=normalized_name,
+        budget_monthly=_money(budget_monthly),
+        db=db,
+        current_user=current_user,
+    )
+    overview = build_envelope_budget_overview(db, current_user, now=now)
+    envelopes = overview.get("envelopes")
+    envelope = None
+    if isinstance(envelopes, list):
+        envelope = next(
+            (
+                item
+                for item in envelopes
+                if isinstance(item, dict)
+                and str(item.get("category_name", "")).casefold() == category.name.casefold()
+            ),
+            None,
+        )
+    slug = str(envelope.get("slug")) if isinstance(envelope, dict) else f"custom-{category.id}"
+    return {
+        "created": True,
+        "slug": slug,
+        "category_id": str(category.id),
+        "category_name": category.name,
+        "budget_monthly": _decimal_text(_money(budget_monthly)),
+        "budget_monthly_formatted": format_tl(_money(budget_monthly)),
+        "envelope": envelope,
+    }
+
+
+def build_envelope_budget_delete(
+    db: Session,
+    current_user: User,
+    *,
+    slug: str,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    result = build_envelope_budget_update(
+        db,
+        current_user,
+        slug=slug,
+        budget_monthly=Decimal("0.00"),
+        now=now,
+    )
+    if "error" in result:
+        return result
+    return {**result, "deleted": True, "disabled": True}
+
+
 def build_saving_goal_creation(
     db: Session,
     current_user: User,
@@ -450,6 +630,126 @@ def build_saving_goals_overview(
         "status": status,
         "goals": rows,
     }
+
+
+def _find_scoped_goal(
+    db: Session,
+    current_user: User,
+    *,
+    goal_id: str | None = None,
+    title: str | None = None,
+    category: str | None = None,
+) -> SavingGoal | None:
+    query = select(SavingGoal).where(SavingGoal.user_id.in_(visible_user_ids(current_user)))
+    if goal_id is not None:
+        try:
+            parsed_goal_id = UUID(goal_id)
+        except ValueError:
+            return None
+        query = query.where(SavingGoal.id == parsed_goal_id)
+        return db.execute(query).scalar_one_or_none()
+
+    goals = list(db.execute(query.order_by(SavingGoal.created_at.desc())).scalars().all())
+    if title is not None:
+        normalized_title = _normalized_text(title)
+        matched = next(
+            (
+                goal
+                for goal in goals
+                if normalized_title
+                and (
+                    normalized_title in _normalized_text(goal.title)
+                    or _normalized_text(goal.title) in normalized_title
+                )
+            ),
+            None,
+        )
+        if matched is not None:
+            return matched
+
+    if category is not None:
+        category_name = resolve_envelope_category(category) or category
+        active_goal = find_active_saving_goal(db, current_user, category_name=category_name)
+        if active_goal is not None:
+            return active_goal
+
+    return goals[0] if len(goals) == 1 else None
+
+
+def build_saving_goal_update(
+    db: Session,
+    current_user: User,
+    *,
+    goal_id: str | None = None,
+    title: str | None = None,
+    category: str | None = None,
+    new_title: str | None = None,
+    status: str | None = None,
+    current_amount: Decimal | None = None,
+    contribution_amount: Decimal | None = None,
+    monthly_contribution: Decimal | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    goal = _find_scoped_goal(db, current_user, goal_id=goal_id, title=title, category=category)
+    if goal is None:
+        return {"error": "Hedef bulunamadı.", "goal_id": goal_id, "title": title}
+    goal_status: SavingGoalStatus | None = None
+    if status is not None:
+        if status == "active":
+            goal_status = "active"
+        elif status == "completed":
+            goal_status = "completed"
+        elif status == "paused":
+            goal_status = "paused"
+        else:
+            return {"error": "Hedef durumu active, paused veya completed olmalı."}
+
+    try:
+        updated = update_saving_goal(
+            db,
+            goal,
+            SavingGoalUpdate(
+                title=new_title,
+                status=goal_status,
+                current_amount=current_amount,
+                contribution_amount=contribution_amount,
+                monthly_contribution=monthly_contribution,
+            ),
+        )
+    except ValueError as exc:
+        return {"error": str(exc), "goal_id": str(goal.id)}
+    progress = calculate_saving_goal_progress(db, updated, now=now)
+    return {"updated": True, **_progress_to_tool_result(progress)}
+
+
+def build_saving_goal_delete(
+    db: Session,
+    current_user: User,
+    *,
+    goal_id: str | None = None,
+    title: str | None = None,
+    category: str | None = None,
+) -> dict[str, object]:
+    goal = _find_scoped_goal(db, current_user, goal_id=goal_id, title=title, category=category)
+    if goal is None:
+        return {"error": "Hedef bulunamadı.", "goal_id": goal_id, "title": title}
+    result = {
+        "deleted": True,
+        "goal_id": str(goal.id),
+        "goal_type": goal.goal_type,
+        "title": goal.title,
+    }
+    db.delete(goal)
+    db.commit()
+    return result
+
+
+def build_saving_goal_delete_by_id(
+    db: Session,
+    current_user: User,
+    goal_id: UUID,
+) -> dict[str, object]:
+    return build_saving_goal_delete(db, current_user, goal_id=str(goal_id))
 
 
 def build_saving_goals_chart(
@@ -1388,6 +1688,64 @@ def get_saving_goals_tool(
         return build_saving_goals_overview(db, _load_current_user(db, user_id), status=status)
 
 
+@tool("update_saving_goal")
+def update_saving_goal_tool(
+    goal_id: str | None = None,
+    title: str | None = None,
+    category: str | None = None,
+    new_title: str | None = None,
+    status: str | None = None,
+    current_amount: str | None = None,
+    contribution_amount: str | None = None,
+    monthly_contribution: str | None = None,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Mevcut birikim veya tasarruf hedefini günceller."""
+    with SessionLocal() as db:
+        try:
+            parsed_current = (
+                parse_money_text(current_amount) if current_amount is not None else None
+            )
+            parsed_contribution = (
+                parse_money_text(contribution_amount) if contribution_amount is not None else None
+            )
+            parsed_monthly = (
+                parse_money_text(monthly_contribution) if monthly_contribution is not None else None
+            )
+        except InvalidOperation:
+            return {"error": "Tutarları net okuyamadım."}
+        return build_saving_goal_update(
+            db,
+            _load_current_user(db, user_id),
+            goal_id=goal_id,
+            title=title,
+            category=category,
+            new_title=new_title,
+            status=status,
+            current_amount=parsed_current,
+            contribution_amount=parsed_contribution,
+            monthly_contribution=parsed_monthly,
+        )
+
+
+@tool("delete_saving_goal")
+def delete_saving_goal_tool(
+    goal_id: str | None = None,
+    title: str | None = None,
+    category: str | None = None,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Mevcut birikim veya tasarruf hedefini siler."""
+    with SessionLocal() as db:
+        return build_saving_goal_delete(
+            db,
+            _load_current_user(db, user_id),
+            goal_id=goal_id,
+            title=title,
+            category=category,
+        )
+
+
 @tool("create_accumulation_goal")
 def create_accumulation_goal_tool(
     title: str,
@@ -1400,12 +1758,10 @@ def create_accumulation_goal_tool(
     """Belirli bir tutara ulaşmak için birikim hedefi oluşturur."""
     with SessionLocal() as db:
         try:
-            parsed_target = Decimal(target_amount.replace(".", "").replace(",", "."))
-            parsed_current = Decimal(current_amount.replace(".", "").replace(",", "."))
+            parsed_target = parse_money_text(target_amount)
+            parsed_current = parse_money_text(current_amount)
             parsed_monthly = (
-                Decimal(monthly_contribution.replace(".", "").replace(",", "."))
-                if monthly_contribution is not None
-                else None
+                parse_money_text(monthly_contribution) if monthly_contribution is not None else None
             )
         except InvalidOperation:
             return {"error": "Tutarları net okuyamadım.", "title": title}
@@ -1418,6 +1774,66 @@ def create_accumulation_goal_tool(
             target_months=target_months,
             monthly_contribution=parsed_monthly,
         )
+
+
+@tool("get_envelopes")
+def get_envelopes_tool(
+    slug: str | None = None,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Kullanıcının zarf bütçelerini listeler veya tek zarfı döner."""
+    with SessionLocal() as db:
+        return build_envelope_budget_overview(db, _load_current_user(db, user_id), slug=slug)
+
+
+@tool("create_envelope_budget")
+def create_envelope_budget_tool(
+    name: str,
+    budget_monthly: str,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Yeni zarf oluşturur; hazır zarf adı verilirse mevcut limiti açar/günceller."""
+    with SessionLocal() as db:
+        try:
+            budget = parse_money_text(budget_monthly)
+        except InvalidOperation:
+            return {"error": "Zarf limitini net okuyamadım.", "name": name}
+        return build_envelope_budget_creation(
+            db,
+            _load_current_user(db, user_id),
+            name=name,
+            budget_monthly=budget,
+        )
+
+
+@tool("update_envelope_budget")
+def update_envelope_budget_tool(
+    slug: str,
+    budget_monthly: str,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Bir zarfın aylık limitini günceller."""
+    with SessionLocal() as db:
+        try:
+            budget = parse_money_text(budget_monthly)
+        except InvalidOperation:
+            return {"error": "Zarf limitini net okuyamadım.", "slug": slug}
+        return build_envelope_budget_update(
+            db,
+            _load_current_user(db, user_id),
+            slug=slug,
+            budget_monthly=budget,
+        )
+
+
+@tool("delete_envelope_budget")
+def delete_envelope_budget_tool(
+    slug: str,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Bir zarfı aktif profil için devre dışı bırakır; limiti 0,00 ₺ yapar."""
+    with SessionLocal() as db:
+        return build_envelope_budget_delete(db, _load_current_user(db, user_id), slug=slug)
 
 
 @tool("create_smart_saving_plan")
@@ -1561,8 +1977,14 @@ TOOLS = [
     get_subscriptions_tool,
     create_saving_goal_tool,
     create_accumulation_goal_tool,
+    update_saving_goal_tool,
+    delete_saving_goal_tool,
     get_saving_goal_progress_tool,
     get_saving_goals_tool,
+    get_envelopes_tool,
+    create_envelope_budget_tool,
+    update_envelope_budget_tool,
+    delete_envelope_budget_tool,
     create_smart_saving_plan_tool,
     analyze_receipt_tool,
     explain_concept_tool,

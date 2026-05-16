@@ -33,6 +33,23 @@ class CategoryCreate(BaseModel):
         return normalized or None
 
 
+class CategoryBudgetUpdate(BaseModel):
+    budget_monthly: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+
+
+class EnvelopeCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    budget_monthly: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("Zarf adı boş olamaz.")
+        return normalized
+
+
 class CategoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

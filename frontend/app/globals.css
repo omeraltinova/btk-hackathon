@@ -350,6 +350,11 @@
   .suggestion-rotate {
     animation: suggestion-rise 420ms var(--ease-out-quint) both;
   }
+
+  .detail-swap {
+    animation: detail-swap 260ms var(--ease-out-quint) both;
+    transform-origin: 50% 1.25rem;
+  }
 }
 
 @media (max-width: 640px) {
@@ -460,6 +465,17 @@
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes detail-swap {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 

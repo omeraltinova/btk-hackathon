@@ -402,11 +402,22 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     yazılır.
 20. **Zarf bütçesi ve birikim hedefi (MVP):** Dashboard, mevcut
     `categories.budget_monthly` alanını kullanarak Türk aile bütçesine uygun
-    `Market`, `Fatura`, `Okul`, `Ulaşım`, `Harçlık` ve `Birikim` zarflarını
-    gösterir. Yeni tablo yoktur; `Birikim zarfı` aylık hedef olarak yorumlanır,
-    çok dönemli hedef takibi stretch kapsamda kalır. Agent aynı scoped zarf
-    özetini kullanarak kalan bütçe ve ay sonuna kadar güvenli günlük harcama
-    yanıtı verir.
+    hazır `Market`, `Fatura`, `Okul`, `Ulaşım`, `Harçlık` ve `Birikim`
+    zarflarını gösterir; kullanıcı aynı modelle kendi kategori destekli özel
+    zarfını da açabilir. Yeni zarf tablosu yoktur; özel zarflar aktif kullanıcıya
+    ait `categories` kaydı ve pozitif `budget_monthly` değeriyle temsil edilir.
+    `Birikim zarfı` aylık hedef olarak yorumlanır, çok dönemli hedef takibi
+    stretch kapsamda kalır. Zarf oluşturma/güncelleme `categories.budget_monthly`
+    üzerine aktif kullanıcı shadow kategorisi yazar; silme gerçek kategori silmez,
+    aktif profil için limiti `0,00 ₺` yapar.
+    Agent `get_envelopes`, `create_envelope_budget`, `update_envelope_budget` ve
+    `delete_envelope_budget` araçlarıyla scoped zarf listesini görebilir ve zarf
+    limitlerini yönetebilir. `create_envelope_budget` kullanıcıdan gelen zarf adını
+    kabul eder; hazır adlar mevcut zarfa, farklı adlar özel zarf kategorisine
+    yazılır. Zarf oluşturan, limit değiştiren veya zarfı kapatan agent işlemleri
+    araç çalışmadan önce sohbet içinde açık kullanıcı onayı ister; okuma ve
+    görselleştirme araçları onaysız çalışabilir. Agent aynı scoped zarf özetini kullanarak kalan bütçe ve ay sonuna
+    kadar güvenli günlük harcama yanıtı verir.
 21. **Akıllı hedefler (tasarruf + birikim MVP):** Kullanıcı tek hedef ekranında
     iki hedef türü oluşturabilir. `Tasarruf hedefi`, belirli bir gider
     kategorisindeki harcamayı bu ay azaltır; örneğin `Market` harcamasını geçen
@@ -414,12 +425,17 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     veya acil durum gibi belirli bir tutara ulaşmayı izler; başlangıç tutarı,
     hedef tutar, hedef tarih ve önerilen aylık katkı saklanır. Agent
     `create_saving_goal`, `create_accumulation_goal`, `get_saving_goals`,
-    `get_saving_goal_progress` ve `visualize_saving_goals` araçlarıyla iki hedef
-    türünü de oluşturur/izler/görselleştirir. Kullanıcı hedef ekranından scoped
-    hedefleri duraklatabilir, yeniden aktif edebilir, tamamlandı işaretleyebilir,
-    silebilir ve aktif birikim hedeflerine manuel katkı ekleyebilir; bu katkı yalnızca hedef ilerlemesini
-    günceller, işlem defterine otomatik gelir/gider yazmaz. `Koçtan plan iste`
-    aksiyonu mevcut chat handoff yolunu kullanır.
+    `get_saving_goal_progress`, `update_saving_goal`, `delete_saving_goal` ve
+    `visualize_saving_goals` araçlarıyla iki hedef türünü de oluşturur, listeler,
+    izler, düzeltir, durumunu değiştirir, silebilir ve görselleştirir. Kullanıcı
+    hedef ekranından scoped hedefleri duraklatabilir, yeniden aktif edebilir,
+    tamamlandı işaretleyebilir, silebilir ve aktif birikim hedeflerine manuel
+    katkı ekleyebilir; bu katkı yalnızca hedef ilerlemesini günceller, işlem
+    defterine otomatik gelir/gider yazmaz. `Koçtan plan iste` aksiyonu mevcut
+    chat handoff yolunu kullanır. Hedef veya akıllı hedef planı oluşturan,
+    güncelleyen veya silen agent işlemleri araç çalışmadan önce sohbet içinde açık
+    kullanıcı onayı ister; hedef listeleme/ilerleme/grafik araçları onaysız
+    çalışabilir.
     Taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe önerisidir. Tutarlar
     `Decimal`, kapsam `user_id` filtresi ve aile görünürlük kurallarıyla
     hesaplanır.
@@ -1096,8 +1112,26 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.24
+**Doküman versiyonu:** 0.28
 **Son güncelleme:** 16 Mayıs 2026
+**v0.28 değişiklikleri:** Agent'ın hedef/zarf/akıllı plan gibi veri değiştiren
+araçları sohbet içinde açık kullanıcı onayı olmadan çalışmaz. Backend önce
+`approval_required` SSE event'i gönderir, frontend onay kartı gösterir; kullanıcı
+onaylarsa aynı konuşmaya `approval_id` + `approval_decision` ile dönülür ve araç
+ancak o zaman çalışır. Canlı LLM yolunda model veri değiştiren tool call üretebilir,
+ama backend bu çağrıyı ToolNode çalışmadan yakalayıp onay kartına çevirir. Okuma,
+listeleme ve görselleştirme araçları onay gerektirmez.
+**v0.27 değişiklikleri:** Agent zarf oluşturma sözleşmesi UI ile hizalandı:
+`create_envelope_budget` artık slug değil kullanıcıdan gelen zarf adını alır; hazır
+adlar mevcut zarfa, farklı adlar özel kategori-backed zarfa yazılır. Güncelleme ve
+silme için agent önce `get_envelopes` ile slug doğrular.
+**v0.26 değişiklikleri:** Zarf oluşturma kapsamı netleştirildi: hazır zarflara ek
+olarak kullanıcı özel zarf açabilir, fakat yeni tablo yoktur; özel zarflar aktif
+kullanıcının kategori kaydı ve pozitif `budget_monthly` değeriyle temsil edilir.
+**v0.25 değişiklikleri:** Zarf ve akıllı hedef agent yönetim kapsamı netleştirildi:
+agent hedefleri ve zarfları listeleyebilir, oluşturabilir, güncelleyebilir ve
+silebilir. Zarf silme gerçek kategori silmez; aktif profil için zarf limitini
+`0,00 ₺` yapan mevcut shadow-category modelini kullanır.
 **v0.24 değişiklikleri:** Finans Okulu kapsamı anlık özel ders üretimini içerecek
 şekilde genişletildi. `create_custom_lesson` agent aracıdır; konu/seviye/süre/
 örnek/quiz/görsel tercihleriyle yapılandırılmış ders taslağı üretir, kalıcı ders

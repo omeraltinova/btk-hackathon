@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Annotated, Any, Literal, TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -85,6 +85,7 @@ def build_agent_graph(
     openrouter_base_url: str = "https://openrouter.ai/api/v1",
     openrouter_http_referer: str | None = None,
     openrouter_app_title: str | None = None,
+    blocked_tool_names: Iterable[str] = (),
 ) -> Any:
     """Compile the LangGraph state machine.
 
@@ -93,6 +94,8 @@ def build_agent_graph(
     through the user's prompt. OpenRouter is supported through its
     OpenAI-compatible chat endpoint.
     """
+    blocked_names = set(blocked_tool_names)
+    tools = [tool_item for tool_item in TOOLS if tool_item.name not in blocked_names]
     llm = build_chat_model(
         provider=provider,
         api_key=api_key,
@@ -100,7 +103,7 @@ def build_agent_graph(
         openrouter_base_url=openrouter_base_url,
         openrouter_http_referer=openrouter_http_referer,
         openrouter_app_title=openrouter_app_title,
-    ).bind_tools(TOOLS)
+    ).bind_tools(tools)
 
     def agent_node(state: AgentState) -> dict[str, list[BaseMessage]]:
         system_message = SystemMessage(
@@ -118,14 +121,18 @@ def build_agent_graph(
 
     workflow = StateGraph(AgentState)
     workflow.add_node("agent", agent_node)
-    workflow.add_node("tools", ToolNode(TOOLS))
+    workflow.add_node("tools", ToolNode(tools))
     workflow.set_entry_point("agent")
     workflow.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
     workflow.add_edge("tools", "agent")
     return workflow.compile()
 
 
-def build_agent_graph_from_settings(settings: Settings | None = None) -> Any:
+def build_agent_graph_from_settings(
+    settings: Settings | None = None,
+    *,
+    blocked_tool_names: Iterable[str] = (),
+) -> Any:
     """Compile the graph from environment-backed settings."""
     resolved_settings = settings or get_settings()
     return build_agent_graph(
@@ -135,4 +142,5 @@ def build_agent_graph_from_settings(settings: Settings | None = None) -> Any:
         openrouter_base_url=resolved_settings.openrouter_base_url,
         openrouter_http_referer=resolved_settings.openrouter_http_referer,
         openrouter_app_title=resolved_settings.openrouter_app_title,
+        blocked_tool_names=blocked_tool_names,
     )

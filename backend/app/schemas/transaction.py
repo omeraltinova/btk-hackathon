@@ -106,6 +106,7 @@ class TransactionBudgetEnvelope(BaseModel):
     used_percent: Decimal | None
     status: Literal["safe", "watch", "over"]
     is_savings_goal: bool
+    is_custom: bool = False
 
 
 class TransactionSummaryRead(BaseModel):
