@@ -415,7 +415,11 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     hedef tutar, hedef tarih ve önerilen aylık katkı saklanır. Agent
     `create_saving_goal`, `create_accumulation_goal`, `get_saving_goals`,
     `get_saving_goal_progress` ve `visualize_saving_goals` araçlarıyla iki hedef
-    türünü de oluşturur/izler/görselleştirir.
+    türünü de oluşturur/izler/görselleştirir. Kullanıcı hedef ekranından scoped
+    hedefleri duraklatabilir, yeniden aktif edebilir, tamamlandı işaretleyebilir,
+    silebilir ve aktif birikim hedeflerine manuel katkı ekleyebilir; bu katkı yalnızca hedef ilerlemesini
+    günceller, işlem defterine otomatik gelir/gider yazmaz. `Koçtan plan iste`
+    aksiyonu mevcut chat handoff yolunu kullanır.
     Taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe önerisidir. Tutarlar
     `Decimal`, kapsam `user_id` filtresi ve aile görünürlük kurallarıyla
     hesaplanır.
@@ -1075,8 +1079,13 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.22
+**Doküman versiyonu:** 0.23
 **Son güncelleme:** 15 Mayıs 2026
+**v0.23 değişiklikleri:** Akıllı hedef yönetimi kapsamı netleştirildi:
+kullanıcı scoped hedefleri duraklatabilir, yeniden aktif edebilir, tamamlandı
+işaretleyebilir, silebilir ve aktif birikim hedeflerine manuel katkı ekleyebilir. Katkı ekleme işlem defterine
+otomatik transaction yazmaz; `Koçtan plan iste` mevcut chat handoff mekanizmasını
+kullanır.
 **v0.22 değişiklikleri:** Akıllı hedeflerde sohbetten mevcut hedefleri listeleme
 ve grafikle gösterme kapsamı netleştirildi. Agent araç setine `get_saving_goals`
 ve `visualize_saving_goals` eklendi; `/dashboard/goals` hedef kartları tıklanabilir

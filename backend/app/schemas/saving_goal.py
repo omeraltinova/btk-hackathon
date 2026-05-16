@@ -77,6 +77,37 @@ class SavingGoalCreate(BaseModel):
         return self
 
 
+class SavingGoalUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    status: SavingGoalStatus | None = None
+    current_amount: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=2,
+    )
+    contribution_amount: Decimal | None = Field(
+        default=None,
+        gt=0,
+        max_digits=12,
+        decimal_places=2,
+    )
+    monthly_contribution: Decimal | None = Field(
+        default=None,
+        gt=0,
+        max_digits=12,
+        decimal_places=2,
+    )
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        return normalized or None
+
+
 class SavingGoalRead(BaseModel):
     id: UUID
     user_id: UUID

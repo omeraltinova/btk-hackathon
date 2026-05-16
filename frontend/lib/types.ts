@@ -186,6 +186,14 @@ export type SavingGoal = {
   created_by: "manual" | "agent";
 };
 
+export type SavingGoalUpdateInput = {
+  title?: string | null;
+  status?: "active" | "completed" | "paused" | null;
+  current_amount?: string | null;
+  contribution_amount?: string | null;
+  monthly_contribution?: string | null;
+};
+
 export type SavingGoalProgress = {
   goal: SavingGoal;
   actual_spending: string;

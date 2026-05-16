@@ -1,15 +1,26 @@
 "use client";
 
-import { PiggyBank, Target } from "lucide-react";
+import {
+  CheckCircle2,
+  MessageCircle,
+  PauseCircle,
+  PlayCircle,
+  PiggyBank,
+  Plus,
+  Target,
+  Trash2,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiError, api } from "@/lib/api";
+import { rememberPendingChatMessage } from "@/lib/chat-session";
 import { isValidAmount, normalizeAmountInput } from "@/lib/money-input";
+import type { Category, SavingGoal, SavingGoalProgress, SavingGoalUpdateInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import type { Category, SavingGoal, SavingGoalProgress } from "@/lib/types";
 
 type GoalMode = "accumulation" | "expense_reduction";
 
@@ -55,14 +66,22 @@ function statusLabel(status: SavingGoalProgress["status_label"]): string {
   return "Tamamlandı";
 }
 
+function goalStatusText(goal: SavingGoal, progress?: SavingGoalProgress): string {
+  if (goal.status === "paused") return "Duraklatıldı";
+  if (goal.status === "completed") return "Tamamlandı";
+  return progress ? statusLabel(progress.status_label) : "Yükleniyor";
+}
+
 function friendlyError(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
 
 export function SavingGoalsClient() {
+  const router = useRouter();
   const [categories, setCategories] = useState<Category[]>([]);
   const [goals, setGoals] = useState<SavingGoal[]>([]);
   const [progressByGoalId, setProgressByGoalId] = useState<Record<string, SavingGoalProgress>>({});
+  const [contributionByGoalId, setContributionByGoalId] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<GoalMode>("accumulation");
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [targetReductionPercent, setTargetReductionPercent] = useState("15");
@@ -73,11 +92,12 @@ export function SavingGoalsClient() {
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [actionGoalId, setActionGoalId] = useState<string | null>(null);
 
   async function loadGoals() {
     const [categoryRows, goalRows] = await Promise.all([
       api<Category[]>("/api/categories", { silent: true }),
-      api<SavingGoal[]>("/api/saving-goals?status=active", { silent: true }),
+      api<SavingGoal[]>("/api/saving-goals", { silent: true }),
     ]);
     setCategories(categoryRows);
     setGoals(goalRows);
@@ -164,6 +184,74 @@ export function SavingGoalsClient() {
 
   function selectGoal(goalId: string) {
     setSelectedGoalId(goalId);
+  }
+
+  async function patchGoal(
+    goal: SavingGoal,
+    payload: SavingGoalUpdateInput,
+    successMessage: string,
+  ): Promise<boolean> {
+    setActionGoalId(goal.id);
+    setError(null);
+    try {
+      await api<SavingGoal>(`/api/saving-goals/${goal.id}`, {
+        method: "PATCH",
+        body: payload,
+      });
+      toast.success(successMessage);
+      await loadGoals();
+      return true;
+    } catch (err) {
+      setError(friendlyError(err, "Hedef güncellenemedi."));
+      return false;
+    } finally {
+      setActionGoalId(null);
+    }
+  }
+
+  function handleAddContribution(goal: SavingGoal) {
+    const normalized = normalizeAmountInput(contributionByGoalId[goal.id] ?? "");
+    if (!isValidAmount(normalized)) {
+      setError("Katkı tutarını 1250,50 biçiminde girer misin?");
+      return;
+    }
+    void (async () => {
+      const updated = await patchGoal(
+        goal,
+        { contribution_amount: normalized },
+        "Katkı hedefe eklendi.",
+      );
+      if (updated) setContributionByGoalId((current) => ({ ...current, [goal.id]: "" }));
+    })();
+  }
+
+  function handleDeleteGoal(goal: SavingGoal) {
+    const confirmed = window.confirm("Bu hedefi silmek istediğine emin misin?");
+    if (!confirmed) return;
+    setActionGoalId(goal.id);
+    setError(null);
+    void (async () => {
+      try {
+        await api<void>(`/api/saving-goals/${goal.id}`, { method: "DELETE" });
+        toast.success("Hedef silindi.");
+        await loadGoals();
+      } catch (err) {
+        setError(friendlyError(err, "Hedef silinemedi."));
+      } finally {
+        setActionGoalId(null);
+      }
+    })();
+  }
+
+  function askCoachForPlan(goal: SavingGoal) {
+    const goalType = goal.goal_type === "accumulation" ? "birikim" : "tasarruf";
+    rememberPendingChatMessage({
+      source: "dashboard",
+      title: `${goal.title} için plan`,
+      startNew: true,
+      message: `${goal.title} adlı ${goalType} hedefim için bütçe koçluğu planı çıkar. Yatırım tavsiyesi verme; harcama alışkanlıkları, haftalık takip ve güvenli katkı önerileriyle açıkla.`,
+    });
+    router.push("/chat");
   }
 
   const accumulationGoals = goals.filter((goal) => goal.goal_type === "accumulation");
@@ -300,7 +388,7 @@ export function SavingGoalsClient() {
       <section className="grid gap-4 lg:grid-cols-2">
         {goals.length === 0 ? (
           <div className="ledger-card rounded-[1.5rem] border border-border/80 bg-card p-6 text-sm text-muted-foreground lg:col-span-2">
-            Henüz aktif hedef yok. Birikim tutarı veya gider azaltma hedefiyle başlayabilirsin.
+            Henüz hedef yok. Birikim tutarı veya gider azaltma hedefiyle başlayabilirsin.
           </div>
         ) : null}
 
@@ -338,7 +426,7 @@ export function SavingGoalsClient() {
                   <h2 className="mt-1 font-display text-2xl font-bold">{goal.title}</h2>
                 </div>
                 <span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">
-                  {progress ? statusLabel(progress.status_label) : "Yükleniyor"}
+                  {goalStatusText(goal, progress)}
                 </span>
               </div>
 
@@ -425,8 +513,98 @@ export function SavingGoalsClient() {
               </p>
             </div>
             <span className="w-fit rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">
-              {selectedProgress ? statusLabel(selectedProgress.status_label) : "Yükleniyor"}
+              {goalStatusText(selectedGoal, selectedProgress ?? undefined)}
             </span>
+          </div>
+
+          <div className="mt-5 grid gap-3 rounded-[1.4rem] border border-dashed border-primary/25 bg-primary/5 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div className="space-y-3">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                Hedef aksiyonları
+              </p>
+              {selectedIsAccumulation && selectedGoal.status === "active" ? (
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,14rem)_auto]">
+                  <Input
+                    inputMode="decimal"
+                    placeholder="Katkı tutarı"
+                    value={contributionByGoalId[selectedGoal.id] ?? ""}
+                    onChange={(event) =>
+                      setContributionByGoalId((current) => ({
+                        ...current,
+                        [selectedGoal.id]: event.target.value,
+                      }))
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={actionGoalId === selectedGoal.id}
+                    onClick={() => handleAddContribution(selectedGoal)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Katkı ekle
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {selectedIsAccumulation
+                    ? "Bu hedef aktif değil; yeni katkı eklenmiyor."
+                    : "Tasarruf hedeflerinde ilerleme ilgili kategori harcamalarından hesaplanır."}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 lg:justify-end">
+              {selectedGoal.status === "paused" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={actionGoalId === selectedGoal.id}
+                  onClick={() =>
+                    void patchGoal(selectedGoal, { status: "active" }, "Hedef yeniden aktif.")
+                  }
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  Sürdür
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={actionGoalId === selectedGoal.id || selectedGoal.status !== "active"}
+                  onClick={() =>
+                    void patchGoal(selectedGoal, { status: "paused" }, "Hedef duraklatıldı.")
+                  }
+                >
+                  <PauseCircle className="h-4 w-4" />
+                  Duraklat
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={actionGoalId === selectedGoal.id || selectedGoal.status === "completed"}
+                onClick={() =>
+                  void patchGoal(selectedGoal, { status: "completed" }, "Hedef tamamlandı.")
+                }
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Tamamlandı
+              </Button>
+              <Button type="button" onClick={() => askCoachForPlan(selectedGoal)}>
+                <MessageCircle className="h-4 w-4" />
+                Koçtan plan iste
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                disabled={actionGoalId === selectedGoal.id}
+                onClick={() => handleDeleteGoal(selectedGoal)}
+              >
+                <Trash2 className="h-4 w-4" />
+                Sil
+              </Button>
+            </div>
           </div>
 
           {selectedProgress ? (

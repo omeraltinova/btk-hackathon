@@ -16,7 +16,7 @@ from app.models.saving_goal import SavingGoal
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
-from app.schemas.saving_goal import SavingGoalProgressRead, SavingGoalRead
+from app.schemas.saving_goal import SavingGoalProgressRead, SavingGoalRead, SavingGoalUpdate
 from app.utils.tl_format import format_tl
 
 ISTANBUL = ZoneInfo("Europe/Istanbul")
@@ -291,6 +291,22 @@ def _accumulation_tactics(monthly_contribution: Decimal, remaining_amount: Decim
     ]
 
 
+def _refresh_accumulation_strategy(goal: SavingGoal) -> None:
+    target_amount = _money(Decimal(goal.target_amount or goal.target_saving_amount))
+    current_amount = _money(Decimal(goal.current_amount))
+    monthly_contribution = _money(Decimal(goal.monthly_contribution or Decimal("0")))
+    remaining_amount = _money(max(target_amount - current_amount, Decimal("0")))
+    existing: dict[str, object] = goal.strategy if isinstance(goal.strategy, dict) else {}
+    goal.strategy = {
+        **existing,
+        "remaining_amount": f"{remaining_amount:.2f}",
+        "remaining_amount_formatted": format_tl(remaining_amount),
+        "monthly_contribution": f"{monthly_contribution:.2f}",
+        "monthly_contribution_formatted": format_tl(monthly_contribution),
+        "tactics": _accumulation_tactics(monthly_contribution, remaining_amount),
+    }
+
+
 def build_accumulation_goal_draft(
     *,
     target_amount: Decimal,
@@ -402,6 +418,43 @@ def find_active_saving_goal(
             return None
         query = query.where(SavingGoal.category_id == category.id)
     return db.execute(query.order_by(SavingGoal.created_at.desc())).scalar_one_or_none()
+
+
+def update_saving_goal(db: Session, goal: SavingGoal, payload: SavingGoalUpdate) -> SavingGoal:
+    if payload.title is not None:
+        goal.title = payload.title
+    if payload.status is not None:
+        goal.status = payload.status
+
+    updates_accumulation_amount = (
+        payload.current_amount is not None
+        or payload.contribution_amount is not None
+        or payload.monthly_contribution is not None
+    )
+    if updates_accumulation_amount and goal.goal_type != "accumulation":
+        raise ValueError("Katkı ve birikim tutarı yalnızca birikim hedefinde güncellenebilir.")
+    if updates_accumulation_amount and goal.status != "active":
+        raise ValueError("Aktif olmayan hedefe katkı eklenemez.")
+
+    if goal.goal_type == "accumulation":
+        target_amount = _money(Decimal(goal.target_amount or goal.target_saving_amount))
+        next_current = _money(Decimal(goal.current_amount))
+        if payload.current_amount is not None:
+            next_current = _money(Decimal(payload.current_amount))
+        if payload.contribution_amount is not None:
+            next_current = _money(next_current + Decimal(payload.contribution_amount))
+        if next_current > target_amount:
+            raise ValueError("Birikim tutarı hedef tutarı aşamaz.")
+        goal.current_amount = next_current
+        if payload.monthly_contribution is not None:
+            goal.monthly_contribution = _money(Decimal(payload.monthly_contribution))
+        if next_current >= target_amount:
+            goal.status = "completed"
+        _refresh_accumulation_strategy(goal)
+
+    db.commit()
+    db.refresh(goal)
+    return goal
 
 
 def serialize_saving_goal(db: Session, goal: SavingGoal) -> SavingGoalRead:
