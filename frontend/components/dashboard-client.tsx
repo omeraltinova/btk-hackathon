@@ -183,6 +183,66 @@ function sortCategories(categories: Category[]): Category[] {
   });
 }
 
+function normalizeLookup(value: string): string {
+  return value.trim().toLocaleLowerCase("tr-TR");
+}
+
+function findCategoryByInput(categories: Category[], value: string): Category | null {
+  const normalized = normalizeLookup(value);
+  if (!normalized) return null;
+  return categories.find((category) => normalizeLookup(category.name) === normalized) ?? null;
+}
+
+function uniqueSuggestions(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const label = value?.trim();
+    if (!label) continue;
+    const key = normalizeLookup(label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(label);
+  }
+  return result.sort((first, second) => first.localeCompare(second, "tr"));
+}
+
+function CategoryNameInput({
+  id,
+  value,
+  categories,
+  onValueChange,
+  helper,
+}: {
+  id: string;
+  value: string;
+  categories: Category[];
+  onValueChange: (value: string) => void;
+  helper: string;
+}) {
+  const listId = `${id}-options`;
+  return (
+    <div className="space-y-2">
+      <label htmlFor={id} className="text-sm font-medium">
+        Kategori
+      </label>
+      <Input
+        id={id}
+        list={listId}
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+        placeholder="Kategori seç veya yeni yaz"
+      />
+      <datalist id={listId}>
+        {categories.map((category) => (
+          <option key={category.id} value={category.name} />
+        ))}
+      </datalist>
+      <p className="text-xs leading-5 text-muted-foreground">{helper}</p>
+    </div>
+  );
+}
+
 function subscriptionToDraft(subscription: Subscription): SubscriptionDraft {
   return {
     name: subscription.name,
@@ -1357,7 +1417,6 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [insights, setInsights] = useState<ProactiveInsight[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [isAddingSubscription, setIsAddingSubscription] = useState(false);
   const [isRefreshingInsights, setIsRefreshingInsights] = useState(false);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
@@ -1375,7 +1434,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [description, setDescription] = useState("");
   const [occurredAt, setOccurredAt] = useState(defaultDateTimeLocal);
   const [categoryId, setCategoryId] = useState("");
-  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryInput, setCategoryInput] = useState("");
   const [subscriptionName, setSubscriptionName] = useState("");
   const [subscriptionMerchant, setSubscriptionMerchant] = useState("");
   const [subscriptionAmount, setSubscriptionAmount] = useState("");
@@ -1384,6 +1443,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [subscriptionUnit, setSubscriptionUnit] = useState<RecurrenceUnit>("month");
   const [subscriptionNextDate, setSubscriptionNextDate] = useState("");
   const [subscriptionCategoryId, setSubscriptionCategoryId] = useState("");
+  const [subscriptionCategoryInput, setSubscriptionCategoryInput] = useState("");
 
   const loadDashboardData = useCallback(async () => {
     setError(null);
@@ -1452,6 +1512,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const subscriptionCategories = useMemo(
     () => categoriesForType(categories, "expense"),
     [categories],
+  );
+  const merchantSuggestions = useMemo(
+    () =>
+      uniqueSuggestions([
+        ...transactions.map((transaction) => transaction.merchant),
+        ...subscriptions.map((subscription) => subscription.merchant),
+      ]),
+    [transactions, subscriptions],
   );
 
   const monthly = useMemo(
@@ -1535,17 +1603,29 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setIsSubmitting(false);
       return;
     }
-    const nextCategoryId = hasCategoryForType(categories, categoryId, type) ? categoryId : "";
-    const payload: TransactionCreateInput = {
-      amount: normalizedAmount,
-      type,
-      category_id: nextCategoryId || null,
-      merchant: merchant || null,
-      description: description || null,
-      occurred_at: toIsoDateTime(occurredAt),
-    };
-
+    if (
+      categoryInput.trim().length === 1 &&
+      findCategoryByInput(transactionCategories, categoryInput) === null
+    ) {
+      setError("Yeni kategori adı en az iki karakter olmalı.");
+      setIsSubmitting(false);
+      return;
+    }
     try {
+      const resolvedCategoryId = await resolveCategoryId({
+        input: categoryInput,
+        allowedCategories: transactionCategories,
+        currentId: categoryId,
+        fallbackType: type,
+      });
+      const payload: TransactionCreateInput = {
+        amount: normalizedAmount,
+        type,
+        category_id: resolvedCategoryId || null,
+        merchant: merchant || null,
+        description: description || null,
+        occurred_at: toIsoDateTime(occurredAt),
+      };
       const created = await api<Transaction>("/api/transactions", {
         method: "POST",
         body: payload,
@@ -1556,6 +1636,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setMerchant("");
       setDescription("");
       setOccurredAt(defaultDateTimeLocal());
+      setCategoryInput("");
+      setCategoryId("");
       await refreshSummary();
       void refreshInsights().catch(() => undefined);
     } catch (err) {
@@ -1565,15 +1647,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
-  async function handleCreateCategory() {
-    const name = newCategoryName.trim();
+  async function handleCreateCategory(nameInput: string): Promise<Category> {
+    const name = nameInput.trim();
     if (name.length < 2) {
       setError("Kategori adı en az iki karakter olmalı.");
-      return;
+      throw new Error("Kategori adı en az iki karakter olmalı.");
     }
 
     setError(null);
-    setIsCreatingCategory(true);
     const payload: CategoryCreateInput = { name };
     try {
       const created = await api<Category>("/api/categories", {
@@ -1595,14 +1676,31 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
           created,
         ]),
       );
-      setCategoryId(created.id);
-      setSubscriptionCategoryId(created.id);
-      setNewCategoryName("");
+      return created;
     } catch (err) {
       setError(friendlyError(err, "Kategori eklenemedi, tekrar dener misin?"));
-    } finally {
-      setIsCreatingCategory(false);
+      throw err;
     }
+  }
+
+  async function resolveCategoryId({
+    input,
+    allowedCategories,
+    currentId,
+    fallbackType,
+  }: {
+    input: string;
+    allowedCategories: Category[];
+    currentId: string;
+    fallbackType: TransactionType;
+  }): Promise<string> {
+    const typed = input.trim();
+    if (!typed) return "";
+    const matched = findCategoryByInput(allowedCategories, typed);
+    if (matched) return matched.id;
+    if (currentId && hasCategoryForType(categories, currentId, fallbackType)) return currentId;
+    const created = await handleCreateCategory(typed);
+    return created.id;
   }
 
   async function handleDelete(transactionId: string) {
@@ -1637,19 +1735,32 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setIsAddingSubscription(false);
       return;
     }
-    const payload: SubscriptionCreateInput = {
-      name: subscriptionName,
-      merchant: subscriptionMerchant || null,
-      amount: normalizedAmount,
-      billing_cycle: subscriptionCycle,
-      recurrence_interval: subscriptionCycle === "custom" ? recurrenceInterval : null,
-      recurrence_unit: subscriptionCycle === "custom" ? subscriptionUnit : null,
-      next_billing_date: subscriptionNextDate || null,
-      category_id: subscriptionCategoryId || null,
-      is_active: true,
-    };
-
+    if (
+      subscriptionCategoryInput.trim().length === 1 &&
+      findCategoryByInput(subscriptionCategories, subscriptionCategoryInput) === null
+    ) {
+      setError("Yeni kategori adı en az iki karakter olmalı.");
+      setIsAddingSubscription(false);
+      return;
+    }
     try {
+      const resolvedCategoryId = await resolveCategoryId({
+        input: subscriptionCategoryInput,
+        allowedCategories: subscriptionCategories,
+        currentId: subscriptionCategoryId,
+        fallbackType: "expense",
+      });
+      const payload: SubscriptionCreateInput = {
+        name: subscriptionName,
+        merchant: subscriptionMerchant || null,
+        amount: normalizedAmount,
+        billing_cycle: subscriptionCycle,
+        recurrence_interval: subscriptionCycle === "custom" ? recurrenceInterval : null,
+        recurrence_unit: subscriptionCycle === "custom" ? subscriptionUnit : null,
+        next_billing_date: subscriptionNextDate || null,
+        category_id: resolvedCategoryId || null,
+        is_active: true,
+      };
       const created = await api<Subscription>("/api/subscriptions", {
         method: "POST",
         body: payload,
@@ -1663,6 +1774,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setSubscriptionInterval("1");
       setSubscriptionUnit("month");
       setSubscriptionNextDate("");
+      setSubscriptionCategoryId("");
+      setSubscriptionCategoryInput("");
       void refreshInsights().catch(() => undefined);
     } catch (err) {
       setError(friendlyError(err, "Tekrarlayan ödeme kaydedilemedi, tekrar dener misin?"));
@@ -1770,7 +1883,18 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     setType(nextType);
     if (!hasCategoryForType(categories, categoryId, nextType)) {
       setCategoryId("");
+      setCategoryInput("");
     }
+  }
+
+  function handleTransactionCategoryInput(nextValue: string) {
+    setCategoryInput(nextValue);
+    setCategoryId(findCategoryByInput(transactionCategories, nextValue)?.id ?? "");
+  }
+
+  function handleSubscriptionCategoryInput(nextValue: string) {
+    setSubscriptionCategoryInput(nextValue);
+    setSubscriptionCategoryId(findCategoryByInput(subscriptionCategories, nextValue)?.id ?? "");
   }
 
   function handleReceiptConfirmed(transaction: Transaction) {
@@ -2084,40 +2208,6 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   </div>
                 )}
 
-                <div
-                  className={cn(
-                    "bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-3",
-                    isKid && "hidden",
-                  )}
-                >
-                  <label htmlFor="new-category-name" className="text-sm font-medium">
-                    Yeni kategori
-                  </label>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
-                    <Input
-                      id="new-category-name"
-                      value={newCategoryName}
-                      onChange={(event) => setNewCategoryName(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void handleCreateCategory();
-                        }
-                      }}
-                      placeholder="Kategori adı"
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="min-h-11"
-                      disabled={isCreatingCategory}
-                      onClick={() => void handleCreateCategory()}
-                    >
-                      {isCreatingCategory ? "Ekleniyor..." : "Ekle"}
-                    </Button>
-                  </div>
-                </div>
-
                 {entryMode === "one_time" ? (
                   <form className="space-y-4" onSubmit={handleSubmit}>
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -2153,25 +2243,13 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <label htmlFor="transaction-category" className="text-sm font-medium">
-                          Kategori
-                        </label>
-                        <select
-                          id="transaction-category"
-                          className={selectClassName}
-                          value={categoryId}
-                          onChange={(event) => setCategoryId(event.target.value)}
-                        >
-                          <option value="">Kategori seçme</option>
-                          {transactionCategories.map((category) => (
-                            <option key={category.id} value={category.id}>
-                              {category.name}
-                              {category.user_id ? " · özel" : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      <CategoryNameInput
+                        id="transaction-category"
+                        value={categoryInput}
+                        categories={transactionCategories}
+                        onValueChange={handleTransactionCategoryInput}
+                        helper="Listeden seçebilir ya da yeni kategori adını yazabilirsin."
+                      />
                       <div className="space-y-2">
                         <label htmlFor="transaction-date" className="text-sm font-medium">
                           Tarih ve saat
@@ -2192,10 +2270,16 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       </label>
                       <Input
                         id="transaction-merchant"
+                        list="merchant-source-options"
                         value={merchant}
                         onChange={(event) => setMerchant(event.target.value)}
                         placeholder="İsteğe bağlı"
                       />
+                      <datalist id="merchant-source-options">
+                        {merchantSuggestions.map((suggestion) => (
+                          <option key={suggestion} value={suggestion} />
+                        ))}
+                      </datalist>
                     </div>
                     <div className="space-y-2">
                       <label htmlFor="transaction-description" className="text-sm font-medium">
@@ -2313,35 +2397,29 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     ) : null}
 
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <label htmlFor="subscription-category" className="text-sm font-medium">
-                          Kategori
-                        </label>
-                        <select
-                          id="subscription-category"
-                          className={selectClassName}
-                          value={subscriptionCategoryId}
-                          onChange={(event) => setSubscriptionCategoryId(event.target.value)}
-                        >
-                          <option value="">Kategori seçme</option>
-                          {subscriptionCategories.map((category) => (
-                            <option key={category.id} value={category.id}>
-                              {category.name}
-                              {category.user_id ? " · özel" : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      <CategoryNameInput
+                        id="subscription-category"
+                        value={subscriptionCategoryInput}
+                        categories={subscriptionCategories}
+                        onValueChange={handleSubscriptionCategoryInput}
+                        helper="Gider kategorilerinden seç veya yeni bir ad yaz."
+                      />
                       <div className="space-y-2">
                         <label htmlFor="subscription-merchant" className="text-sm font-medium">
                           Kurum veya satıcı
                         </label>
                         <Input
                           id="subscription-merchant"
+                          list="subscription-merchant-source-options"
                           value={subscriptionMerchant}
                           onChange={(event) => setSubscriptionMerchant(event.target.value)}
                           placeholder="İsteğe bağlı"
                         />
+                        <datalist id="subscription-merchant-source-options">
+                          {merchantSuggestions.map((suggestion) => (
+                            <option key={suggestion} value={suggestion} />
+                          ))}
+                        </datalist>
                       </div>
                     </div>
 
