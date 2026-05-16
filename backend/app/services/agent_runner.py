@@ -7,7 +7,7 @@ import re
 from collections.abc import Iterator
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -16,17 +16,30 @@ from sqlalchemy.orm import Session
 
 from app.agent.graph import build_agent_graph_from_settings
 from app.agent.tools import (
+    build_accumulation_goal_creation,
     build_concept_illustration,
+    build_custom_lesson,
+    build_envelope_budget_creation,
+    build_envelope_budget_delete,
+    build_envelope_budget_overview,
+    build_envelope_budget_update,
     build_receipt_candidate,
     build_saving_goal_creation,
+    build_saving_goal_delete,
     build_saving_goal_progress,
+    build_saving_goal_update,
+    build_saving_goals_chart,
+    build_saving_goals_overview,
     build_spending_chart,
     build_spending_summary,
     build_subscriptions_summary,
     build_user_memory,
     explain_finance_concept,
     infer_category_from_text,
+    parse_goal_status_text,
+    parse_int_text,
     simulate_finance_scenario,
+    visible_categories,
 )
 from app.config import Settings, get_settings
 from app.models.conversation import Conversation
@@ -45,6 +58,10 @@ class ChatStreamEvent(TypedDict, total=False):
     tool_name: str
     input: dict[str, object]
     result: dict[str, object]
+    approval_id: str
+    action_label: str
+    summary: str
+    details: list[str]
     image_url: str
     alt_text: str
 
@@ -78,6 +95,14 @@ MONTHLY_VISUALIZE_HINTS = (
     "month by month",
 )
 MEMORY_HINTS = ("hafıza", "hafiza", "hatırl", "hatirl", "memory")
+CUSTOM_LESSON_HINTS = (
+    "özel ders",
+    "ozel ders",
+    "custom ders",
+    "ders oluştur",
+    "ders olustur",
+    "kendi ders",
+)
 SAVING_GOAL_CREATE_HINTS = (
     "azalt",
     "düşür",
@@ -86,7 +111,24 @@ SAVING_GOAL_CREATE_HINTS = (
     "tasarruf hedefi olustur",
     "hedef koy",
 )
+ACCUMULATION_GOAL_CREATE_HINTS = (
+    "birikim hedefi oluştur",
+    "birikim hedefi olustur",
+    "birikim hedefi koy",
+    "biriktirme hedefi",
+    "para biriktirmek istiyorum",
+)
 SAVING_GOAL_PROGRESS_HINTS = ("hedefimde", "hedefim", "tasarruf hedef", "ilerleme", "durum")
+SAVING_GOAL_OVERVIEW_HINTS = (
+    "hedeflerimi göster",
+    "hedeflerimi goster",
+    "hedeflerimi liste",
+    "hedeflerim",
+    "mevcut hedef",
+    "aktif hedef",
+    "birikim hedefler",
+    "tasarruf hedefler",
+)
 SMART_PLAN_HINTS = (
     "tatil",
     "giderlerimi kısm",
@@ -98,6 +140,26 @@ SMART_PLAN_HINTS = (
     "akıllı hedef",
     "akilli hedef",
 )
+APPROVAL_TOOL_NAMES = {
+    "create_saving_goal",
+    "create_accumulation_goal",
+    "update_saving_goal",
+    "delete_saving_goal",
+    "create_envelope_budget",
+    "update_envelope_budget",
+    "delete_envelope_budget",
+    "create_smart_saving_plan",
+}
+APPROVAL_ACTIONS_BY_TOOL = {
+    "create_saving_goal": "Tasarruf hedefi oluştur",
+    "create_accumulation_goal": "Birikim hedefi oluştur",
+    "update_saving_goal": "Hedefi güncelle",
+    "delete_saving_goal": "Hedefi sil",
+    "create_envelope_budget": "Zarf ekle",
+    "update_envelope_budget": "Zarf limitini güncelle",
+    "delete_envelope_budget": "Zarfı kapat",
+    "create_smart_saving_plan": "Akıllı hedef planı oluştur",
+}
 ENVELOPE_BUDGET_HINTS = (
     "zarf",
     "bütçe",
@@ -145,6 +207,40 @@ INVESTMENT_ADVICE_PATTERNS = (
 )
 NEGATED_SHORT_TRADE_HINTS = ("al/sat", "al-sat", "al sat tavsiyesi verme")
 MAX_CONTEXT_MESSAGES = 20
+UUID_PATTERN = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+    re.IGNORECASE,
+)
+POSSESSIVE_NAME_PATTERN = re.compile(
+    r"\b(?P<name>[A-Za-zÇĞİÖŞÜçğıöşü]+(?:\s+[A-Za-zÇĞİÖŞÜçğıöşü]+)?)['’]"
+    r"(?:in|ın|un|ün|nin|nın|nun|nün)\b",
+    re.IGNORECASE,
+)
+SCOPE_INJECTION_HINTS = (
+    "user_id",
+    "kullanıcı id",
+    "kullanici id",
+    "başka kullanıcı",
+    "baska kullanici",
+    "başkasının",
+    "baskasinin",
+    "kullanıcısının",
+    "kullanicisinin",
+    "onun ver",
+)
+DATA_ACCESS_HINTS = (
+    "veri",
+    "harcama",
+    "işlem",
+    "islem",
+    "abonelik",
+    "hedef",
+    "göster",
+    "goster",
+    "liste",
+    "özet",
+    "ozet",
+)
 
 
 def _get_or_create_conversation(
@@ -192,6 +288,123 @@ def _persist_message(
     db.add(message)
     db.commit()
     return message
+
+
+def _approval_id() -> str:
+    return f"approval-{uuid4()}"
+
+
+def _approval_record(
+    *,
+    approval_id: str,
+    tool_name: str,
+    tool_input: dict[str, object],
+    action_label: str,
+    summary: str,
+    details: list[str],
+) -> dict[str, object]:
+    return {
+        "approval_id": approval_id,
+        "tool_name": tool_name,
+        "input": tool_input,
+        "action_label": action_label,
+        "summary": summary,
+        "details": details,
+        "status": "pending",
+    }
+
+
+def _pending_approval_message(
+    db: Session,
+    conversation: Conversation,
+    approval_id: str,
+) -> Message | None:
+    rows = list(
+        db.execute(
+            select(Message)
+            .where(
+                Message.conversation_id == conversation.id,
+                Message.role == "tool",
+            )
+            .order_by(desc(Message.created_at))
+            .limit(MAX_CONTEXT_MESSAGES),
+        )
+        .scalars()
+        .all(),
+    )
+    for message in rows:
+        tool_calls = message.tool_calls or {}
+        if tool_calls.get("approval_id") == approval_id and tool_calls.get("status") == "pending":
+            return message
+    return None
+
+
+def _latest_pending_approval_message(db: Session, conversation: Conversation) -> Message | None:
+    rows = list(
+        db.execute(
+            select(Message)
+            .where(
+                Message.conversation_id == conversation.id,
+                Message.role == "tool",
+            )
+            .order_by(desc(Message.created_at))
+            .limit(MAX_CONTEXT_MESSAGES),
+        )
+        .scalars()
+        .all(),
+    )
+    for message in rows:
+        tool_calls = message.tool_calls or {}
+        if tool_calls.get("status") == "pending" and isinstance(tool_calls.get("approval_id"), str):
+            return message
+    return None
+
+
+def _approval_from_message(message: Message) -> dict[str, object]:
+    return _json_payload(message.tool_calls or {})
+
+
+def _store_pending_approval(
+    db: Session,
+    conversation: Conversation,
+    approval: dict[str, object],
+) -> None:
+    _persist_message(
+        db,
+        conversation,
+        role="tool",
+        content="Kullanıcı onayı bekleniyor.",
+        tool_name=str(approval["tool_name"]),
+        tool_calls=approval,
+    )
+
+
+def _mark_approval_status(message: Message, status_value: str) -> None:
+    payload = {**(message.tool_calls or {}), "status": status_value}
+    message.tool_calls = payload
+
+
+def _approval_event(conversation_id: str, approval: dict[str, object]) -> ChatStreamEvent:
+    details_value = approval.get("details", [])
+    details = details_value if isinstance(details_value, list) else []
+    return {
+        "type": "approval_required",
+        "conversation_id": conversation_id,
+        "approval_id": str(approval["approval_id"]),
+        "tool_name": str(approval["tool_name"]),
+        "action_label": str(approval["action_label"]),
+        "summary": str(approval["summary"]),
+        "details": [str(detail) for detail in details if isinstance(detail, str)],
+        "input": _json_payload(approval.get("input", {})),
+    }
+
+
+def _approval_needed_answer() -> str:
+    return "Bu işlem verilerini değiştirecek. Onaylıyor musun? Aşağıdaki kartı onaylarsan devam edeceğim."
+
+
+def _approval_rejected_answer() -> str:
+    return "İşlemi iptal ettim; herhangi bir değişiklik yapmadım."
 
 
 def _sanitize_payload(value: object) -> object:
@@ -242,6 +455,8 @@ def _wants_concept(message: str) -> bool:
         return False
     if _wants_smart_saving_plan(message):
         return False
+    if _wants_custom_lesson(message):
+        return False
     normalized = message.casefold()
     return any(hint in normalized for hint in CONCEPT_HINTS)
 
@@ -266,14 +481,34 @@ def _wants_memory(message: str) -> bool:
     return any(hint in normalized for hint in MEMORY_HINTS)
 
 
+def _wants_custom_lesson(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in CUSTOM_LESSON_HINTS)
+
+
 def _wants_saving_goal_creation(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in SAVING_GOAL_CREATE_HINTS)
 
 
+def _wants_accumulation_goal_creation(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in ACCUMULATION_GOAL_CREATE_HINTS)
+
+
 def _wants_saving_goal_progress(message: str) -> bool:
     normalized = message.casefold()
     return "hedef" in normalized and any(hint in normalized for hint in SAVING_GOAL_PROGRESS_HINTS)
+
+
+def _wants_saving_goals_overview(message: str) -> bool:
+    normalized = message.casefold()
+    if any(hint in normalized for hint in SAVING_GOAL_OVERVIEW_HINTS):
+        return True
+    return "hedef" in normalized and any(
+        hint in normalized
+        for hint in ("göster", "goster", "liste", "grafik", "görselle", "gorselle")
+    )
 
 
 def _wants_smart_saving_plan(message: str) -> bool:
@@ -301,11 +536,501 @@ def _wants_investment_advice(message: str) -> bool:
     return has_advice_pattern or has_short_trade_action
 
 
+def _normalized_scope_label(value: str | None) -> str:
+    return " ".join((value or "").casefold().split())
+
+
+def _active_profile_name_labels(current_user: User) -> set[str]:
+    normalized_name = _normalized_scope_label(current_user.name)
+    if not normalized_name:
+        return set()
+    labels = {normalized_name}
+    labels.update(part for part in normalized_name.split() if part)
+    return labels
+
+
+def _category_name_labels(db: Session, current_user: User) -> set[str]:
+    return {
+        _normalized_scope_label(category.name) for category in visible_categories(db, current_user)
+    }
+
+
+def _mentions_external_scope_name(db: Session, current_user: User, message: str) -> bool:
+    allowed_labels = _active_profile_name_labels(current_user) | _category_name_labels(
+        db,
+        current_user,
+    )
+    for match in POSSESSIVE_NAME_PATTERN.finditer(message):
+        label = _normalized_scope_label(match.group("name"))
+        first_name = label.split()[0] if label else ""
+        if label not in allowed_labels and first_name not in allowed_labels:
+            return True
+    return False
+
+
+def _wants_scope_injection(db: Session, current_user: User, message: str) -> bool:
+    normalized = message.casefold()
+    has_data_request = any(hint in normalized for hint in DATA_ACCESS_HINTS)
+    if not has_data_request:
+        return False
+    if UUID_PATTERN.search(normalized):
+        return True
+    if _mentions_external_scope_name(db, current_user, message):
+        return True
+    return any(hint in normalized for hint in SCOPE_INJECTION_HINTS)
+
+
 def _wants_envelope_budget(message: str) -> bool:
     normalized = message.casefold()
     return resolve_envelope_category(message) is not None and any(
         hint in normalized for hint in ENVELOPE_BUDGET_HINTS
     )
+
+
+def _budget_amount_from_message(message: str) -> Decimal | None:
+    return _target_amount_from_message(message)
+
+
+def _envelope_name_from_message(message: str) -> str | None:
+    normalized = message.casefold()
+    known = resolve_envelope_category(message)
+    if known is not None:
+        return known
+    patterns = (
+        r"([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,40})\s+zarf(?:ı|i|ını|ini|[ıi]n[ıi])\s+"
+        r"(?:sil|kapat|güncelle|guncelle|değiştir|degistir)",
+        r"([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,40})\s+zarf[ıi]\s+(?:oluştur|olustur|aç|ac|ekle)",
+        r"([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,40})\s+için\s+zarf",
+        r"zarf\s+(?:oluştur|olustur|aç|ac|ekle)\s+([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,40})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.IGNORECASE)
+        if match:
+            value = " ".join((match.group(1) or "").split())
+            value = re.sub(r"\b(?:için|icin|limit|bütçe|butce|tl|lira)\b.*$", "", value).strip()
+            if len(value) >= 2:
+                return value.title()
+    return None
+
+
+def _wants_envelope_mutation(message: str) -> bool:
+    normalized = message.casefold()
+    return "zarf" in normalized and any(
+        hint in normalized
+        for hint in (
+            "oluştur",
+            "olustur",
+            "ekle",
+            "aç",
+            "ac",
+            "limit koy",
+            "limit belirle",
+            "güncelle",
+            "guncelle",
+            "değiştir",
+            "degistir",
+            "sil",
+            "kapat",
+        )
+    )
+
+
+def _goal_title_from_message(message: str) -> str | None:
+    normalized = message.casefold()
+    patterns = (
+        r"([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,60})\s+hedef(?:i|imi|ini|[ıi]n[ıi]|im|in)?\s+"
+        r"(?:sil|kaldır|kaldir|duraklat|sürdür|surdur|tamamla|tamamlandı|tamamlandi|"
+        r"güncelle|guncelle|değiştir|degistir|katkı|katki)",
+        r"hedef(?:i|imi|ini|[ıi]n[ıi]|im|in)?\s+([A-Za-zÇĞİÖŞÜçğıöşü0-9\s]{2,60})\s+"
+        r"(?:sil|kaldır|kaldir|duraklat|sürdür|surdur|tamamla|tamamlandı|tamamlandi|"
+        r"güncelle|guncelle|değiştir|degistir|katkı|katki)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.IGNORECASE)
+        if match:
+            value = " ".join((match.group(1) or "").split())
+            value = re.sub(r"\b(?:tasarruf|birikim|hedef|hedefi)\b", "", value).strip()
+            if len(value) >= 2:
+                return value.title()
+    return None
+
+
+def _saving_goal_mutation_approval(
+    db: Session,
+    current_user: User,
+    message: str,
+) -> dict[str, object] | None:
+    normalized = message.casefold()
+    if "hedef" not in normalized:
+        return None
+    title = _goal_title_from_message(message)
+    category = infer_category_from_text(db, current_user, message)
+    target_input: dict[str, object] = {
+        "title": title,
+        "category": category,
+    }
+    target_input = {key: value for key, value in target_input.items() if value is not None}
+    target_label = title or category or "Seçilecek hedef"
+
+    if any(hint in normalized for hint in ("sil", "kaldır", "kaldir")):
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="delete_saving_goal",
+            tool_input=target_input,
+            action_label="Hedefi sil",
+            summary=f"{target_label} hedefi silinecek.",
+            details=[
+                "Bu işlem hedef kaydını kaldırır.",
+                "İşlem defterindeki gelir/gider kayıtları değişmez.",
+            ],
+        )
+
+    status_value: str | None = None
+    status_label: str | None = None
+    if any(hint in normalized for hint in ("duraklat", "beklet")):
+        status_value = "paused"
+        status_label = "duraklatılacak"
+    elif any(hint in normalized for hint in ("sürdür", "surdur", "aktif yap", "devam")):
+        status_value = "active"
+        status_label = "aktif yapılacak"
+    elif any(hint in normalized for hint in ("tamamla", "tamamlandı", "tamamlandi", "bitti")):
+        status_value = "completed"
+        status_label = "tamamlandı yapılacak"
+
+    contribution = _target_amount_from_message(message)
+    wants_contribution = any(
+        hint in normalized for hint in ("katkı", "katki", "ekle", "biriktirdim")
+    )
+    if status_value is None and not wants_contribution:
+        return None
+
+    tool_input: dict[str, object] = {**target_input}
+    details = ["Hedef ilerlemesi güncellenecek."]
+    if status_value is not None:
+        tool_input["status"] = status_value
+        summary = f"{target_label} hedefi {status_label}."
+    else:
+        summary = f"{target_label} hedefine katkı eklenecek."
+    if wants_contribution:
+        if contribution is None:
+            return None
+        tool_input["contribution_amount"] = f"{contribution:.2f}"
+        summary = (
+            f"{target_label} hedefine {format_amount_text(str(contribution))} katkı eklenecek."
+        )
+        details.append("Katkı işlem defterine otomatik gelir/gider yazmaz.")
+    return _approval_record(
+        approval_id=_approval_id(),
+        tool_name="update_saving_goal",
+        tool_input=tool_input,
+        action_label="Hedefi güncelle",
+        summary=summary,
+        details=details,
+    )
+
+
+def _envelope_mutation_approval(message: str) -> dict[str, object] | None:
+    normalized = message.casefold()
+    if not _wants_envelope_mutation(message):
+        return None
+    amount = _budget_amount_from_message(message)
+    name = _envelope_name_from_message(message)
+    if "sil" in normalized or "kapat" in normalized:
+        if name is None:
+            return None
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="delete_envelope_budget",
+            tool_input={"slug": "__lookup_required__", "name": name},
+            action_label="Zarfı kapat",
+            summary=f"{name} zarfı aktif profil için kapatılacak.",
+            details=["Kategori silinmez.", "Zarf limiti 0,00 ₺ yapılır."],
+        )
+    if amount is None:
+        return None
+    if name is None:
+        name = "Özel zarf"
+    action = (
+        "update_envelope_budget"
+        if any(h in normalized for h in ("güncelle", "guncelle", "değiştir", "degistir"))
+        else "create_envelope_budget"
+    )
+    return _approval_record(
+        approval_id=_approval_id(),
+        tool_name=action,
+        tool_input={"name": name, "budget_monthly": f"{amount:.2f}"}
+        if action == "create_envelope_budget"
+        else {"slug": "__lookup_required__", "name": name, "budget_monthly": f"{amount:.2f}"},
+        action_label="Zarf limiti kaydet"
+        if action == "create_envelope_budget"
+        else "Zarf limitini güncelle",
+        summary=f"{name} zarfı için aylık limit {format_amount_text(str(amount))} yapılacak.",
+        details=[
+            "Hazır zarf adıysa mevcut zarf açılır/güncellenir.",
+            "Farklı adsa özel zarf oluşturulur.",
+        ],
+    )
+
+
+def _mutating_fallback_approval(
+    db: Session,
+    current_user: User,
+    message: str,
+) -> dict[str, object] | None:
+    envelope = _envelope_mutation_approval(message)
+    if envelope is not None:
+        return envelope
+    if _wants_accumulation_goal_creation(message):
+        amount = _target_amount_from_message(message)
+        if amount is None:
+            return None
+        title = _accumulation_title_from_message(message)
+        months = _target_months_from_message(message)
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="create_accumulation_goal",
+            tool_input={"title": title, "target_amount": f"{amount:.2f}", "target_months": months},
+            action_label="Birikim hedefi oluştur",
+            summary=f"{title} için {format_amount_text(str(amount))} hedef açılacak.",
+            details=[
+                f"Hedef süresi yaklaşık {months} ay.",
+                "İşlem defterine otomatik gelir/gider yazılmaz.",
+            ],
+        )
+    if _wants_smart_saving_plan(message):
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="create_smart_saving_plan",
+            tool_input={"message": message},
+            action_label="Akıllı hedef planı oluştur",
+            summary="Son 30 gün verisine göre hedef planı oluşturulacak.",
+            details=[
+                "Uygun kategoriler için tasarruf hedefi açılabilir.",
+                "Amaç netse birikim hedefi de açılabilir.",
+            ],
+        )
+    goal_mutation = _saving_goal_mutation_approval(db, current_user, message)
+    if goal_mutation is not None:
+        return goal_mutation
+    if _wants_saving_goal_creation(message):
+        return _approval_record(
+            approval_id=_approval_id(),
+            tool_name="create_saving_goal",
+            tool_input={"category": "__infer__", "target_reduction_percent": 15},
+            action_label="Tasarruf hedefi oluştur",
+            summary="Belirttiğin kategori için %15 azaltma hedefi oluşturulacak.",
+            details=[
+                "Kategori aktif profil verisinden bulunacak.",
+                "Hedef yatırım tavsiyesi değildir.",
+            ],
+        )
+    return None
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _optional_decimal(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    raw_value = str(value).strip()
+    normalized = raw_value.replace("₺", "").replace("TL", "").replace("tl", "").strip()
+    normalized = re.sub(r"[^\d,.-]", "", normalized)
+    if "," in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    try:
+        return Decimal(normalized)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _optional_int(
+    value: object,
+    *,
+    default: int,
+    min_value: int,
+    max_value: int,
+) -> int:
+    return parse_int_text(
+        value if value is not None else default,
+        default=default,
+        min_value=min_value,
+        max_value=max_value,
+    )
+
+
+def _matching_envelope_slug(
+    db: Session,
+    current_user: User,
+    *,
+    slug: str | None,
+    name: str | None,
+) -> str | None:
+    if slug and slug != "__lookup_required__":
+        return slug
+    if not name:
+        return None
+    overview = build_envelope_budget_overview(db, current_user)
+    envelopes = overview.get("envelopes")
+    if not isinstance(envelopes, list):
+        return None
+    normalized_name = _normalized_scope_label(name.removesuffix(" zarfı").removesuffix(" zarf"))
+    for item in envelopes:
+        if not isinstance(item, dict):
+            continue
+        labels = [
+            _normalized_scope_label(_optional_str(item.get("slug"))),
+            _normalized_scope_label(_optional_str(item.get("label"))),
+            _normalized_scope_label(_optional_str(item.get("category_name"))),
+        ]
+        if normalized_name and any(
+            label and (normalized_name in label or label in normalized_name) for label in labels
+        ):
+            return _optional_str(item.get("slug"))
+    return None
+
+
+def _execute_approved_tool(
+    db: Session,
+    current_user: User,
+    tool_name: str,
+    tool_input: dict[str, object],
+) -> dict[str, object]:
+    if tool_name == "create_accumulation_goal":
+        target_amount = _optional_decimal(tool_input.get("target_amount"))
+        if target_amount is None:
+            return {"error": "Birikim hedefi için hedef tutarı net okuyamadım."}
+        current_amount = _optional_decimal(tool_input.get("current_amount")) or Decimal("0")
+        monthly_contribution = _optional_decimal(tool_input.get("monthly_contribution"))
+        target_months = _optional_int(
+            tool_input.get("target_months"),
+            default=12,
+            min_value=1,
+            max_value=120,
+        )
+        return build_accumulation_goal_creation(
+            db,
+            current_user,
+            title=_optional_str(tool_input.get("title")) or "Birikim hedefi",
+            target_amount=target_amount,
+            current_amount=current_amount,
+            target_months=target_months,
+            monthly_contribution=monthly_contribution,
+        )
+    if tool_name == "create_smart_saving_plan":
+        return build_smart_saving_plan(
+            db,
+            current_user,
+            message=_optional_str(tool_input.get("message")) or "Akıllı hedef planı",
+        )
+    if tool_name == "create_saving_goal":
+        category = _optional_str(tool_input.get("category"))
+        if category == "__infer__":
+            category = infer_category_from_text(
+                db, current_user, _optional_str(tool_input.get("message")) or ""
+            )
+        if category is None:
+            return {"error": "Hangi kategoride tasarruf hedefi oluşturulacağını netleştiremedim."}
+        reduction = _optional_int(
+            tool_input.get("target_reduction_percent"),
+            default=15,
+            min_value=1,
+            max_value=50,
+        )
+        return build_saving_goal_creation(
+            db,
+            current_user,
+            category=category,
+            target_reduction_percent=reduction,
+        )
+    if tool_name == "update_saving_goal":
+        return build_saving_goal_update(
+            db,
+            current_user,
+            goal_id=_optional_str(tool_input.get("goal_id")),
+            title=_optional_str(tool_input.get("title")),
+            category=_optional_str(tool_input.get("category")),
+            new_title=_optional_str(tool_input.get("new_title")),
+            status=parse_goal_status_text(_optional_str(tool_input.get("status"))),
+            current_amount=_optional_decimal(tool_input.get("current_amount")),
+            contribution_amount=_optional_decimal(tool_input.get("contribution_amount")),
+            monthly_contribution=_optional_decimal(tool_input.get("monthly_contribution")),
+        )
+    if tool_name == "delete_saving_goal":
+        return build_saving_goal_delete(
+            db,
+            current_user,
+            goal_id=_optional_str(tool_input.get("goal_id")),
+            title=_optional_str(tool_input.get("title")),
+            category=_optional_str(tool_input.get("category")),
+        )
+    if tool_name == "create_envelope_budget":
+        budget = _optional_decimal(tool_input.get("budget_monthly"))
+        if budget is None:
+            return {"error": "Zarf limitini net okuyamadım."}
+        return build_envelope_budget_creation(
+            db,
+            current_user,
+            name=_optional_str(tool_input.get("name")) or "Özel zarf",
+            budget_monthly=budget,
+        )
+    if tool_name == "update_envelope_budget":
+        budget = _optional_decimal(tool_input.get("budget_monthly"))
+        slug = _matching_envelope_slug(
+            db,
+            current_user,
+            slug=_optional_str(tool_input.get("slug")),
+            name=_optional_str(tool_input.get("name")),
+        )
+        if budget is None:
+            return {"error": "Zarf limitini net okuyamadım."}
+        if slug is None:
+            return {"error": "Güncellenecek zarfı netleştiremedim."}
+        return build_envelope_budget_update(db, current_user, slug=slug, budget_monthly=budget)
+    if tool_name == "delete_envelope_budget":
+        slug = _matching_envelope_slug(
+            db,
+            current_user,
+            slug=_optional_str(tool_input.get("slug")),
+            name=_optional_str(tool_input.get("name")),
+        )
+        if slug is None:
+            return {"error": "Kapatılacak zarfı netleştiremedim."}
+        return build_envelope_budget_delete(db, current_user, slug=slug)
+    return {"error": "Bu işlem için onaylı araç bulunamadı.", "tool_name": tool_name}
+
+
+def _approved_tool_answer(tool_name: str, result: dict[str, object]) -> str:
+    if "error" in result:
+        return f"Onayladığın işlemi tamamlayamadım: {result['error']}"
+    if tool_name == "create_accumulation_goal":
+        return _accumulation_goal_answer(result, created=True)
+    if tool_name == "create_saving_goal":
+        return _saving_goal_answer(result, created=True)
+    if tool_name == "create_smart_saving_plan":
+        return _smart_saving_plan_answer(result)
+    if tool_name == "update_saving_goal":
+        title = str(result.get("title") or "Hedef")
+        return f"{title} hedefini güncelledim. Yeni durumu hedefler ekranında görebilirsin."
+    if tool_name == "delete_saving_goal":
+        title = str(result.get("title") or "Hedef")
+        return f"{title} hedefini sildim."
+    if tool_name == "create_envelope_budget":
+        name = str(result.get("category_name") or "Zarf")
+        amount = str(result.get("budget_monthly_formatted") or "0,00 ₺")
+        return f"{name} zarfını {amount} aylık limit ile kaydettim."
+    if tool_name == "update_envelope_budget":
+        name = str(result.get("category_name") or "Zarf")
+        amount = str(result.get("budget_monthly_formatted") or "0,00 ₺")
+        return f"{name} zarfının aylık limitini {amount} yaptım."
+    if tool_name == "delete_envelope_budget":
+        name = str(result.get("category_name") or "Zarf")
+        return f"{name} zarfını aktif profil için kapattım. Kategori silinmedi; limit 0,00 ₺ oldu."
+    return "Onayladığın işlemi tamamladım."
 
 
 def _int_result(result: dict[str, object], key: str) -> int:
@@ -323,6 +1048,90 @@ def _decimal_result(result: dict[str, object], key: str) -> Decimal | None:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _target_amount_from_message(message: str) -> Decimal | None:
+    matches = re.findall(r"\d[\d\.]*,?\d*", message)
+    if not matches:
+        return None
+    amounts: list[Decimal] = []
+    for match in matches:
+        raw = match.replace(".", "").replace(",", ".")
+        try:
+            amount = Decimal(raw)
+        except InvalidOperation:
+            continue
+        if amount >= Decimal("100"):
+            amounts.append(amount)
+    return max(amounts) if amounts else None
+
+
+def _target_months_from_message(message: str) -> int:
+    normalized = message.casefold()
+    month_match = re.search(r"(\d{1,3})\s*(?:ay|ayda|aylık|aylik)", normalized)
+    if month_match:
+        return max(1, min(int(month_match.group(1)), 120))
+    year_match = re.search(r"(\d{1,2})\s*(?:yıl|yil|senede|sene)", normalized)
+    if year_match:
+        return max(1, min(int(year_match.group(1)) * 12, 120))
+    return 12
+
+
+def _custom_lesson_field(message: str, key: str) -> str | None:
+    for part in message.split("|"):
+        if ":" not in part:
+            continue
+        field_key, value = part.split(":", 1)
+        if field_key.strip().casefold() == key.casefold():
+            normalized = " ".join(value.split())
+            return normalized or None
+    return None
+
+
+def _truthy_lesson_field(value: str | None, *, default: bool) -> bool:
+    if value is None:
+        return default
+    normalized = value.casefold().strip()
+    return normalized not in {"hayır", "hayir", "false", "0", "yok", "istemiyorum"}
+
+
+def _custom_lesson_input_from_message(message: str) -> dict[str, object]:
+    topic = _custom_lesson_field(message, "Konu")
+    if topic is None:
+        topic = re.sub(
+            r"özel ders(?: oluştur| olustur)?|custom ders|ders oluştur|ders olustur",
+            "",
+            message,
+            flags=re.IGNORECASE,
+        ).strip(" :.-")
+    level = _custom_lesson_field(message, "Seviye") or "beginner"
+    duration_text = _custom_lesson_field(message, "Süre") or _custom_lesson_field(message, "Sure")
+    duration_match = re.search(r"\d{1,2}", duration_text or "")
+    duration_minutes = int(duration_match.group(0)) if duration_match else 5
+    include_examples = _truthy_lesson_field(_custom_lesson_field(message, "Örnekler"), default=True)
+    include_quiz = _truthy_lesson_field(_custom_lesson_field(message, "Mini quiz"), default=True)
+    visual = _truthy_lesson_field(_custom_lesson_field(message, "Görsel"), default=False)
+    return {
+        "topic": topic or "Finansal okuryazarlık",
+        "level": level,
+        "duration_minutes": duration_minutes,
+        "include_examples": include_examples,
+        "include_quiz": include_quiz,
+        "visual": visual,
+    }
+
+
+def _accumulation_title_from_message(message: str) -> str:
+    normalized = message.casefold()
+    if "tatil" in normalized:
+        return "Tatil birikimi"
+    if "okul" in normalized or "eğitim" in normalized or "egitim" in normalized:
+        return "Eğitim birikimi"
+    if "telefon" in normalized:
+        return "Telefon birikimi"
+    if "acil" in normalized:
+        return "Acil durum birikimi"
+    return "Birikim hedefi"
 
 
 def _spending_answer(result: dict[str, object]) -> str:
@@ -478,6 +1287,8 @@ def _memory_answer(result: dict[str, object]) -> str:
 
 
 def _saving_goal_answer(result: dict[str, object], *, created: bool) -> str:
+    if result.get("goal_type") == "accumulation":
+        return _accumulation_goal_answer(result, created=created)
     if "error" in result:
         category = result.get("category")
         suffix = f" ({category})" if category else ""
@@ -512,9 +1323,117 @@ def _saving_goal_answer(result: dict[str, object], *, created: bool) -> str:
     )
 
 
+def _accumulation_goal_answer(result: dict[str, object], *, created: bool) -> str:
+    if "error" in result:
+        return f"Birikim hedefi için veriyi netleştiremedim: {result['error']}"
+    title = str(result.get("title") or "Birikim hedefi")
+    target = str(result.get("target_amount_formatted") or "0,00 ₺")
+    current = str(result.get("current_amount_formatted") or "0,00 ₺")
+    remaining = str(result.get("remaining_amount_formatted") or "0,00 ₺")
+    monthly = str(result.get("monthly_contribution_formatted") or "0,00 ₺")
+    if created:
+        return (
+            f"{title} oluşturdum. Hedef tutar {target}; şu an {current} var. "
+            f"Kalan {remaining}. Aylık yaklaşık {monthly} ayırarak takip edebilirsin."
+        )
+    return f"{title} için kalan tutar {remaining}; aylık takip tutarı yaklaşık {monthly}."
+
+
+def _scope_refusal_answer() -> str:
+    return (
+        "Başka bir kullanıcı adı veya user_id ile kapsam değiştiremem. "
+        "Yalnızca aktif profilin yetkili veri kapsamındaki bilgileri kullanabilirim. "
+        "İstersen aktif profil için harcama, abonelik veya hedef özetini çıkarabilirim."
+    )
+
+
+def _custom_lesson_answer(result: dict[str, object]) -> str:
+    if "error" in result:
+        return str(result["error"])
+    title = str(result.get("title") or "Özel ders")
+    duration = result.get("duration_minutes")
+    goals = result.get("learning_goals")
+    sections = result.get("sections")
+    examples = result.get("examples")
+    quiz = result.get("mini_quiz")
+    lines = [f"### {title}", f"Süre: {duration} dakika.", ""]
+    if isinstance(goals, list) and goals:
+        lines.append("**Bu derste hedef:**")
+        lines.extend(f"- {goal}" for goal in goals[:3])
+        lines.append("")
+    if isinstance(sections, list) and sections:
+        lines.append("**Ders akışı:**")
+        for section in sections[:4]:
+            if not isinstance(section, dict):
+                continue
+            section_title = str(section.get("title") or "Bölüm")
+            minutes = section.get("minutes")
+            content = str(section.get("content") or "")
+            lines.append(f"- {section_title} ({minutes} dk): {content}")
+        lines.append("")
+    if isinstance(examples, list) and examples:
+        lines.append("**Örnekler:**")
+        lines.extend(f"- {example}" for example in examples[:3])
+        lines.append("")
+    if isinstance(quiz, list) and quiz:
+        lines.append("**Mini quiz:**")
+        for item in quiz[:2]:
+            if isinstance(item, dict):
+                lines.append(f"- Soru: {item.get('question')} Cevap: {item.get('answer')}")
+        lines.append("")
+    safety_note = result.get("safety_note")
+    if isinstance(safety_note, str):
+        lines.append(safety_note)
+    return "\n".join(lines).strip()
+
+
+def _saving_goals_overview_answer(result: dict[str, object]) -> str:
+    count = _int_result(result, "count") if "count" in result else 0
+    goals = result.get("goals")
+    if count == 0 or not isinstance(goals, list):
+        return (
+            "Aktif birikim veya tasarruf hedefi bulamadım. İstersen sohbetten yeni hedef "
+            "oluşturabilirim; örneğin 'Tatil için 30.000 TL birikim hedefi oluştur.'"
+        )
+
+    lines = [f"Aktif {count} hedefin var. Grafiği hemen üstte görebilirsin."]
+    for item in goals[:4]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "Hedef")
+        progress_decimal = _decimal_result(item, "progress_percent") or Decimal("0")
+        progress = f"{min(max(progress_decimal, Decimal('0')), Decimal('100')):.1f}"
+        if item.get("goal_type") == "accumulation":
+            target = str(item.get("target_amount_formatted") or "0,00 ₺")
+            current = str(item.get("current_amount_formatted") or "0,00 ₺")
+            remaining = str(item.get("remaining_amount_formatted") or "0,00 ₺")
+            lines.append(
+                f"{title}: {target} hedefin %{progress} tamamlandı; şu an {current}, kalan {remaining}."
+            )
+        else:
+            category = str(item.get("category_name") or "Kategori")
+            target = str(item.get("target_spending_amount_formatted") or "0,00 ₺")
+            actual = str(item.get("actual_spending_formatted") or "0,00 ₺")
+            remaining = str(item.get("remaining_limit_formatted") or "0,00 ₺")
+            lines.append(
+                f"{category}: bu ay hedef limit {target}; şu ana kadar {actual}, kalan limit {remaining}."
+            )
+    lines.append("Detay için /dashboard/goals sayfasında hedef kartına tıklayabilirsin.")
+    return " ".join(lines)
+
+
 def _smart_saving_plan_answer(result: dict[str, object]) -> str:
     goals = result.get("goals")
+    accumulation = result.get("accumulation_goal")
     if not isinstance(goals, list) or not goals:
+        if isinstance(accumulation, dict):
+            title = str(accumulation.get("title") or "Birikim hedefi")
+            target_amount = str(accumulation.get("target_amount_formatted") or "0,00 ₺")
+            monthly = str(accumulation.get("monthly_contribution_formatted") or "0,00 ₺")
+            return (
+                f"{title} için {target_amount} hedefi açtım; aylık yaklaşık {monthly} gerekir. "
+                "Son 30 günde kategori bazlı azaltma hedefi önermek için yeterli gider verisi bulamadım."
+            )
         return (
             "Akıllı hedef planı için son 30 günde yeterli kategori harcaması bulamadım. "
             "Birkaç işlem eklediğinde nereden kısabileceğini birlikte çıkarabilirim."
@@ -538,11 +1457,19 @@ def _smart_saving_plan_answer(result: dict[str, object]) -> str:
         )
     if goal_lines:
         parts.append(" ".join(goal_lines))
+    if isinstance(accumulation, dict):
+        title = str(accumulation.get("title") or "Birikim hedefi")
+        target_amount = str(accumulation.get("target_amount_formatted") or "0,00 ₺")
+        monthly = str(accumulation.get("monthly_contribution_formatted") or "0,00 ₺")
+        parts.append(
+            f"{title} için {target_amount} hedefi açtım; aylık yaklaşık {monthly} gerekir."
+        )
     subscription_note = result.get("subscription_note")
     if isinstance(subscription_note, str):
         monthly = str(result.get("subscription_monthly_total_formatted") or "0,00 ₺")
         parts.append(f"Aboneliklerin aylık etkisi {monthly}; {subscription_note}")
-    parts.append("Birikim tarafını aylık Birikim zarfı ile takip edebilirsin.")
+    if not isinstance(accumulation, dict):
+        parts.append("Birikim tarafını aylık Birikim zarfı ile takip edebilirsin.")
     return " ".join(parts)
 
 
@@ -612,6 +1539,92 @@ def _tool_call_name(call: dict[str, Any]) -> str:
 def _tool_call_args(call: dict[str, Any]) -> dict[str, object]:
     args = call.get("args")
     return _json_payload(args if isinstance(args, dict) else {})
+
+
+def _approval_summary_for_tool(tool_name: str, tool_input: dict[str, object]) -> str:
+    if tool_name == "create_saving_goal":
+        category = _optional_str(tool_input.get("category")) or "Seçilecek kategori"
+        reduction = _optional_str(tool_input.get("target_reduction_percent")) or "15"
+        return f"{category} kategorisi için %{reduction} azaltma hedefi oluşturulacak."
+    if tool_name == "create_accumulation_goal":
+        title = _optional_str(tool_input.get("title")) or "Birikim hedefi"
+        amount = _optional_str(tool_input.get("target_amount"))
+        amount_text = format_amount_text(amount) if amount else "hedef tutar"
+        return f"{title} için {amount_text} hedef açılacak."
+    if tool_name == "create_smart_saving_plan":
+        return "Son 30 gün verisine göre hedef planı oluşturulacak."
+    if tool_name == "update_saving_goal":
+        title = (
+            _optional_str(tool_input.get("title"))
+            or _optional_str(tool_input.get("category"))
+            or "Seçilecek hedef"
+        )
+        return f"{title} hedefi güncellenecek."
+    if tool_name == "delete_saving_goal":
+        title = (
+            _optional_str(tool_input.get("title"))
+            or _optional_str(tool_input.get("category"))
+            or "Seçilecek hedef"
+        )
+        return f"{title} hedefi silinecek."
+    if tool_name == "create_envelope_budget":
+        name = _optional_str(tool_input.get("name")) or "Yeni zarf"
+        amount = _optional_str(tool_input.get("budget_monthly"))
+        amount_text = format_amount_text(amount) if amount else "aylık limit"
+        return f"{name} zarfı için aylık limit {amount_text} yapılacak."
+    if tool_name == "update_envelope_budget":
+        name = (
+            _optional_str(tool_input.get("name"))
+            or _optional_str(tool_input.get("slug"))
+            or "Seçilecek zarf"
+        )
+        amount = _optional_str(tool_input.get("budget_monthly"))
+        amount_text = format_amount_text(amount) if amount else "aylık limit"
+        return f"{name} zarfı için aylık limit {amount_text} yapılacak."
+    if tool_name == "delete_envelope_budget":
+        name = (
+            _optional_str(tool_input.get("name"))
+            or _optional_str(tool_input.get("slug"))
+            or "Seçilecek zarf"
+        )
+        return f"{name} zarfı aktif profil için kapatılacak."
+    return "Bu işlem aktif profil verilerini değiştirecek."
+
+
+def _approval_details_for_tool(tool_name: str) -> list[str]:
+    if tool_name == "create_envelope_budget":
+        return [
+            "Hazır zarf adıysa mevcut zarf açılır/güncellenir.",
+            "Farklı adsa özel zarf oluşturulur.",
+        ]
+    if tool_name == "update_envelope_budget":
+        return ["Zarf limiti aktif profil için güncellenir."]
+    if tool_name == "delete_envelope_budget":
+        return ["Kategori silinmez.", "Zarf limiti 0,00 ₺ yapılır."]
+    if tool_name in {"create_accumulation_goal", "update_saving_goal"}:
+        return ["İşlem defterine otomatik gelir/gider yazılmaz."]
+    if tool_name == "delete_saving_goal":
+        return [
+            "Bu işlem hedef kaydını kaldırır.",
+            "İşlem defterindeki gelir/gider kayıtları değişmez.",
+        ]
+    if tool_name == "create_smart_saving_plan":
+        return [
+            "Uygun kategoriler için tasarruf hedefi açılabilir.",
+            "Amaç netse birikim hedefi de açılabilir.",
+        ]
+    return ["Hedef yatırım tavsiyesi değildir."]
+
+
+def _approval_from_tool_call(tool_name: str, tool_input: dict[str, object]) -> dict[str, object]:
+    return _approval_record(
+        approval_id=_approval_id(),
+        tool_name=tool_name,
+        tool_input=tool_input,
+        action_label=APPROVAL_ACTIONS_BY_TOOL.get(tool_name, "İşlemi onayla"),
+        summary=_approval_summary_for_tool(tool_name, tool_input),
+        details=_approval_details_for_tool(tool_name),
+    )
 
 
 def _graph_context_messages(
@@ -690,6 +1703,19 @@ def _stream_live_graph(
                     for call in tool_calls:
                         tool_name = _tool_call_name(call)
                         tool_input = _tool_call_args(call)
+                        if tool_name in APPROVAL_TOOL_NAMES:
+                            approval = _approval_from_tool_call(tool_name, tool_input)
+                            _store_pending_approval(db, conversation, approval)
+                            answer = _approval_needed_answer()
+                            for chunk in _chunks(answer):
+                                yield {
+                                    "type": "delta",
+                                    "conversation_id": str(conversation.id),
+                                    "content": chunk,
+                                }
+                            yield _approval_event(str(conversation.id), approval)
+                            _persist_message(db, conversation, role="assistant", content=answer)
+                            return
                         yield {
                             "type": "tool_call",
                             "conversation_id": str(conversation.id),
@@ -742,6 +1768,75 @@ def stream_chat_turn(
     yield {"type": "message_start", "conversation_id": conversation_id, "role": "assistant"}
     current_user_message = _persist_message(db, conversation, role="user", content=payload.message)
 
+    if payload.approval_decision is not None:
+        if payload.approval_id is None:
+            answer = "Onay bilgisini eşleştiremedim; işlemi çalıştırmadım."
+            for chunk in _chunks(answer):
+                yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+            _persist_message(db, conversation, role="assistant", content=answer)
+            yield {"type": "done", "conversation_id": conversation_id}
+            return
+        approval_message = _pending_approval_message(db, conversation, payload.approval_id)
+        if approval_message is None:
+            answer = "Bu onay isteği artık geçerli değil; herhangi bir değişiklik yapmadım."
+            for chunk in _chunks(answer):
+                yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+            _persist_message(db, conversation, role="assistant", content=answer)
+            yield {"type": "done", "conversation_id": conversation_id}
+            return
+        approval = _approval_from_message(approval_message)
+        tool_name = str(approval.get("tool_name") or approval_message.tool_name or "")
+        tool_input = _json_payload(approval.get("input", {}))
+        if payload.approval_decision == "rejected":
+            _mark_approval_status(approval_message, "rejected")
+            db.commit()
+            answer = _approval_rejected_answer()
+            for chunk in _chunks(answer):
+                yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+            _persist_message(db, conversation, role="assistant", content=answer)
+            yield {"type": "done", "conversation_id": conversation_id}
+            return
+        _mark_approval_status(approval_message, "approved")
+        db.commit()
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": tool_name,
+            "input": tool_input,
+        }
+        result = _execute_approved_tool(db, current_user, tool_name, tool_input)
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Onaylanan araç sonucu alındı.",
+            tool_name=tool_name,
+            tool_calls={"input": tool_input, "result": result, "approval_id": payload.approval_id},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": tool_name,
+            "result": result,
+        }
+        answer = _approved_tool_answer(tool_name, result)
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
+    latest_pending_approval = _latest_pending_approval_message(db, conversation)
+    if latest_pending_approval is not None:
+        approval = _approval_from_message(latest_pending_approval)
+        answer = "Önce bekleyen onay kartını yanıtlaman gerekiyor; yeni değişiklik yapmadım."
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        yield _approval_event(conversation_id, approval)
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
     receipt_result: dict[str, object] | None = None
     if payload.receipt_image_base64 is not None:
         receipt_tool_input: dict[str, object] = {
@@ -776,8 +1871,117 @@ def stream_chat_turn(
             "result": receipt_result,
         }
 
+    if _wants_scope_injection(db, current_user, payload.message):
+        answer = _scope_refusal_answer()
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
     if _wants_investment_advice(payload.message):
         answer = _investment_refusal_answer()
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
+    pending_approval = _mutating_fallback_approval(db, current_user, payload.message)
+    if pending_approval is not None:
+        if pending_approval["tool_name"] == "create_saving_goal":
+            tool_input = _json_payload(pending_approval.get("input", {}))
+            category = infer_category_from_text(db, current_user, payload.message)
+            if category is None:
+                answer = "Hangi kategoride tasarruf hedefi oluşturmak istediğini söyler misin?"
+                for chunk in _chunks(answer):
+                    yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+                _persist_message(db, conversation, role="assistant", content=answer)
+                yield {"type": "done", "conversation_id": conversation_id}
+                return
+            pending_approval["input"] = {
+                **tool_input,
+                "category": category,
+                "message": payload.message,
+            }
+            pending_approval["summary"] = (
+                f"{category} kategorisi için %15 azaltma hedefi oluşturulacak."
+            )
+        _store_pending_approval(db, conversation, pending_approval)
+        answer = _approval_needed_answer()
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        yield _approval_event(conversation_id, pending_approval)
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
+    if _wants_custom_lesson(payload.message):
+        lesson_input = _custom_lesson_input_from_message(payload.message)
+        duration_value = lesson_input["duration_minutes"]
+        duration_minutes = (
+            duration_value if isinstance(duration_value, int) else int(str(duration_value))
+        )
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "create_custom_lesson",
+            "input": lesson_input,
+        }
+        result = build_custom_lesson(
+            current_user,
+            topic=str(lesson_input["topic"]),
+            level=str(lesson_input["level"]),
+            duration_minutes=duration_minutes,
+            include_examples=bool(lesson_input["include_examples"]),
+            include_quiz=bool(lesson_input["include_quiz"]),
+            visual=bool(lesson_input["visual"]),
+        )
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Özel ders taslağı oluşturuldu.",
+            tool_name="create_custom_lesson",
+            tool_calls={"input": lesson_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "create_custom_lesson",
+            "result": result,
+        }
+        if result.get("error") is None and lesson_input.get("visual") is True:
+            concept = str(result.get("illustration_prompt") or lesson_input["topic"])
+            lesson_illustration_input: dict[str, object] = {"concept": concept}
+            yield {
+                "type": "tool_call",
+                "conversation_id": conversation_id,
+                "tool_name": "illustrate_concept",
+                "input": lesson_illustration_input,
+            }
+            image_result = build_concept_illustration(db, current_user, concept=concept)
+            _persist_message(
+                db,
+                conversation,
+                role="tool",
+                content="Özel ders görseli hazırlandı.",
+                tool_name="illustrate_concept",
+                tool_calls={"input": lesson_illustration_input, "result": image_result},
+            )
+            yield {
+                "type": "tool_result",
+                "conversation_id": conversation_id,
+                "tool_name": "illustrate_concept",
+                "result": image_result,
+            }
+            image_event = _image_event_from_result(
+                conversation_id=conversation_id,
+                result=image_result,
+            )
+            if image_event is not None:
+                yield image_event
+        answer = _custom_lesson_answer(result)
         for chunk in _chunks(answer):
             yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
         _persist_message(db, conversation, role="assistant", content=answer)
@@ -844,6 +2048,51 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _memory_answer(result)
+    elif _wants_saving_goals_overview(payload.message):
+        goals_input: dict[str, object] = {"status": "active"}
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "get_saving_goals",
+            "input": goals_input,
+        }
+        overview_result = build_saving_goals_overview(db, current_user, status="active")
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Hedef özeti alındı.",
+            tool_name="get_saving_goals",
+            tool_calls={"input": goals_input, "result": overview_result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "get_saving_goals",
+            "result": overview_result,
+        }
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "visualize_saving_goals",
+            "input": goals_input,
+        }
+        result = build_saving_goals_chart(db, current_user, status="active")
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Hedef grafiği üretildi.",
+            tool_name="visualize_saving_goals",
+            tool_calls={"input": goals_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "visualize_saving_goals",
+            "result": result,
+        }
+        answer = _saving_goals_overview_answer(result)
     elif _wants_visualization(payload.message) and not _wants_concept(payload.message):
         chart_type = "bar"
         if "pasta" in payload.message.casefold():
@@ -906,6 +2155,46 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _subscription_answer(result)
+    elif _wants_accumulation_goal_creation(payload.message):
+        target_amount = _target_amount_from_message(payload.message)
+        if target_amount is None:
+            answer = "Birikim hedefi için hedef tutarı yazar mısın? Örneğin 20.000 ₺ gibi."
+        else:
+            title = _accumulation_title_from_message(payload.message)
+            months = _target_months_from_message(payload.message)
+            accumulation_input: dict[str, object] = {
+                "title": title,
+                "target_amount": str(target_amount),
+                "target_months": months,
+            }
+            yield {
+                "type": "tool_call",
+                "conversation_id": conversation_id,
+                "tool_name": "create_accumulation_goal",
+                "input": accumulation_input,
+            }
+            result = build_accumulation_goal_creation(
+                db,
+                current_user,
+                title=title,
+                target_amount=target_amount,
+                target_months=months,
+            )
+            _persist_message(
+                db,
+                conversation,
+                role="tool",
+                content="Birikim hedefi oluşturuldu.",
+                tool_name="create_accumulation_goal",
+                tool_calls={"input": accumulation_input, "result": result},
+            )
+            yield {
+                "type": "tool_result",
+                "conversation_id": conversation_id,
+                "tool_name": "create_accumulation_goal",
+                "result": result,
+            }
+            answer = _accumulation_goal_answer(result, created=True)
     elif _wants_smart_saving_plan(payload.message):
         smart_plan_input: dict[str, object] = {"message": payload.message}
         yield {

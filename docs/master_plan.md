@@ -402,39 +402,69 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     yazılır.
 20. **Zarf bütçesi ve birikim hedefi (MVP):** Dashboard, mevcut
     `categories.budget_monthly` alanını kullanarak Türk aile bütçesine uygun
-    `Market`, `Fatura`, `Okul`, `Ulaşım`, `Harçlık` ve `Birikim` zarflarını
-    gösterir. Yeni tablo yoktur; `Birikim zarfı` aylık hedef olarak yorumlanır,
-    çok dönemli hedef takibi stretch kapsamda kalır. Agent aynı scoped zarf
-    özetini kullanarak kalan bütçe ve ay sonuna kadar güvenli günlük harcama
-    yanıtı verir.
-21. **Kategori bazlı tasarruf hedefleri (MVP):** Kullanıcı belirli bir gider
-    kategorisindeki harcamayı bu ay azaltmak için hedef oluşturabilir. Bu,
-    klasik birikim hedefinden ayrıdır: hedef para biriktirme değil, örneğin
-    `Market` harcamasını geçen 30 gün bazına göre %10–15 düşürmektir. Agent
-    `create_saving_goal` ve `get_saving_goal_progress` araçlarıyla hedef
-    oluşturur/izler; taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe
-    önerisidir. Tutarlar `Decimal`, kapsam `user_id` filtresi ve aile görünürlük
-    kurallarıyla hesaplanır.
+    hazır `Market`, `Fatura`, `Okul`, `Ulaşım`, `Harçlık` ve `Birikim`
+    zarflarını gösterir; kullanıcı aynı modelle kendi kategori destekli özel
+    zarfını da açabilir. Yeni zarf tablosu yoktur; özel zarflar aktif kullanıcıya
+    ait `categories` kaydı ve pozitif `budget_monthly` değeriyle temsil edilir.
+    `Birikim zarfı` aylık hedef olarak yorumlanır, çok dönemli hedef takibi
+    stretch kapsamda kalır. Zarf oluşturma/güncelleme `categories.budget_monthly`
+    üzerine aktif kullanıcı shadow kategorisi yazar; silme gerçek kategori silmez,
+    aktif profil için limiti `0,00 ₺` yapar.
+    Agent `get_envelopes`, `create_envelope_budget`, `update_envelope_budget` ve
+    `delete_envelope_budget` araçlarıyla scoped zarf listesini görebilir ve zarf
+    limitlerini yönetebilir. `create_envelope_budget` kullanıcıdan gelen zarf adını
+    kabul eder; hazır adlar mevcut zarfa, farklı adlar özel zarf kategorisine
+    yazılır. Zarf oluşturan, limit değiştiren veya zarfı kapatan agent işlemleri
+    araç çalışmadan önce sohbet içinde açık kullanıcı onayı ister; okuma ve
+    görselleştirme araçları onaysız çalışabilir. Agent aynı scoped zarf özetini kullanarak kalan bütçe ve ay sonuna
+    kadar güvenli günlük harcama yanıtı verir.
+21. **Akıllı hedefler (tasarruf + birikim MVP):** Kullanıcı tek hedef ekranında
+    iki hedef türü oluşturabilir. `Tasarruf hedefi`, belirli bir gider
+    kategorisindeki harcamayı bu ay azaltır; örneğin `Market` harcamasını geçen
+    30 gün bazına göre %10–15 düşürmek. `Birikim hedefi`, tatil, okul masrafı
+    veya acil durum gibi belirli bir tutara ulaşmayı izler; başlangıç tutarı,
+    hedef tutar, hedef tarih ve önerilen aylık katkı saklanır. Agent
+    `create_saving_goal`, `create_accumulation_goal`, `get_saving_goals`,
+    `get_saving_goal_progress`, `update_saving_goal`, `delete_saving_goal` ve
+    `visualize_saving_goals` araçlarıyla iki hedef türünü de oluşturur, listeler,
+    izler, düzeltir, durumunu değiştirir, silebilir ve görselleştirir. Kullanıcı
+    hedef ekranından scoped hedefleri duraklatabilir, yeniden aktif edebilir,
+    tamamlandı işaretleyebilir, silebilir ve aktif birikim hedeflerine manuel
+    katkı ekleyebilir; bu katkı yalnızca hedef ilerlemesini günceller, işlem
+    defterine otomatik gelir/gider yazmaz. `Koçtan plan iste` aksiyonu mevcut
+    chat handoff yolunu kullanır. Hedef veya akıllı hedef planı oluşturan,
+    güncelleyen veya silen agent işlemleri araç çalışmadan önce sohbet içinde açık
+    kullanıcı onayı ister; hedef listeleme/ilerleme/grafik araçları onaysız
+    çalışabilir.
+    Taktikler yatırım tavsiyesi değil, alışkanlık ve bütçe önerisidir. Tutarlar
+    `Decimal`, kapsam `user_id` filtresi ve aile görünürlük kurallarıyla
+    hesaplanır.
 22. **Akıllı hedef planı:** Kullanıcı “Tatile gitmek istiyorum, giderlerimi
     kısmam lazım” gibi amaç odaklı bir mesaj yazarsa agent `get_spending`,
-    `get_subscriptions` ve `create_smart_saving_plan` akışıyla son 30 günün
-    yüksek harcama kategorilerini ve aktif abonelik etkisini inceler. Yeni tablo
-    eklemeden mevcut `saving_goals` yapısında 1–2 kategori bazlı tasarruf hedefi
-    oluşturur, haftalık limit/taktik verir ve `Birikim zarfı`nı aylık hedef
-    olarak konumlandırır. Bu akış da yatırım tavsiyesi vermez; sadece bütçe ve
-    alışkanlık koçluğu yapar.
-23. **Finans Okulu (hazır AI dersleri):** Frontend, kontrollü bir başlık
+    `get_subscriptions`, `create_smart_saving_plan` ve gerekirse
+    `create_accumulation_goal` akışıyla son 30 günün yüksek harcama kategorilerini
+    ve aktif abonelik etkisini inceler. Mevcut `saving_goals` yapısında 1–2
+    kategori bazlı tasarruf hedefi ve amaç netse bir birikim hedefi oluşturabilir,
+    haftalık limit/aylık katkı/taktik verir. Kullanıcı mevcut hedeflerini sorarsa
+    sohbet içinde bar grafik ve kısa özet gösterilir; `/dashboard/goals` kartları
+    tıklanınca detay, ilerleme grafiği ve taktikler açılır. Bu akış da yatırım
+    tavsiyesi vermez; sadece bütçe ve alışkanlık koçluğu yapar.
+23. **Finans Okulu (hazır + anlık özel AI dersleri):** Frontend, kontrollü bir başlık
     listesiyle (`Faiz`, `Enflasyon`, `Bütçe`, `Tasarruf`, `Kredi kartı asgari
     ödeme`, `Para piyasası fonu nedir?`) kısa ders akışı sunar. Kullanıcı başlığa
     tıklayınca mevcut `/api/chat/stream` üzerinden `explain_concept` ve gerekirse
     `illustrate_concept` kullanılır; sonuç sayfada okunur, tarayıcı
-    text-to-speech ile sesli okutulabilir. Fon/ürün başlıkları yalnızca eğitim
-    amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
+    text-to-speech ile sesli okutulabilir. Kullanıcı ayrıca konu, seviye, süre,
+    örnek/mini quiz ve görsel tercihleriyle anlık özel ders isteyebilir; agent
+    `create_custom_lesson` aracıyla yapılandırılmış ders taslağı üretir ve gerekirse
+    `illustrate_concept` ile görsel anlatımı ekler. Özel dersler ilk MVP'de kalıcı
+    kaydedilmez; chat geçmişinde normal mesaj/tool sonucu olarak kalır. Fon/ürün
+    başlıkları yalnızca eğitim amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
 24. Sesli giriş (Web Speech API)
-25. Çok dönemli birikim hedef takibi
+25. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
 26. Quiz modu
 27. CSV export
 28. Magic link auth (email-only login, parola yok)
@@ -549,11 +579,16 @@ CREATE INDEX idx_tx_merchant ON transactions(merchant);
 CREATE TABLE saving_goals (
   id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  goal_type               TEXT NOT NULL DEFAULT 'expense_reduction'
+                          CHECK (goal_type IN ('expense_reduction','accumulation')),
   category_id             UUID REFERENCES categories(id) ON DELETE SET NULL,
   title                   TEXT NOT NULL,
   baseline_amount         NUMERIC(12,2) NOT NULL,
   target_spending_amount  NUMERIC(12,2) NOT NULL,
   target_saving_amount    NUMERIC(12,2) NOT NULL,
+  target_amount           NUMERIC(12,2),       -- accumulation goals only
+  current_amount          NUMERIC(12,2) NOT NULL DEFAULT 0,
+  monthly_contribution    NUMERIC(12,2),
   start_date              TIMESTAMPTZ NOT NULL,
   end_date                TIMESTAMPTZ NOT NULL,
   status                  TEXT NOT NULL DEFAULT 'active'
@@ -565,6 +600,7 @@ CREATE TABLE saving_goals (
   updated_at              TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_saving_goals_user_status ON saving_goals(user_id, status);
+CREATE INDEX idx_saving_goals_user_type_status ON saving_goals(user_id, goal_type, status);
 CREATE INDEX idx_saving_goals_category ON saving_goals(category_id);
 
 CREATE TABLE subscriptions (
@@ -651,8 +687,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from .tools import (
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
-    visualize_spending, illustrate_concept,
-    create_saving_goal, get_saving_goal_progress
+    visualize_spending, illustrate_concept, create_custom_lesson,
+    create_saving_goal, create_accumulation_goal, get_saving_goals,
+    get_saving_goal_progress, visualize_saving_goals
 )
 from .prompts import build_system_prompt
 
@@ -665,8 +702,9 @@ class AgentState(TypedDict):
 TOOLS = [
     get_spending, get_subscriptions, analyze_receipt,
     explain_concept, simulate_scenario, get_user_memory,
-    visualize_spending, illustrate_concept,
-    create_saving_goal, get_saving_goal_progress,
+    visualize_spending, illustrate_concept, create_custom_lesson,
+    create_saving_goal, create_accumulation_goal, get_saving_goals,
+    get_saving_goal_progress, visualize_saving_goals, create_custom_lesson,
 ]
 
 llm = ChatGoogleGenerativeAI(
@@ -749,6 +787,19 @@ def visualize_spending(
 @tool
 def illustrate_concept(user_id: str, concept: str) -> dict:
     """Koç modunda finansal kavram için eğitim illüstrasyonu URL'i döner."""
+    ...
+
+@tool
+def create_custom_lesson(
+    user_id: str,
+    topic: str,
+    level: str = "beginner",
+    duration_minutes: int = 5,
+    include_examples: bool = True,
+    include_quiz: bool = True,
+    visual: bool = False,
+) -> dict:
+    """Finans Okulu için kalıcı kaydetmeden anlık, yapılandırılmış özel ders döner."""
     ...
 ```
 
@@ -1061,8 +1112,45 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.20
-**Son güncelleme:** 14 Mayıs 2026
+**Doküman versiyonu:** 0.28
+**Son güncelleme:** 16 Mayıs 2026
+**v0.28 değişiklikleri:** Agent'ın hedef/zarf/akıllı plan gibi veri değiştiren
+araçları sohbet içinde açık kullanıcı onayı olmadan çalışmaz. Backend önce
+`approval_required` SSE event'i gönderir, frontend onay kartı gösterir; kullanıcı
+onaylarsa aynı konuşmaya `approval_id` + `approval_decision` ile dönülür ve araç
+ancak o zaman çalışır. Canlı LLM yolunda model veri değiştiren tool call üretebilir,
+ama backend bu çağrıyı ToolNode çalışmadan yakalayıp onay kartına çevirir. Okuma,
+listeleme ve görselleştirme araçları onay gerektirmez.
+**v0.27 değişiklikleri:** Agent zarf oluşturma sözleşmesi UI ile hizalandı:
+`create_envelope_budget` artık slug değil kullanıcıdan gelen zarf adını alır; hazır
+adlar mevcut zarfa, farklı adlar özel kategori-backed zarfa yazılır. Güncelleme ve
+silme için agent önce `get_envelopes` ile slug doğrular.
+**v0.26 değişiklikleri:** Zarf oluşturma kapsamı netleştirildi: hazır zarflara ek
+olarak kullanıcı özel zarf açabilir, fakat yeni tablo yoktur; özel zarflar aktif
+kullanıcının kategori kaydı ve pozitif `budget_monthly` değeriyle temsil edilir.
+**v0.25 değişiklikleri:** Zarf ve akıllı hedef agent yönetim kapsamı netleştirildi:
+agent hedefleri ve zarfları listeleyebilir, oluşturabilir, güncelleyebilir ve
+silebilir. Zarf silme gerçek kategori silmez; aktif profil için zarf limitini
+`0,00 ₺` yapan mevcut shadow-category modelini kullanır.
+**v0.24 değişiklikleri:** Finans Okulu kapsamı anlık özel ders üretimini içerecek
+şekilde genişletildi. `create_custom_lesson` agent aracıdır; konu/seviye/süre/
+örnek/quiz/görsel tercihleriyle yapılandırılmış ders taslağı üretir, kalıcı ders
+tablosu eklemez ve yatırım tavsiyesi yasağını değiştirmez.
+**v0.23 değişiklikleri:** Akıllı hedef yönetimi kapsamı netleştirildi:
+kullanıcı scoped hedefleri duraklatabilir, yeniden aktif edebilir, tamamlandı
+işaretleyebilir, silebilir ve aktif birikim hedeflerine manuel katkı ekleyebilir. Katkı ekleme işlem defterine
+otomatik transaction yazmaz; `Koçtan plan iste` mevcut chat handoff mekanizmasını
+kullanır.
+**v0.22 değişiklikleri:** Akıllı hedeflerde sohbetten mevcut hedefleri listeleme
+ve grafikle gösterme kapsamı netleştirildi. Agent araç setine `get_saving_goals`
+ve `visualize_saving_goals` eklendi; `/dashboard/goals` hedef kartları tıklanabilir
+detay/ilerleme/taktik yüzeyine dönüştü.
+**v0.21 değişiklikleri:** §12.2'de `Akıllı hedefler` kapsamı tasarruf ve
+birikim hedeflerini tek MVP yüzeyinde birleştirdi. `saving_goals` mevcut tablo
+ailesi `goal_type='expense_reduction'|'accumulation'`, `target_amount`,
+`current_amount` ve `monthly_contribution` alanlarıyla iki hedef türünü de
+taşıyabilir; `create_accumulation_goal` agent aracı eklendi. Stretch maddesi
+otomatik katkı eşleştirme gibi gelişmiş hedef otomasyonuna daraltıldı.
 **v0.20 değişiklikleri:** `day-1-bootstrap` ve `semih/zarf-budget-goals`
 branchlerindeki paralel Day 7 scope kararları tek planda birleştirildi.
 §12.2 yeniden numaralandırıldı; gelir/gider detayları, tekrarlayan ödeme

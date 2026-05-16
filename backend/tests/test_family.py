@@ -79,6 +79,9 @@ class FakeSession:
             user.id = uuid4()
         self._ensure_timestamps(user)
 
+    def delete(self, user: User) -> None:
+        self.users = [item for item in self.users if item.id != user.id]
+
     @staticmethod
     def _matches_user(statement: object, user: User) -> bool:
         for criterion in getattr(statement, "_where_criteria", ()):
@@ -244,6 +247,23 @@ def test_parent_can_create_list_update_and_switch_child(
     assert body["user"]["id"] == str(created_child.id)
     assert body["user"]["role"] == "child"
     assert verify_token(body["access_token"])["sub"] == str(created_child.id)
+
+
+def test_parent_can_delete_child_profile(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    parent = make_user()
+    child = make_user(role="child", name="Elif Yılmaz", parent_id=parent.id)
+    fake_session.users.extend([parent, child])
+
+    response = client.delete(
+        f"/api/family/children/{child.id}",
+        headers=auth_header(parent),
+    )
+
+    assert response.status_code == 204
+    assert [user.id for user in fake_session.users] == [parent.id]
 
 
 def test_parent_can_create_adult_child_relationship(

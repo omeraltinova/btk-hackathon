@@ -8,6 +8,7 @@ import {
   Loader2,
   ShieldCheck,
   Trophy,
+  Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -26,10 +27,18 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
 import { amountToKurus, formatDateTR, formatKurus } from "@/lib/format";
 import {
+  ACTIVE_PROFILE_EVENT,
   clearActiveProfile,
   readActiveProfile,
   setActiveProfile,
@@ -55,6 +64,7 @@ type FamilyMetricCard = {
 };
 
 type ChildDraft = {
+  name: string;
   birthDate: string;
   financeLevel: FinanceLevel;
 };
@@ -332,6 +342,124 @@ function ErrorNote({ children }: { children: string }) {
   );
 }
 
+function ChildProfileDialog({
+  child,
+  draft,
+  open,
+  isSaving,
+  isRemoving,
+  onOpenChange,
+  onDraftChange,
+  onSave,
+  onRemove,
+}: {
+  child: FamilyMember | null;
+  draft: ChildDraft | null;
+  open: boolean;
+  isSaving: boolean;
+  isRemoving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDraftChange: (child: FamilyMember, partial: Partial<ChildDraft>) => void;
+  onSave: (child: FamilyMember) => void;
+  onRemove: (child: FamilyMember) => void;
+}) {
+  if (!child || !draft) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-1.5rem)] overflow-hidden rounded-[1.5rem] p-4 sm:max-w-2xl sm:p-6">
+        <DialogHeader>
+          <DialogTitle className="font-display text-3xl font-black">Profili düzenle</DialogTitle>
+          <DialogDescription>
+            {child.name} için doğum tarihi, koç dili ve aile kaydı ayarları.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[68vh] space-y-4 overflow-y-auto pr-1">
+          <div className="rounded-[1.5rem] border border-border/70 bg-card/75 p-4">
+            <p className="font-display text-2xl font-black">{child.name}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Aile çocuğu / {memberAgeText(child)} / {financeLevelLabels[child.finance_level]}
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <label htmlFor="edit-child-name" className="text-sm font-medium">
+                Ad
+              </label>
+              <Input
+                id="edit-child-name"
+                value={draft.name}
+                onChange={(event) => onDraftChange(child, { name: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="edit-child-birth-date" className="text-sm font-medium">
+                Doğum tarihi
+              </label>
+              <Input
+                id="edit-child-birth-date"
+                type="date"
+                value={draft.birthDate}
+                onChange={(event) => onDraftChange(child, { birthDate: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="edit-child-finance-level" className="text-sm font-medium">
+                Koç dili
+              </label>
+              <select
+                id="edit-child-finance-level"
+                className={selectClassName}
+                value={draft.financeLevel}
+                onChange={(event) =>
+                  onDraftChange(child, { financeLevel: event.target.value as FinanceLevel })
+                }
+              >
+                {Object.entries(financeLevelLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="bg-destructive/8 rounded-[1.5rem] border border-destructive/25 p-4">
+            <p className="font-display text-xl font-black">Aile kaydı</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Profili aileden kaldırırsan bu profile bağlı kayıtlar da silinir. Demo dışında bu
+              işlemi dikkatli kullan.
+            </p>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="mt-3"
+              disabled={isSaving || isRemoving}
+              onClick={() => onRemove(child)}
+            >
+              {isRemoving ? "Kaldırılıyor..." : "Aileden kaldır"}
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Vazgeç
+          </Button>
+          <Button type="button" disabled={isSaving || isRemoving} onClick={() => onSave(child)}>
+            {isSaving ? "Kaydediliyor..." : "Değişiklikleri kaydet"}
+            <Edit3 className="h-4 w-4" />
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function FamilyClient() {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [overview, setOverview] = useState<FamilyOverview | null>(null);
@@ -339,11 +467,13 @@ export function FamilyClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [updatingChildId, setUpdatingChildId] = useState<string | null>(null);
+  const [removingChildId, setRemovingChildId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [childName, setChildName] = useState("");
   const [childBirthDate, setChildBirthDate] = useState("2014-09-05");
   const [childFinanceLevel, setChildFinanceLevel] = useState<FinanceLevel>("child");
   const [childDrafts, setChildDrafts] = useState<Record<string, ChildDraft>>({});
+  const [editingChildId, setEditingChildId] = useState<string | null>(null);
   const [showMemberDetails, setShowMemberDetails] = useState(false);
 
   const loadFamily = useCallback(async () => {
@@ -373,8 +503,32 @@ export function FamilyClient() {
     void loadFamily();
   }, [loadFamily]);
 
+  useEffect(() => {
+    function syncActiveProfile() {
+      setLocalActiveProfile(readActiveProfile());
+    }
+
+    window.addEventListener(ACTIVE_PROFILE_EVENT, syncActiveProfile);
+    window.addEventListener("storage", syncActiveProfile);
+    return () => {
+      window.removeEventListener(ACTIVE_PROFILE_EVENT, syncActiveProfile);
+      window.removeEventListener("storage", syncActiveProfile);
+    };
+  }, []);
+
   const parents = useMemo(() => members.filter((member) => member.role === "parent"), [members]);
   const children = useMemo(() => members.filter((member) => member.role === "child"), [members]);
+  const editingChild = useMemo(
+    () => children.find((child) => child.id === editingChildId) ?? null,
+    [children, editingChildId],
+  );
+  const editingDraft = editingChild
+    ? (childDrafts[editingChild.id] ?? {
+        name: editingChild.name,
+        birthDate: editingChild.birth_date ?? "",
+        financeLevel: editingChild.finance_level,
+      })
+    : null;
   const familyChartData = useMemo<FamilyChartPoint[]>(() => {
     if (!overview) return [];
     return overview.members.map((member) => {
@@ -467,9 +621,14 @@ export function FamilyClient() {
 
   async function handleUpdateChildProfile(child: FamilyMember) {
     const draft = childDrafts[child.id] ?? {
+      name: child.name,
       birthDate: child.birth_date ?? "",
       financeLevel: child.finance_level,
     };
+    if (draft.name.trim().length < 2) {
+      setError("Ad en az iki karakter olmalı.");
+      return;
+    }
     if (!draft.birthDate) {
       setError("Doğum tarihi boş olamaz.");
       return;
@@ -479,12 +638,18 @@ export function FamilyClient() {
     try {
       const updated = await api<FamilyMember>(`/api/family/children/${child.id}`, {
         method: "PATCH",
-        body: { birth_date: draft.birthDate, finance_level: draft.financeLevel },
+        body: {
+          name: draft.name,
+          birth_date: draft.birthDate,
+          finance_level: draft.financeLevel,
+        },
         silent: true,
         useActiveProfile: false,
       });
       setMembers((current) => current.map((item) => (item.id === child.id ? updated : item)));
+      setEditingChildId(null);
       void loadFamily();
+      toast.success("Profil güncellendi.");
     } catch (err) {
       setError(friendlyError(err, "Çocuk profili güncellenemedi."));
     } finally {
@@ -495,6 +660,7 @@ export function FamilyClient() {
   function updateChildDraft(child: FamilyMember, partial: Partial<ChildDraft>) {
     setChildDrafts((current) => {
       const existing = current[child.id] ?? {
+        name: child.name,
         birthDate: child.birth_date ?? "",
         financeLevel: child.finance_level,
       };
@@ -503,6 +669,35 @@ export function FamilyClient() {
         [child.id]: { ...existing, ...partial },
       };
     });
+  }
+
+  async function handleRemoveChildProfile(child: FamilyMember) {
+    const confirmed = window.confirm(
+      `${child.name} profilini aileden kaldırmak istiyor musun? Bu profile bağlı kayıtlar da silinir.`,
+    );
+    if (!confirmed) return;
+
+    setRemovingChildId(child.id);
+    setError(null);
+    try {
+      await api<void>(`/api/family/children/${child.id}`, {
+        method: "DELETE",
+        silent: true,
+        useActiveProfile: false,
+      });
+      if (activeProfile?.user.id === child.id) {
+        clearActiveProfile();
+        setLocalActiveProfile(null);
+      }
+      setMembers((current) => current.filter((item) => item.id !== child.id));
+      setEditingChildId(null);
+      void loadFamily();
+      toast.success("Profil aileden kaldırıldı.");
+    } catch (err) {
+      setError(friendlyError(err, "Profil kaldırılamadı, tekrar dener misin?"));
+    } finally {
+      setRemovingChildId(null);
+    }
   }
 
   async function handleSwitch(child: FamilyMember) {
@@ -826,71 +1021,51 @@ export function FamilyClient() {
                 children.map((child) => {
                   const isActive = activeProfile?.user.id === child.id;
                   const isUpdating = updatingChildId === child.id;
-                  const draft = childDrafts[child.id] ?? {
-                    birthDate: child.birth_date ?? "",
-                    financeLevel: child.finance_level,
-                  };
+                  const isRemoving = removingChildId === child.id;
                   return (
-                    <div key={child.id} className="receipt-tape space-y-5 px-5 py-6">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div key={child.id} className="receipt-tape px-4 py-4 sm:px-5">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
-                          <p className="min-w-0 truncate font-display text-xl font-black">
+                          <p className="min-w-0 truncate font-display text-lg font-black sm:text-xl">
                             {child.name}
                           </p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            Aile çocuğu / {memberAgeText(child)}
+                          <p className="mt-1 text-xs font-medium text-muted-foreground sm:text-sm">
+                            Aile çocuğu / {memberAgeText(child)} /{" "}
+                            {financeLevelLabels[child.finance_level]}
                           </p>
                         </div>
-                        {isActive ? (
-                          <span className="badge-active shrink-0">
-                            <Baby className="h-3.5 w-3.5" />
-                            Aktif profil
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                        <Input
-                          type="date"
-                          value={draft.birthDate}
-                          aria-label={`${child.name} doğum tarihi`}
-                          onChange={(event) =>
-                            updateChildDraft(child, { birthDate: event.target.value })
-                          }
-                        />
-                        <select
-                          className={selectClassName}
-                          value={draft.financeLevel}
-                          aria-label={`${child.name} finans dili`}
-                          onChange={(event) =>
-                            updateChildDraft(child, {
-                              financeLevel: event.target.value as FinanceLevel,
-                            })
-                          }
-                        >
-                          {Object.entries(financeLevelLabels).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="min-h-11"
-                          disabled={isUpdating}
-                          onClick={() => void handleUpdateChildProfile(child)}
-                        >
-                          Kaydet
-                          <Edit3 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          {isActive ? (
+                            <span className="badge-active">
+                              <Baby className="h-3.5 w-3.5" />
+                              Aktif profil
+                            </span>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isUpdating || isRemoving}
+                            onClick={() => {
+                              updateChildDraft(child, {
+                                name: child.name,
+                                birthDate: child.birth_date ?? "",
+                                financeLevel: child.finance_level,
+                              });
+                              setEditingChildId(child.id);
+                            }}
+                          >
+                            Düzenle
+                            <Edit3 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
 
                       <Button
                         type="button"
                         variant={isActive ? "secondary" : "default"}
-                        className="w-full"
+                        size="sm"
+                        className="mt-3 w-full"
                         disabled={isUpdating || isActive}
                         onClick={() => void handleSwitch(child)}
                       >
@@ -908,6 +1083,20 @@ export function FamilyClient() {
           )}
         </div>
       </section>
+
+      <ChildProfileDialog
+        child={editingChild}
+        draft={editingDraft}
+        open={editingChild !== null}
+        isSaving={editingChild ? updatingChildId === editingChild.id : false}
+        isRemoving={editingChild ? removingChildId === editingChild.id : false}
+        onOpenChange={(open) => {
+          if (!open) setEditingChildId(null);
+        }}
+        onDraftChange={updateChildDraft}
+        onSave={(child) => void handleUpdateChildProfile(child)}
+        onRemove={(child) => void handleRemoveChildProfile(child)}
+      />
     </div>
   );
 }

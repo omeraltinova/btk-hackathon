@@ -42,7 +42,17 @@ function ErrorNote({ children }: { children: string }) {
   );
 }
 
-export function ReceiptUploader() {
+type ReceiptUploaderProps = {
+  showHistory?: boolean;
+  onConfirmed?: (transaction: Transaction) => void;
+  compact?: boolean;
+};
+
+export function ReceiptUploader({
+  showHistory = true,
+  onConfirmed,
+  compact = false,
+}: ReceiptUploaderProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [candidate, setCandidate] = useState<ReceiptCandidate | null>(null);
@@ -59,7 +69,9 @@ export function ReceiptUploader() {
     try {
       const [categoryData, transactionData] = await Promise.all([
         api<Category[]>("/api/categories", { silent: true }),
-        api<Transaction[]>("/api/transactions?limit=100", { silent: true }),
+        showHistory
+          ? api<Transaction[]>("/api/transactions?limit=100", { silent: true })
+          : Promise.resolve<Transaction[]>([]),
       ]);
       setCategories(sortCategories(categoryData));
       setTransactions(transactionData);
@@ -68,7 +80,7 @@ export function ReceiptUploader() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [showHistory]);
 
   useEffect(() => {
     void loadData();
@@ -144,7 +156,8 @@ export function ReceiptUploader() {
         body: payload,
         silent: true,
       });
-      setTransactions((current) => [created, ...current]);
+      if (showHistory) setTransactions((current) => [created, ...current]);
+      onConfirmed?.(created);
       setCandidate(null);
       setIsConfirmOpen(false);
       toast.success("Fiş işleme dönüştü.");
@@ -157,8 +170,8 @@ export function ReceiptUploader() {
 
   return (
     <>
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <section className="ledger-sheet p-4 sm:p-6">
+      <div className={cn("grid min-w-0 gap-6", compact ? "" : "lg:grid-cols-[0.95fr_1.05fr]")}>
+        <section className={cn("ledger-sheet p-4 sm:p-6", compact ? "p-3 sm:p-4" : "")}>
           <div className="relative z-10 space-y-5">
             <label
               htmlFor="receipt-file"
@@ -169,7 +182,8 @@ export function ReceiptUploader() {
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
               className={cn(
-                "grid min-h-80 cursor-pointer place-items-center rounded-[1.5rem] border border-dashed border-primary/55 bg-secondary/45 p-5 text-center transition-colors sm:min-h-96 sm:p-6",
+                "grid cursor-pointer place-items-center rounded-[1.5rem] border border-dashed border-primary/55 bg-secondary/45 p-5 text-center transition-colors sm:p-6",
+                compact ? "min-h-56 sm:min-h-64" : "min-h-80 sm:min-h-96",
                 isDragging ? "bg-primary/15" : "hover:bg-secondary/60",
               )}
             >
@@ -182,7 +196,12 @@ export function ReceiptUploader() {
                 onChange={handleInputChange}
               />
               <div className="space-y-5">
-                <span className="float-gentle hard-shadow-accent mx-auto grid h-20 w-20 place-items-center rounded-[1.5rem_1.5rem_0.8rem_1.5rem] bg-primary text-primary-foreground">
+                <span
+                  className={cn(
+                    "float-gentle hard-shadow-accent mx-auto grid place-items-center rounded-[1.5rem_1.5rem_0.8rem_1.5rem] bg-primary text-primary-foreground",
+                    compact ? "h-16 w-16" : "h-20 w-20",
+                  )}
+                >
                   {isUploading ? (
                     <Loader2 className="h-8 w-8 animate-spin" />
                   ) : (
@@ -190,7 +209,12 @@ export function ReceiptUploader() {
                   )}
                 </span>
                 <div>
-                  <h2 className="font-display text-[2rem] font-black leading-none sm:text-3xl">
+                  <h2
+                    className={cn(
+                      "font-display font-black leading-none",
+                      compact ? "text-[1.6rem] sm:text-2xl" : "text-[2rem] sm:text-3xl",
+                    )}
+                  >
                     Fişi masaya bırak
                   </h2>
                   <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
@@ -208,13 +232,23 @@ export function ReceiptUploader() {
           </div>
         </section>
 
-        <section className="receipt-tape rotate-[-0.75deg] p-6 pt-9">
+        <section
+          className={cn(
+            "receipt-tape rotate-[-0.75deg] p-6 pt-9",
+            compact ? "p-4 pt-7 sm:p-5 sm:pt-8" : "",
+          )}
+        >
           <div className="flex items-start justify-between gap-4 border-b border-dashed border-border pb-5">
             <div>
               <p className="font-display text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
                 OCR önizleme
               </p>
-              <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+              <h2
+                className={cn(
+                  "mt-2 font-display font-black leading-none",
+                  compact ? "text-[1.55rem] sm:text-2xl" : "text-[2rem] sm:text-3xl",
+                )}
+              >
                 {candidate ? "Fiş adayı hazır" : "OCR sonucu bekleniyor"}
               </h2>
             </div>
@@ -255,63 +289,65 @@ export function ReceiptUploader() {
         </section>
       </div>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="eyebrow">Fiş geçmişi</p>
-            <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
-              Onaylanan fişler
-            </h2>
-          </div>
-          <ReceiptText className="h-6 w-6 text-primary" />
-        </div>
-
-        {isLoading ? (
-          <div className="receipt-tape flex items-center gap-3 px-5 py-6 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Fiş geçmişi yükleniyor...
-          </div>
-        ) : receiptTransactions.length === 0 ? (
-          <div className="receipt-tape px-5 py-8">
+      {showHistory ? (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="eyebrow">Fiş geçmişi</p>
+              <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
+                Onaylanan fişler
+              </h2>
+            </div>
             <ReceiptText className="h-6 w-6 text-primary" />
-            <h3 className="mt-4 font-display text-2xl font-black">Henüz onaylanan fiş yok</h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              İlk fişi onayladığında burada veritabanından gelen işlem kaydı görünecek.
-            </p>
           </div>
-        ) : (
-          <div className="grid gap-3 xl:grid-cols-2">
-            {receiptTransactions.map((item) => {
-              const categoryName = item.category_id
-                ? (categoryNameById.get(item.category_id) ?? "Kategori")
-                : "Kategorisiz";
-              return (
-                <div key={item.id} className="receipt-tape px-5 py-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-display text-lg font-black">
-                        {item.merchant ?? item.description ?? "Fiş kaydı"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {categoryName} / {formatDateTR(item.occurred_at)}
-                      </p>
-                      {item.description ? (
-                        <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
-                      ) : null}
-                    </div>
-                    <div className="sm:text-right">
-                      <p className="font-display text-xl font-black tabular-nums">
-                        {formatKurus(amountToKurus(item.amount))}
-                      </p>
-                      <p className="text-xs font-bold text-muted-foreground">Fiş OCR</p>
+
+          {isLoading ? (
+            <div className="receipt-tape flex items-center gap-3 px-5 py-6 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Fiş geçmişi yükleniyor...
+            </div>
+          ) : receiptTransactions.length === 0 ? (
+            <div className="receipt-tape px-5 py-8">
+              <ReceiptText className="h-6 w-6 text-primary" />
+              <h3 className="mt-4 font-display text-2xl font-black">Henüz onaylanan fiş yok</h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                İlk fişi onayladığında burada veritabanından gelen işlem kaydı görünecek.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3 xl:grid-cols-2">
+              {receiptTransactions.map((item) => {
+                const categoryName = item.category_id
+                  ? (categoryNameById.get(item.category_id) ?? "Kategori")
+                  : "Kategorisiz";
+                return (
+                  <div key={item.id} className="receipt-tape px-5 py-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-display text-lg font-black">
+                          {item.merchant ?? item.description ?? "Fiş kaydı"}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {categoryName} / {formatDateTR(item.occurred_at)}
+                        </p>
+                        {item.description ? (
+                          <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
+                        ) : null}
+                      </div>
+                      <div className="sm:text-right">
+                        <p className="font-display text-xl font-black tabular-nums">
+                          {formatKurus(amountToKurus(item.amount))}
+                        </p>
+                        <p className="text-xs font-bold text-muted-foreground">Fiş OCR</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <ReceiptConfirmDialog
         candidate={candidate}

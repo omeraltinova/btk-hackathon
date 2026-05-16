@@ -7,18 +7,31 @@ from uuid import uuid4
 from pytest import MonkeyPatch
 
 from app.models.category import Category
+from app.models.memory import AgentMemory
+from app.models.saving_goal import SavingGoal
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.workers.demo_seed import seed_demo_family
 
 
+class FakeScalars:
+    def __init__(self, items: list[object]) -> None:
+        self._items = items
+
+    def all(self) -> list[object]:
+        return self._items
+
+
 class FakeResult:
-    def __init__(self, item: object | None) -> None:
-        self._item = item
+    def __init__(self, items: list[object]) -> None:
+        self._items = items
 
     def scalar_one_or_none(self) -> object | None:
-        return self._item
+        return self._items[0] if self._items else None
+
+    def scalars(self) -> FakeScalars:
+        return FakeScalars(self._items)
 
 
 class FakeSession:
@@ -26,6 +39,8 @@ class FakeSession:
         self.users: list[User] = []
         self.transactions: list[Transaction] = []
         self.subscriptions: list[Subscription] = []
+        self.saving_goals: list[SavingGoal] = []
+        self.memories: list[AgentMemory] = []
         self.categories = [
             Category(id=uuid4(), user_id=None, name="Market", icon="basket", parent_id=None),
             Category(id=uuid4(), user_id=None, name="Maaş", icon="wallet", parent_id=None),
@@ -53,13 +68,18 @@ class FakeSession:
             rows = self.transactions
         elif entity is Subscription:
             rows = self.subscriptions
+        elif entity is SavingGoal:
+            rows = self.saving_goals
+        elif entity is AgentMemory:
+            rows = self.memories
         else:
             rows = []
-        return FakeResult(
-            next((row for row in rows if self._matches_statement(statement, row)), None)
-        )
+        return FakeResult([row for row in rows if self._matches_statement(statement, row)])
 
-    def add(self, row: User | Transaction | Subscription | Category) -> None:
+    def add(
+        self,
+        row: User | Transaction | Subscription | SavingGoal | AgentMemory | Category,
+    ) -> None:
         if row.id is None:
             row.id = uuid4()
         if isinstance(row, User):
@@ -68,6 +88,10 @@ class FakeSession:
             self.transactions.append(row)
         elif isinstance(row, Category):
             self.categories.append(row)
+        elif isinstance(row, SavingGoal):
+            self.saving_goals.append(row)
+        elif isinstance(row, AgentMemory):
+            self.memories.append(row)
         else:
             self.subscriptions.append(row)
 
@@ -94,11 +118,23 @@ class FakeSession:
                 return False
             if column_name == "name" and getattr(row, "name", None) != value:
                 return False
+            if column_name == "id" and getattr(row, "id", None) != value:
+                return False
             if column_name == "user_id" and getattr(row, "user_id", None) != value:
                 return False
             if column_name == "merchant" and getattr(row, "merchant", None) != value:
                 return False
             if column_name == "description" and getattr(row, "description", None) != value:
+                return False
+            if column_name == "goal_type" and getattr(row, "goal_type", None) != value:
+                return False
+            if column_name == "title" and getattr(row, "title", None) != value:
+                return False
+            if column_name == "key" and getattr(row, "key", None) != value:
+                return False
+            if column_name == "category_id" and getattr(row, "category_id", None) != value:
+                return False
+            if column_name == "type" and getattr(row, "type", None) != value:
                 return False
         return True
 
@@ -152,6 +188,20 @@ def test_demo_seed_creates_parent_logins_child_and_refreshes_insights(
     )
     assert len(db.subscriptions) == 4
     assert any(subscription.billing_cycle == "custom" for subscription in db.subscriptions)
+    assert len(db.saving_goals) == 4
+    assert {(goal.user_id, goal.goal_type, goal.title) for goal in db.saving_goals} == {
+        (users_by_name["Ayşe Yılmaz"].id, "accumulation", "Yaz tatili birikimi"),
+        (users_by_name["Ayşe Yılmaz"].id, "expense_reduction", "Market harcamamı azalt"),
+        (users_by_name["Mehmet Yılmaz"].id, "accumulation", "Acil durum fonu"),
+        (users_by_name["Mehmet Yılmaz"].id, "expense_reduction", "Eğlence harcamamı azalt"),
+    }
+    assert len(db.memories) == 4
+    assert {(memory.user_id, memory.key) for memory in db.memories} == {
+        (users_by_name["Ayşe Yılmaz"].id, "hedef"),
+        (users_by_name["Ayşe Yılmaz"].id, "tercih"),
+        (users_by_name["Mehmet Yılmaz"].id, "hedef"),
+        (users_by_name["Mehmet Yılmaz"].id, "abonelik_odagi"),
+    }
     assert [user.name for user in db.refreshed_users] == [
         "Ayşe Yılmaz",
         "Mehmet Yılmaz",

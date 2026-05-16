@@ -4,7 +4,7 @@ const PENDING_MESSAGE_MAX_AGE_MS = 5 * 60 * 1000;
 
 export type PendingChatMessage = {
   message: string;
-  source: "learn";
+  source: "learn" | "dashboard";
   title?: string;
   startNew?: boolean;
   createdAt: number;
@@ -62,7 +62,7 @@ export function readPendingChatMessage(): PendingChatMessage | null {
     if (
       typeof candidate.message !== "string" ||
       candidate.message.trim().length === 0 ||
-      candidate.source !== "learn" ||
+      (candidate.source !== "learn" && candidate.source !== "dashboard") ||
       typeof candidate.createdAt !== "number"
     ) {
       clearPendingChatMessage();
