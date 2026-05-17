@@ -130,28 +130,32 @@ export function Sidebar({ user }: SidebarProps) {
       {/* Brand */}
       <div
         className={cn(
-          "binder-holes relative flex items-center justify-between gap-3 px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-6",
-          isCollapsed ? "lg:flex-col" : "lg:block lg:px-8 lg:py-7",
+          "binder-holes relative flex flex-col gap-3 px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-6",
+          isCollapsed ? "lg:items-center" : "lg:px-8 lg:py-7",
         )}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="hard-shadow-accent grid h-11 w-11 place-items-center rounded-[1rem_1rem_0.55rem_1rem] border border-primary/30 bg-primary text-primary-foreground">
-            <Wallet className="h-5 w-5" />
+        <div
+          className={cn(
+            "flex min-w-0 items-start justify-between gap-3",
+            isCollapsed && "lg:flex-col lg:items-center",
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="hard-shadow-accent grid h-11 w-11 shrink-0 place-items-center rounded-[1rem_1rem_0.55rem_1rem] border border-primary/30 bg-primary text-primary-foreground">
+              <Wallet className="h-5 w-5" />
+            </div>
+            <div className={cn("min-w-0", isCollapsed && "lg:hidden")}>
+              <span className="block truncate font-display text-xl font-bold tracking-tight">
+                {brandTitle}
+              </span>
+              <p className="text-xs text-muted-foreground">{brandSubtitle}</p>
+            </div>
           </div>
-          <div className={cn("min-w-0", isCollapsed && "lg:hidden")}>
-            <span className="block truncate font-display text-xl font-bold tracking-tight">
-              {brandTitle}
-            </span>
-            <p className="text-xs text-muted-foreground">{brandSubtitle}</p>
-          </div>
-        </div>
-        <div className={cn("flex shrink-0 items-center gap-2", isCollapsed && "lg:flex-col")}>
-          <NotificationBell collapsed={isCollapsed} />
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="hidden rounded-[1rem] lg:inline-flex"
+            className="hidden shrink-0 rounded-[1rem] lg:inline-flex"
             aria-label={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
             title={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
             onClick={handleToggleSidebar}
@@ -163,14 +167,22 @@ export function Sidebar({ user }: SidebarProps) {
             )}
           </Button>
         </div>
-        <span
+        <div
           className={cn(
-            "stamp-label shrink-0 bg-background/65 text-primary lg:mt-6 lg:inline-flex",
-            isCollapsed && "lg:hidden",
+            "flex shrink-0 items-center gap-2",
+            isCollapsed ? "lg:flex-col" : "lg:justify-between",
           )}
         >
-          {roleChip}
-        </span>
+          <NotificationBell collapsed={isCollapsed} />
+          <span
+            className={cn(
+              "stamp-label shrink-0 bg-background/65 text-primary lg:inline-flex",
+              isCollapsed && "lg:hidden",
+            )}
+          >
+            {roleChip}
+          </span>
+        </div>
       </div>
 
       <div
