@@ -118,7 +118,7 @@ function statusLabel(status: SavingGoalProgress["status_label"]): string {
 }
 
 function goalHref(goalId: string): string {
-  return `/dashboard/goals?hedef=${encodeURIComponent(goalId)}`;
+  return `/goals?hedef=${encodeURIComponent(goalId)}`;
 }
 
 function goalIdFromLocation(): string | null {
@@ -133,7 +133,7 @@ function surfaceFromLocation(): GoalSurface {
 }
 
 function surfaceHref(surface: GoalSurface): string {
-  return surface === "goals" ? "/dashboard/goals" : "/dashboard/goals?sekme=zarflar";
+  return surface === "goals" ? "/goals" : "/goals?sekme=zarflar";
 }
 
 function clearLegacyHashNavigation() {

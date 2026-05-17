@@ -1,6 +1,6 @@
 """transactions.subscription_id link to subscriptions
 
-Revision ID: 0008_transaction_subscription_link
+Revision ID: 0008_tx_subscription_link
 Revises: 0007_recurring_income
 Create Date: 2026-05-17 18:00:00
 
@@ -16,7 +16,10 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0008_transaction_subscription_link"
+# WHY 25-char revision id: `alembic_version.version_num` is `varchar(32)` so the
+# full descriptive form `0008_transaction_subscription_link` (34 chars) trips a
+# StringDataRightTruncation on upgrade. Shortened to stay under the cap.
+revision: str = "0008_tx_subscription_link"
 down_revision: str | Sequence[str] | None = "0007_recurring_income"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

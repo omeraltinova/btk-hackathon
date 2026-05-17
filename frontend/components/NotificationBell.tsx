@@ -20,10 +20,10 @@ const severityLabels: Record<ProactiveInsight["severity"], string> = {
 };
 
 function insightHref(insight: ProactiveInsight): string {
-  if (insight.insight_type === "receipt_activity") return "/dashboard/transactions";
-  if (insight.insight_type === "upcoming_recurring") return "/dashboard/transactions";
-  if (insight.insight_type === "savings_opportunity") return "/dashboard/goals";
-  if (insight.insight_type.includes("goal")) return "/dashboard/goals";
+  if (insight.insight_type === "receipt_activity") return "/transactions";
+  if (insight.insight_type === "upcoming_recurring") return "/transactions";
+  if (insight.insight_type === "savings_opportunity") return "/goals";
+  if (insight.insight_type.includes("goal")) return "/goals";
   return "/dashboard";
 }
 

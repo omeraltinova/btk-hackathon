@@ -1453,7 +1453,7 @@ def _saving_goals_overview_answer(result: dict[str, object]) -> str:
             lines.append(
                 f"{category}: bu ay hedef limit {target}; şu ana kadar {actual}, kalan limit {remaining}."
             )
-    lines.append("Detay için /dashboard/goals sayfasında hedef kartına tıklayabilirsin.")
+    lines.append("Detay için /goals sayfasında hedef kartına tıklayabilirsin.")
     return " ".join(lines)
 
 

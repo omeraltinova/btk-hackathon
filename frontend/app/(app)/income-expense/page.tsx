@@ -4,6 +4,6 @@ export const metadata = {
   title: "Gelir/Gider — Cüzdan Koçu",
 };
 
-export default function DashboardIncomeExpensePage() {
+export default function IncomeExpensePage() {
   return <IncomeExpenseClient />;
 }

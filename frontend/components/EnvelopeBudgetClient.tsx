@@ -40,7 +40,7 @@ function formatUsedPercent(value: string | null): string {
 }
 
 function envelopeHref(slug: string): string {
-  return `/dashboard/goals?zarf=${encodeURIComponent(slug)}`;
+  return `/goals?zarf=${encodeURIComponent(slug)}`;
 }
 
 function slugFromLocation(): string | null {

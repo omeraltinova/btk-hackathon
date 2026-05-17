@@ -982,7 +982,7 @@ def test_chat_stream_can_show_goals_with_chart_payload() -> None:
     assert '"tool_name": "visualize_saving_goals"' in response.text
     assert '"chart"' in response.text
     assert "Aktif 2 hedefin var" in response.text
-    assert "/dashboard/goals" in response.text
+    assert "/goals" in response.text
 
 
 def test_chat_stream_can_create_smart_saving_plan() -> None:

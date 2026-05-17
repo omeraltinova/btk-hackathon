@@ -116,13 +116,13 @@ const DASHBOARD_TABS: Array<{
     helper: "Grafikler ve eğilimler",
   },
   {
-    href: "/dashboard/transactions",
+    href: "/transactions",
     view: "transactions",
     label: "İşlemler",
     helper: "Tek seferlik ve tekrarlayan",
   },
   {
-    href: "/dashboard/income-expense",
+    href: "/income-expense",
     view: "income-expense",
     label: "Gelir/Gider",
     helper: "Detay ve dağılım",
@@ -158,16 +158,16 @@ const insightSeverityLabels: Record<ProactiveInsight["severity"], string> = {
 
 function insightHref(insight: ProactiveInsight): string {
   if (insight.insight_type === "upcoming_recurring" || insight.action_label?.includes("Tekrar")) {
-    return "/dashboard/transactions";
+    return "/transactions";
   }
   if (
     insight.insight_type === "receipt_activity" ||
     insight.action_label?.toLocaleLowerCase("tr-TR").includes("fiş")
   ) {
-    return "/dashboard/transactions";
+    return "/transactions";
   }
   if (insight.action_label?.includes("İşlem")) {
-    return "/dashboard/transactions";
+    return "/transactions";
   }
   return "/dashboard";
 }
@@ -1415,7 +1415,7 @@ function GoalSlider({
             </h2>
           </div>
           <Button asChild size="sm" variant="secondary" className="w-fit">
-            <Link href="/dashboard/goals">
+            <Link href="/goals">
               Hedefleri aç
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -1446,7 +1446,7 @@ function GoalSlider({
               return (
                 <Link
                   key={goal.id}
-                  href={`/dashboard/goals?hedef=${encodeURIComponent(goal.id)}`}
+                  href={`/goals?hedef=${encodeURIComponent(goal.id)}`}
                   className={cn(
                     "min-w-0 rounded-[1.25rem] border p-3 transition-transform duration-200 ease-quint hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                     tone.row,
@@ -1483,7 +1483,7 @@ function GoalSlider({
             })}
             {activeGoals.length > 6 ? (
               <Link
-                href="/dashboard/goals"
+                href="/goals"
                 className="grid min-h-32 place-items-center rounded-[1.25rem] border border-dashed border-border/80 bg-background/65 p-3 text-center text-sm font-black text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 +{activeGoals.length - 6} hedef daha
@@ -1531,7 +1531,7 @@ function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Link
-                href={`/dashboard/goals?zarf=${encodeURIComponent(envelope.slug)}`}
+                href={`/goals?zarf=${encodeURIComponent(envelope.slug)}`}
                 className={cn(
                   "truncate font-display text-lg font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   envelope.is_savings_goal ? "hover:text-primary" : "hover:text-foreground",
@@ -1629,7 +1629,7 @@ function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }
 
         {orderedEnvelopes.length > 0 ? (
           <Button asChild size="sm" variant="secondary" className="w-fit">
-            <Link href="/dashboard/goals?sekme=zarflar">
+            <Link href="/goals?sekme=zarflar">
               Tüm zarfları göster
               {hiddenEnvelopeCount > 0 ? ` (+${hiddenEnvelopeCount})` : null}
               <ArrowRight className="h-4 w-4" />
@@ -2301,7 +2301,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       </Button>
                     ) : null}
                     <Button asChild size="sm" variant="secondary">
-                      <Link href="/dashboard/goals">
+                      <Link href="/goals">
                         Hedef oluştur
                         <Target className="h-4 w-4" />
                       </Link>

@@ -30,9 +30,9 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
-  { href: "/dashboard/transactions", label: "İşlemler", section: "02", icon: WalletCards },
-  { href: "/dashboard/income-expense", label: "Gelir/Gider", section: "03", icon: LineChart },
-  { href: "/dashboard/goals", label: "Hedefler", section: "04", icon: Target },
+  { href: "/transactions", label: "İşlemler", section: "02", icon: WalletCards },
+  { href: "/income-expense", label: "Gelir/Gider", section: "03", icon: LineChart },
+  { href: "/goals", label: "Hedefler", section: "04", icon: Target },
   { href: "/learn", label: "Dersler", section: "05", icon: BookOpen },
   { href: "/chat", label: "Sohbet", section: "06", icon: MessageSquare },
   { href: "/family", label: "Aile", section: "07", icon: Users },
@@ -41,8 +41,8 @@ const NAV_ITEMS = [
 
 const KID_NAV_ITEMS = [
   { href: "/dashboard", label: "Cüzdanım", section: "01", icon: PiggyBank },
-  { href: "/dashboard/transactions", label: "Hareketler", section: "02", icon: WalletCards },
-  { href: "/dashboard/goals", label: "Hedefim", section: "03", icon: Target },
+  { href: "/transactions", label: "Hareketler", section: "02", icon: WalletCards },
+  { href: "/goals", label: "Hedefim", section: "03", icon: Target },
   { href: "/learn", label: "Öğren", section: "04", icon: BookOpen },
   { href: "/chat", label: "Koç", section: "05", icon: Sparkles },
   { href: "/account", label: "Profilim", section: "06", icon: UserRound },
