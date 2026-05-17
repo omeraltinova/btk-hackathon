@@ -126,8 +126,13 @@ def _fold_control_text(value: object) -> str:
 def parse_money_text(value: object) -> Decimal:
     normalized = str(value).replace("₺", "").replace("TL", "").replace("tl", "").strip()
     normalized = re.sub(r"[^\d,.-]", "", normalized)
+    normalized = normalized.strip(".,")
     if "," in normalized:
         normalized = normalized.replace(".", "").replace(",", ".")
+    elif "." in normalized:
+        parts = normalized.split(".")
+        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) == 3):
+            normalized = "".join(parts)
     return Decimal(normalized)
 
 

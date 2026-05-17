@@ -307,6 +307,8 @@ def make_subscription(
 
 def test_agent_input_parsers_accept_localized_model_values() -> None:
     assert parse_money_text("1.250,50 ₺") == Decimal("1250.50")
+    assert parse_money_text("1.250 ₺") == Decimal("1250")
+    assert parse_money_text("1250.50") == Decimal("1250.50")
     assert parse_money_text("700,00 TL") == Decimal("700.00")
     assert parse_int_text("%15 azalt", default=10, min_value=1, max_value=50) == 15
     assert parse_int_text("12 ay", default=6, min_value=1, max_value=120) == 12

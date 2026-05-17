@@ -1,6 +1,7 @@
 import { History } from "lucide-react";
 import Link from "next/link";
 
+import { ChatHero } from "@/components/ChatHero";
 import { ChatStream } from "@/components/ChatStream";
 import { Button } from "@/components/ui/button";
 
@@ -10,7 +11,9 @@ export const metadata = {
 
 export default function ChatPage() {
   return (
-    <div className="page-enter flex h-[calc(100svh-6rem)] min-h-0 min-w-0 flex-col gap-3 overflow-hidden sm:h-[calc(100svh-5rem)] lg:h-[calc(100svh-4.5rem)]">
+    <div className="page-enter flex h-[calc(100svh-9.5rem)] min-h-0 min-w-0 flex-col gap-3 overflow-hidden sm:h-[calc(100svh-8.5rem)] lg:h-[calc(100svh-8rem)]">
+      <ChatHero />
+
       <section className="ledger-sheet flex min-h-0 flex-1 p-3 sm:p-4">
         <div className="relative z-10 flex min-h-0 w-full flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">

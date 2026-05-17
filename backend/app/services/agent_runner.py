@@ -39,6 +39,7 @@ from app.agent.tools import (
     infer_category_from_text,
     parse_goal_status_text,
     parse_int_text,
+    parse_money_text,
     simulate_finance_scenario,
     visible_categories,
 )
@@ -855,13 +856,8 @@ def _optional_str(value: object) -> str | None:
 def _optional_decimal(value: object) -> Decimal | None:
     if value is None:
         return None
-    raw_value = str(value).strip()
-    normalized = raw_value.replace("₺", "").replace("TL", "").replace("tl", "").strip()
-    normalized = re.sub(r"[^\d,.-]", "", normalized)
-    if "," in normalized:
-        normalized = normalized.replace(".", "").replace(",", ".")
     try:
-        return Decimal(normalized)
+        return parse_money_text(value)
     except (InvalidOperation, ValueError):
         return None
 
@@ -1235,7 +1231,7 @@ def _receipt_answer(result: dict[str, object]) -> str:
 
 def format_amount_text(value: str) -> str:
     try:
-        numeric = Decimal(value.replace(",", "."))
+        numeric = parse_money_text(value)
         whole, fraction = f"{numeric:.2f}".split(".")
         grouped = f"{int(whole):,}".replace(",", ".")
         return f"{grouped},{fraction} ₺"

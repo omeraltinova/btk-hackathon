@@ -803,9 +803,9 @@ def test_chat_stream_runs_approved_envelope_with_localized_live_amount() -> None
             tool_calls={
                 "approval_id": approval_id,
                 "tool_name": "create_envelope_budget",
-                "input": {"name": "Eğlence", "budget_monthly": "700,00 ₺"},
+                "input": {"name": "Eğlence", "budget_monthly": "1.250 ₺"},
                 "action_label": "Zarf ekle",
-                "summary": "Eğlence zarfı için aylık limit 700,00 ₺ yapılacak.",
+                "summary": "Eğlence zarfı için aylık limit 1.250,00 ₺ yapılacak.",
                 "details": [],
                 "status": "pending",
             },
@@ -834,13 +834,13 @@ def test_chat_stream_runs_approved_envelope_with_localized_live_amount() -> None
     assert response.status_code == 200
     assert '"tool_name": "create_envelope_budget"' in response.text
     assert "Onayladığın işlemi tamamlayamadım" not in response.text
-    assert "Eğlence zarfını 700,00 ₺ aylık limit ile" in response.text
+    assert "Eğlence zarfını 1.250,00 ₺ aylık limit ile" in response.text
     assert "kaydettim" in response.text
     custom_category = next(
         category for category in fake_session.categories if category.name == "Eğlence"
     )
     assert custom_category.user_id == user.id
-    assert custom_category.budget_monthly == Decimal("700.00")
+    assert custom_category.budget_monthly == Decimal("1250.00")
     assert fake_session.messages[0].tool_calls is not None
     assert fake_session.messages[0].tool_calls["status"] == "approved"
 
