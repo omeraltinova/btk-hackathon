@@ -225,6 +225,7 @@ export type Subscription = {
   name: string;
   merchant: string | null;
   amount: string;
+  type: TransactionType;
   billing_cycle: BillingCycle;
   recurrence_interval: number;
   recurrence_unit: RecurrenceUnit;
@@ -241,6 +242,7 @@ export type SubscriptionCreateInput = {
   name: string;
   merchant?: string | null;
   amount: string;
+  type?: TransactionType;
   billing_cycle: BillingCycle;
   recurrence_interval?: number | null;
   recurrence_unit?: RecurrenceUnit | null;

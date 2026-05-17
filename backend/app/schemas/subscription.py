@@ -11,12 +11,14 @@ from app.utils.recurrence import recurrence_from_billing_cycle
 
 BillingCycle = Literal["weekly", "monthly", "yearly", "custom"]
 RecurrenceUnit = Literal["day", "week", "month", "year"]
+SubscriptionType = Literal["income", "expense"]
 
 
 class SubscriptionCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     merchant: str | None = Field(default=None, max_length=120)
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    type: SubscriptionType = "expense"
     billing_cycle: BillingCycle = "monthly"
     recurrence_interval: int | None = Field(default=None, ge=1, le=3650)
     recurrence_unit: RecurrenceUnit | None = None
@@ -29,7 +31,7 @@ class SubscriptionCreate(BaseModel):
     def normalize_name(cls, value: str) -> str:
         normalized = " ".join(value.split())
         if not normalized:
-            raise ValueError("Tekrarlayan ödeme adı boş olamaz.")
+            raise ValueError("Tekrarlayan kayıt adı boş olamaz.")
         return normalized
 
     @field_validator("merchant")
@@ -56,6 +58,7 @@ class SubscriptionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     merchant: str | None = Field(default=None, max_length=120)
     amount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    type: SubscriptionType | None = None
     billing_cycle: BillingCycle | None = None
     recurrence_interval: int | None = Field(default=None, ge=1, le=3650)
     recurrence_unit: RecurrenceUnit | None = None
@@ -70,7 +73,7 @@ class SubscriptionUpdate(BaseModel):
             return None
         normalized = " ".join(value.split())
         if not normalized:
-            raise ValueError("Tekrarlayan ödeme adı boş olamaz.")
+            raise ValueError("Tekrarlayan kayıt adı boş olamaz.")
         return normalized
 
     @field_validator("merchant")
@@ -88,6 +91,7 @@ class SubscriptionRead(BaseModel):
     name: str
     merchant: str | None
     amount: Decimal
+    type: SubscriptionType
     billing_cycle: BillingCycle
     recurrence_interval: int
     recurrence_unit: RecurrenceUnit

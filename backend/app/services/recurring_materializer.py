@@ -1,4 +1,4 @@
-"""Materialize due recurring subscriptions as expense transactions."""
+"""Materialize due recurring subscriptions as income or expense transactions."""
 
 from __future__ import annotations
 
@@ -70,13 +70,17 @@ def _recurring_transaction_exists(db: Session, subscription: Subscription, due_d
     )
 
 
+def _transaction_type(subscription: Subscription) -> str:
+    return "income" if subscription.type == "income" else "expense"
+
+
 def materialize_due_subscriptions(
     db: Session,
     user_ids: list[UUID],
     *,
     today: date | None = None,
 ) -> int:
-    """Create expense transactions for active subscriptions due up to today."""
+    """Create transactions for active recurring records due up to today."""
 
     if not user_ids:
         return 0
@@ -102,15 +106,20 @@ def materialize_due_subscriptions(
         due_date = subscription.next_billing_date
         if due_date is None:
             continue
+        transaction_type = _transaction_type(subscription)
         while due_date <= local_today:
             if not _recurring_transaction_exists(db, subscription, due_date):
                 db.add(
                     Transaction(
                         user_id=subscription.user_id,
                         amount=Decimal(subscription.amount),
-                        type="expense",
+                        type=transaction_type,
                         category_id=subscription.category_id,
-                        description="Tekrarlayan ödeme",
+                        description=(
+                            "Tekrarlayan gelir"
+                            if transaction_type == "income"
+                            else "Tekrarlayan ödeme"
+                        ),
                         merchant=subscription.merchant or subscription.name,
                         occurred_at=_local_noon_utc(due_date),
                         source="recurring",

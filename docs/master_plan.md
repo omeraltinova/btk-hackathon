@@ -246,7 +246,7 @@ Bu kurallar şemaya ve mantığa kazınmıştır; bozulmaları bug'dır.
 
 **İK-17.** Tekrarlayan kayıtlar yalnızca haftalık/aylık/yıllık seçeneklerine bağlı değildir. `billing_cycle='custom'` için `recurrence_interval >= 1` ve `recurrence_unit IN ('day','week','month','year')` zorunludur.
 
-**İK-18.** Aktif tekrarlayan ödemeler `next_billing_date <= bugün` olduğunda otomatik olarak `transactions.source='recurring'` ve `type='expense'` işlemine materialize edilir. Aynı abonelik/tarih için tekrar işlem yazılmamalıdır; işlem tarihleri Europe/Istanbul yerel tarihine göre ay bazlı raporlanır.
+**İK-18.** Aktif tekrarlayan kayıtlar `next_billing_date <= bugün` olduğunda otomatik olarak `transactions.source='recurring'` işlemine materialize edilir. `subscriptions.type='income'` olanlar gelir, `type='expense'` olanlar gider yazar. Aynı abonelik/tarih için tekrar işlem yazılmamalıdır; işlem tarihleri Europe/Istanbul yerel tarihine göre ay bazlı raporlanır.
 
 ---
 
@@ -393,13 +393,16 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     kullanılır. Abonelik geçmişi, `transactions` tablosunda `subscription_id`
     olmadığı için merchant/name/amount benzerliğiyle sunumsal olarak eşlenir;
     kesin occurrence takibi gerekiyorsa ayrı schema değişikliği gerekir.
-19. **Tekrarlayan ödeme otomatik gider yazımı ve gelecek ay tahmini:** Aktif
-    abonelik/fatura `next_billing_date` gününe geldiğinde sistem bu kaydı gider
-    işlemine otomatik yazar ve `next_billing_date` değerini bir sonraki tekrar
-    tarihine taşır. Özet ve detay ekranları gelir/gideri ay bazında ayrı gösterir.
-    Gelecek ay tahmini, aktif abonelik/faturalardan hesaplanan yaklaşık değerdir;
-    kesinleşmiş borç veya finansal taahhüt değildir ve UI'da bu belirsizlik açık
-    yazılır.
+19. **Tekrarlayan kayıt otomatik gelir/gider yazımı ve gelecek ay tahmini:** Aktif
+    abonelik/fatura veya düzenli gelir `next_billing_date` gününe geldiğinde sistem
+    bu kaydı `subscriptions.type` değerine göre gelir ya da gider işlemine otomatik
+    yazar ve `next_billing_date` değerini bir sonraki tekrar tarihine taşır. Maaş,
+    kira geliri ve faiz geliri gibi düzenli girişler `type='income'`; abonelik,
+    fatura ve kira ödemesi gibi düzenli çıkışlar `type='expense'` olarak tutulur.
+    Özet ve detay ekranları gelir/gideri ay bazında ayrı gösterir. Gelecek ay
+    tahmini, aktif tekrarlayan kayıtların yaklaşık gelir/gider etkisidir;
+    kesinleşmiş borç, tahsilat veya finansal taahhüt değildir ve UI'da bu
+    belirsizlik açık yazılır.
 20. **Zarf bütçesi ve birikim hedefi (MVP):** Dashboard, mevcut
     `categories.budget_monthly` alanını kullanarak Türk aile bütçesine uygun
     hazır `Market`, `Fatura`, `Okul`, `Ulaşım`, `Harçlık` ve `Birikim`
@@ -628,6 +631,8 @@ CREATE TABLE subscriptions (
   name                        TEXT NOT NULL,
   merchant                    TEXT,
   amount                      NUMERIC(12,2) NOT NULL,
+  type                        TEXT NOT NULL DEFAULT 'expense'
+                              CHECK (type IN ('income','expense')),
   billing_cycle               TEXT NOT NULL
                               CHECK (billing_cycle IN ('weekly','monthly','yearly','custom')),
   recurrence_interval         INT NOT NULL DEFAULT 1 CHECK (recurrence_interval >= 1),
@@ -876,16 +881,16 @@ current_category_total > categories.budget_monthly
 → insight_type='category_overspending', severity='critical'
 ```
 
-**Kural 4 — Yaklaşan tekrarlayan ödeme:**
+**Kural 4 — Yaklaşan tekrarlayan kayıt:**
 ```
 subscriptions.is_active=true
 AND next_billing_date bugünden sonraki 7 gün içinde
-→ insight_type='upcoming_recurring', severity='warning'
+→ insight_type='upcoming_recurring', severity='warning' if type='expense' else 'info'
 ```
 
 **Kural 5 — Abonelik yükü ve fiş katkısı:**
 ```
-total_subs_monthly > current_income * 0.10
+total_recurring_expense_monthly > current_income * 0.10
 → insight_type='savings_opportunity', severity='info'
 
 bu ay source='receipt_ocr' transaction varsa
@@ -1131,8 +1136,13 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.29
+**Doküman versiyonu:** 0.30
 **Son güncelleme:** 17 Mayıs 2026
+**v0.30 değişiklikleri:** Tekrarlayan kayıt modeli düzenli gelirleri de kapsayacak
+şekilde genişletildi. `subscriptions.type` gelir/gider yönünü belirler; materializer
+aynı idempotency kuralıyla `transactions.source='recurring'` kaydını gelir veya
+gider olarak yazar. Maaş, kira geliri ve faiz geliri düzenli gelir; abonelik/fatura
+düzenli gider olarak modellenir.
 **v0.29 değişiklikleri:** Paralel Day 7 branchleri tek kapsamda birleştirildi:
 veri değiştiren hedef/zarf agent araçları için sohbet onayı, yerelleştirilmiş tool
 argümanı ayrıştırma, Web Speech sesli koç MVP'si, bildirim merkezi, idempotent

@@ -70,6 +70,7 @@ def make_subscription(
         name=name,
         merchant="TurkNet",
         amount=Decimal("499.90"),
+        type="expense",
         billing_cycle="monthly",
         recurrence_interval=1,
         recurrence_unit="month",
@@ -107,6 +108,28 @@ def test_materialize_due_subscription_posts_expense_and_advances_date() -> None:
     assert transaction.amount == Decimal("499.90")
     assert transaction.merchant == "TurkNet"
     assert transaction.occurred_at == datetime(2026, 5, 13, 9, 0, tzinfo=UTC)
+
+
+def test_materialize_due_subscription_posts_income_when_configured() -> None:
+    subscription = make_subscription(next_billing_date=date(2026, 5, 13), name="Maaş")
+    subscription.type = "income"
+    subscription.merchant = "Okul"
+    subscription.amount = Decimal("32000.00")
+    db = FakeSession([subscription], today=date(2026, 5, 13))
+
+    created = materialize_due_subscriptions(
+        db,  # type: ignore[arg-type]
+        [subscription.user_id],
+        today=date(2026, 5, 13),
+    )
+
+    assert created == 1
+    assert subscription.next_billing_date == date(2026, 6, 13)
+    transaction = db.transactions[0]
+    assert transaction.type == "income"
+    assert transaction.description == "Tekrarlayan gelir"
+    assert transaction.amount == Decimal("32000.00")
+    assert transaction.merchant == "Okul"
 
 
 def test_materialize_due_subscriptions_keeps_same_merchant_subscriptions_distinct() -> None:

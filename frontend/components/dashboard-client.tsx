@@ -85,6 +85,7 @@ type SubscriptionDraft = {
   name: string;
   merchant: string;
   amount: string;
+  type: TransactionType;
   billingCycle: BillingCycle;
   recurrenceInterval: string;
   recurrenceUnit: RecurrenceUnit;
@@ -250,6 +251,7 @@ function subscriptionToDraft(subscription: Subscription): SubscriptionDraft {
     name: subscription.name,
     merchant: subscription.merchant ?? "",
     amount: amountInput(subscription.amount),
+    type: subscription.type,
     billingCycle: subscription.billing_cycle,
     recurrenceInterval: String(subscription.recurrence_interval),
     recurrenceUnit: subscription.recurrence_unit,
@@ -476,9 +478,9 @@ function RecurringBars({
   if (active.length === 0) {
     return (
       <div className="bg-background/72 rounded-[1.75rem] border border-dashed border-primary/30 p-5">
-        <p className="font-display text-xl font-black">Tekrarlayan ödeme grafiği boş</p>
+        <p className="font-display text-xl font-black">Tekrarlayan kayıt grafiği boş</p>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Aktif abonelik veya fatura eklediğinde aylık etkileri çubuk grafik olarak görünecek.
+          Aktif düzenli gelir veya ödeme eklediğinde aylık etkileri çubuk grafik olarak görünecek.
         </p>
       </div>
     );
@@ -491,14 +493,22 @@ function RecurringBars({
         return (
           <div key={subscription.id} className="space-y-1.5">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="truncate font-bold">{subscription.name}</span>
+              <span className="truncate font-bold">
+                {subscription.name}
+                <span className="ml-2 text-xs font-medium text-muted-foreground">
+                  {subscription.type === "income" ? "Gelir" : "Gider"}
+                </span>
+              </span>
               <span className="shrink-0 font-display font-black tabular-nums">
-                {formatKurus(monthly)}
+                {formatTransactionAmount(subscription.monthly_equivalent, subscription.type)}
               </span>
             </div>
             <div className="h-2.5 overflow-hidden rounded-full bg-background/80">
               <div
-                className="h-full rounded-full bg-primary"
+                className={cn(
+                  "h-full rounded-full",
+                  subscription.type === "income" ? "bg-primary" : "bg-accent",
+                )}
                 style={{ width: `${(monthly / maxAmount) * 100}%` }}
               />
             </div>
@@ -608,6 +618,7 @@ function SubscriptionRow({
             {subscription.name}
           </p>
           <p className="mt-0.5 text-xs font-medium text-muted-foreground sm:text-sm">
+            {subscription.type === "income" ? "Gelir" : "Gider"} /{" "}
             {subscription.recurrence_label || billingCycleLabels[subscription.billing_cycle]} /{" "}
             {categoryName}
             {subscription.next_billing_date
@@ -619,11 +630,16 @@ function SubscriptionRow({
           ) : null}
         </div>
         <div className="shrink-0 sm:text-right">
-          <p className="break-words font-display text-lg font-black tabular-nums sm:text-xl">
-            {formatKurus(amountToKurus(subscription.amount))}
+          <p
+            className={cn(
+              "break-words font-display text-lg font-black tabular-nums sm:text-xl",
+              subscription.type === "income" ? "text-primary" : "text-accent-foreground",
+            )}
+          >
+            {formatTransactionAmount(subscription.amount, subscription.type)}
           </p>
           <p className="text-xs font-bold text-muted-foreground">
-            Aylık etki {formatKurus(amountToKurus(subscription.monthly_equivalent))}
+            Aylık etki {formatTransactionAmount(subscription.monthly_equivalent, subscription.type)}
           </p>
         </div>
       </div>
@@ -718,7 +734,6 @@ function RecurringManagerDialog({
   const [paymentDraft, setPaymentDraft] = useState<TransactionDraft | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const expenseCategories = useMemo(() => categoriesForType(categories, "expense"), [categories]);
 
   useEffect(() => {
     if (!open || !subscription) return;
@@ -731,22 +746,22 @@ function RecurringManagerDialog({
 
   const { candidatePayments, isFallbackList } = useMemo(() => {
     if (!subscription) return { candidatePayments: [], isFallbackList: false };
-    const sameUserPastExpenses = transactions
+    const sameUserPastRecords = transactions
       .filter(
         (transaction) =>
           transaction.user_id === subscription.user_id &&
-          transaction.type === "expense" &&
+          transaction.type === subscription.type &&
           isPastTransaction(transaction),
       )
       .sort(
         (left, right) =>
           new Date(right.occurred_at).getTime() - new Date(left.occurred_at).getTime(),
       );
-    const matched = sameUserPastExpenses.filter((transaction) =>
+    const matched = sameUserPastRecords.filter((transaction) =>
       isSubscriptionPaymentCandidate(transaction, subscription),
     );
     return {
-      candidatePayments: (matched.length > 0 ? matched : sameUserPastExpenses).slice(0, 8),
+      candidatePayments: (matched.length > 0 ? matched : sameUserPastRecords).slice(0, 8),
       isFallbackList: matched.length === 0,
     };
   }, [subscription, transactions]);
@@ -790,7 +805,7 @@ function RecurringManagerDialog({
     if (!subscription || !futureDraft) return;
     const normalizedAmount = normalizeAmountInput(futureDraft.amount);
     if (!isValidAmount(normalizedAmount)) {
-      setLocalError("Gelecek ödeme tutarını 1250,50 biçiminde girer misin?");
+      setLocalError("Gelecek kayıt tutarını 1250,50 biçiminde girer misin?");
       return;
     }
     const recurrenceInterval = Number.parseInt(futureDraft.recurrenceInterval, 10);
@@ -798,7 +813,7 @@ function RecurringManagerDialog({
       futureDraft.billingCycle === "custom" &&
       (!Number.isFinite(recurrenceInterval) || recurrenceInterval < 1)
     ) {
-      setLocalError("Gelecek ödemeler için tekrar aralığı 1 veya daha büyük olmalı.");
+      setLocalError("Gelecek kayıtlar için tekrar aralığı 1 veya daha büyük olmalı.");
       return;
     }
 
@@ -806,6 +821,7 @@ function RecurringManagerDialog({
       name: futureDraft.name,
       merchant: futureDraft.merchant || null,
       amount: normalizedAmount,
+      type: futureDraft.type,
       billing_cycle: futureDraft.billingCycle,
       recurrence_interval: futureDraft.billingCycle === "custom" ? recurrenceInterval : null,
       recurrence_unit: futureDraft.billingCycle === "custom" ? futureDraft.recurrenceUnit : null,
@@ -820,7 +836,7 @@ function RecurringManagerDialog({
       await onSaveFuture(subscription, payload);
       onOpenChange(false);
     } catch (err) {
-      setLocalError(friendlyError(err, "Gelecek ödemeler güncellenemedi, tekrar dener misin?"));
+      setLocalError(friendlyError(err, "Gelecek kayıtlar güncellenemedi, tekrar dener misin?"));
     } finally {
       setIsSaving(false);
     }
@@ -829,16 +845,16 @@ function RecurringManagerDialog({
   async function handleSaveSinglePayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedPaymentId || !paymentDraft) {
-      setLocalError("Düzenlemek için bir geçmiş ödeme seç.");
+      setLocalError("Düzenlemek için bir geçmiş kayıt seç.");
       return;
     }
     const normalizedAmount = normalizeAmountInput(paymentDraft.amount);
     if (!isValidAmount(normalizedAmount)) {
-      setLocalError("Geçmiş ödeme tutarını 1250,50 biçiminde girer misin?");
+      setLocalError("Geçmiş kayıt tutarını 1250,50 biçiminde girer misin?");
       return;
     }
     if (!paymentDraft.occurredAt) {
-      setLocalError("Geçmiş ödeme için tarih ve saat seç.");
+      setLocalError("Geçmiş kayıt için tarih ve saat seç.");
       return;
     }
 
@@ -857,23 +873,26 @@ function RecurringManagerDialog({
       await onSaveSinglePayment(selectedPaymentId, payload);
       onOpenChange(false);
     } catch (err) {
-      setLocalError(friendlyError(err, "Geçmiş ödeme güncellenemedi, tekrar dener misin?"));
+      setLocalError(friendlyError(err, "Geçmiş kayıt güncellenemedi, tekrar dener misin?"));
     } finally {
       setIsSaving(false);
     }
   }
 
   if (!subscription || !futureDraft) return null;
+  const futureCategories = categoriesForType(categories, futureDraft.type);
+  const paymentCategories = categoriesForType(categories, paymentDraft?.type ?? subscription.type);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] w-[calc(100vw-1.5rem)] overflow-hidden rounded-[1.5rem] p-4 sm:max-w-6xl sm:p-6">
         <DialogHeader>
           <DialogTitle className="font-display text-3xl font-black">
-            Tekrarlayan ödemeyi yönet
+            Tekrarlayan kaydı yönet
           </DialogTitle>
           <DialogDescription>
-            Tek bir geçmiş ödemeyi düzeltebilir veya gelecekteki tüm yenilemeleri değiştirebilirsin.
+            Tek bir geçmiş gelir/gider kaydını düzeltebilir veya gelecekteki tüm yenilemeleri
+            değiştirebilirsin.
           </DialogDescription>
         </DialogHeader>
 
@@ -886,7 +905,7 @@ function RecurringManagerDialog({
                   <p className="mt-1 text-sm text-muted-foreground">
                     {subscription.recurrence_label ||
                       billingCycleLabels[subscription.billing_cycle]}{" "}
-                    / {formatKurus(amountToKurus(subscription.amount))}
+                    / {formatTransactionAmount(subscription.amount, subscription.type)}
                   </p>
                 </div>
                 <span className="stamp-label bg-background/80">
@@ -898,8 +917,8 @@ function RecurringManagerDialog({
             <div className="grid gap-2 rounded-[1.5rem] border border-border/70 bg-background/70 p-2 sm:grid-cols-2">
               {(
                 [
-                  ["future", "Gelecektekilerin tümü", "Abonelik/fatura kuralını değiştir"],
-                  ["single", "Geçmiş tek ödeme", "Seçili işlem kaydını düzelt"],
+                  ["future", "Gelecektekilerin tümü", "Düzenli kayıt kuralını değiştir"],
+                  ["single", "Geçmiş tek kayıt", "Seçili işlem kaydını düzelt"],
                 ] as const
               ).map(([value, label, helper]) => {
                 const isActive = mode === value;
@@ -934,6 +953,32 @@ function RecurringManagerDialog({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label htmlFor="future-subscription-type" className="text-sm font-medium">
+                      Tür
+                    </label>
+                    <select
+                      id="future-subscription-type"
+                      className={selectClassName}
+                      value={futureDraft.type}
+                      onChange={(event) =>
+                        setFutureDraft((current) => {
+                          if (!current) return current;
+                          const nextType = event.target.value as TransactionType;
+                          return {
+                            ...current,
+                            type: nextType,
+                            categoryId: hasCategoryForType(categories, current.categoryId, nextType)
+                              ? current.categoryId
+                              : "",
+                          };
+                        })
+                      }
+                    >
+                      <option value="expense">Gider</option>
+                      <option value="income">Gelir</option>
+                    </select>
+                  </div>
                   <div className="space-y-2">
                     <label htmlFor="future-subscription-name" className="text-sm font-medium">
                       Ad
@@ -1069,7 +1114,7 @@ function RecurringManagerDialog({
                       }
                     >
                       <option value="">Kategori seçme</option>
-                      {expenseCategories.map((category) => (
+                      {futureCategories.map((category) => (
                         <option key={category.id} value={category.id}>
                           {category.name}
                           {category.user_id ? " · özel" : ""}
@@ -1116,24 +1161,24 @@ function RecurringManagerDialog({
                 </div>
 
                 <Button type="submit" className="w-full" disabled={isSaving}>
-                  {isSaving ? "Kaydediliyor..." : "Gelecekteki tüm ödemeleri güncelle"}
+                  {isSaving ? "Kaydediliyor..." : "Gelecekteki tüm kayıtları güncelle"}
                 </Button>
               </form>
             ) : (
               <form className="space-y-4" onSubmit={handleSaveSinglePayment}>
                 <div className="bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-4 text-sm leading-6 text-muted-foreground">
-                  Bu bölüm yalnızca seçtiğin geçmiş işlem kaydını değiştirir; gelecek ödeme planı
+                  Bu bölüm yalnızca seçtiğin geçmiş işlem kaydını değiştirir; gelecek kayıt planı
                   aynı kalır.
                 </div>
 
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="font-display text-xl font-black">Geçmiş ödeme seç</p>
+                      <p className="font-display text-xl font-black">Geçmiş kayıt seç</p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {isFallbackList
-                          ? "Benzer kayıt bulunamadı; aynı profile ait son giderler gösteriliyor."
-                          : "Bu tekrarlayan kayda benzeyen geçmiş ödemeler."}
+                          ? "Benzer kayıt bulunamadı; aynı profile ait son kayıtlar gösteriliyor."
+                          : "Bu tekrarlayan kayda benzeyen geçmiş işlemler."}
                       </p>
                     </div>
                     <span className="stamp-label bg-background/80">
@@ -1143,9 +1188,9 @@ function RecurringManagerDialog({
 
                   {candidatePayments.length === 0 ? (
                     <div className="receipt-tape px-5 py-6">
-                      <p className="font-display text-xl font-black">Geçmiş ödeme yok</p>
+                      <p className="font-display text-xl font-black">Geçmiş kayıt yok</p>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        Önce bu ödeme için bir işlem kaydı eklediğinde burada tek kaydı
+                        Önce bu düzenli kayıt için bir işlem eklediğinde burada tek kaydı
                         düzenleyebilirsin.
                       </p>
                     </div>
@@ -1169,7 +1214,7 @@ function RecurringManagerDialog({
                             onClick={() => handleSelectPayment(transaction)}
                           >
                             <span className="block font-display text-lg font-black">
-                              {transaction.merchant ?? transaction.description ?? "İsimsiz ödeme"}
+                              {transaction.merchant ?? transaction.description ?? "İsimsiz kayıt"}
                             </span>
                             <span className="mt-1 block text-sm text-muted-foreground">
                               {formatDateTR(transaction.occurred_at)} / {categoryName}
@@ -1237,7 +1282,7 @@ function RecurringManagerDialog({
                           }
                         >
                           <option value="">Kategori seçme</option>
-                          {expenseCategories.map((category) => (
+                          {paymentCategories.map((category) => (
                             <option key={category.id} value={category.id}>
                               {category.name}
                               {category.user_id ? " · özel" : ""}
@@ -1254,11 +1299,21 @@ function RecurringManagerDialog({
                           className={selectClassName}
                           value={paymentDraft.type}
                           onChange={(event) =>
-                            setPaymentDraft((current) =>
-                              current
-                                ? { ...current, type: event.target.value as TransactionType }
-                                : current,
-                            )
+                            setPaymentDraft((current) => {
+                              if (!current) return current;
+                              const nextType = event.target.value as TransactionType;
+                              return {
+                                ...current,
+                                type: nextType,
+                                categoryId: hasCategoryForType(
+                                  categories,
+                                  current.categoryId,
+                                  nextType,
+                                )
+                                  ? current.categoryId
+                                  : "",
+                              };
+                            })
                           }
                         >
                           <option value="expense">Gider</option>
@@ -1302,7 +1357,7 @@ function RecurringManagerDialog({
                 ) : null}
 
                 <Button type="submit" className="w-full" disabled={isSaving || !paymentDraft}>
-                  {isSaving ? "Kaydediliyor..." : "Seçili geçmiş ödemeyi güncelle"}
+                  {isSaving ? "Kaydediliyor..." : "Seçili geçmiş kaydı güncelle"}
                 </Button>
               </form>
             )}
@@ -1650,6 +1705,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [subscriptionName, setSubscriptionName] = useState("");
   const [subscriptionMerchant, setSubscriptionMerchant] = useState("");
   const [subscriptionAmount, setSubscriptionAmount] = useState("");
+  const [subscriptionType, setSubscriptionType] = useState<TransactionType>("expense");
   const [subscriptionCycle, setSubscriptionCycle] = useState<BillingCycle>("monthly");
   const [subscriptionInterval, setSubscriptionInterval] = useState("1");
   const [subscriptionUnit, setSubscriptionUnit] = useState<RecurrenceUnit>("month");
@@ -1732,8 +1788,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     [categories, type],
   );
   const subscriptionCategories = useMemo(
-    () => categoriesForType(categories, "expense"),
-    [categories],
+    () => categoriesForType(categories, subscriptionType),
+    [categories, subscriptionType],
   );
   const merchantSuggestions = useMemo(
     () =>
@@ -1761,9 +1817,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const monthlyExpense = summary ? amountToKurus(summary.expense) : fallbackExpense;
   const monthlyIncome = summary ? amountToKurus(summary.income) : fallbackIncome;
   const balance = summary ? amountToKurus(summary.balance) : fallbackBalance;
-  const recurringMonthlyTotal = subscriptions
+  const recurringExpenseMonthlyTotal = subscriptions
     .filter((subscription) => subscription.is_active)
+    .filter((subscription) => subscription.type === "expense")
     .reduce((total, subscription) => total + amountToKurus(subscription.monthly_equivalent), 0);
+  const recurringIncomeMonthlyTotal = subscriptions
+    .filter((subscription) => subscription.is_active)
+    .filter((subscription) => subscription.type === "income")
+    .reduce((total, subscription) => total + amountToKurus(subscription.monthly_equivalent), 0);
+  const recurringMonthlyNetTotal = recurringIncomeMonthlyTotal - recurringExpenseMonthlyTotal;
   const primaryInsight = insights[0] ?? null;
   const visibleInsightCount = insights.length;
   const previewTransactions = transactions.slice(0, TRANSACTION_PREVIEW_LIMIT);
@@ -1944,7 +2006,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     setIsAddingSubscription(true);
     const normalizedAmount = normalizeAmountInput(subscriptionAmount);
     if (!isValidAmount(normalizedAmount)) {
-      setError("Tekrarlayan ödeme tutarını 1250,50 biçiminde girer misin?");
+      setError("Tekrarlayan kayıt tutarını 1250,50 biçiminde girer misin?");
       setIsAddingSubscription(false);
       return;
     }
@@ -1970,12 +2032,13 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
         input: subscriptionCategoryInput,
         allowedCategories: subscriptionCategories,
         currentId: subscriptionCategoryId,
-        fallbackType: "expense",
+        fallbackType: subscriptionType,
       });
       const payload: SubscriptionCreateInput = {
         name: subscriptionName,
         merchant: subscriptionMerchant || null,
         amount: normalizedAmount,
+        type: subscriptionType,
         billing_cycle: subscriptionCycle,
         recurrence_interval: subscriptionCycle === "custom" ? recurrenceInterval : null,
         recurrence_unit: subscriptionCycle === "custom" ? subscriptionUnit : null,
@@ -1992,6 +2055,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setSubscriptionName("");
       setSubscriptionMerchant("");
       setSubscriptionAmount("");
+      setSubscriptionType("expense");
       setSubscriptionCycle("monthly");
       setSubscriptionInterval("1");
       setSubscriptionUnit("month");
@@ -2000,7 +2064,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setSubscriptionCategoryInput("");
       void refreshInsights().catch(() => undefined);
     } catch (err) {
-      setError(friendlyError(err, "Tekrarlayan ödeme kaydedilemedi, tekrar dener misin?"));
+      setError(friendlyError(err, "Tekrarlayan kayıt kaydedilemedi, tekrar dener misin?"));
     } finally {
       setIsAddingSubscription(false);
     }
@@ -2073,7 +2137,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setManagedSubscriptionId((current) => (current === subscriptionId ? null : current));
       void refreshInsights().catch(() => undefined);
     } catch (err) {
-      setError(friendlyError(err, "Tekrarlayan ödeme silinemedi, tekrar dener misin?"));
+      setError(friendlyError(err, "Tekrarlayan kayıt silinemedi, tekrar dener misin?"));
     } finally {
       setUpdatingSubscriptionId(null);
     }
@@ -2106,6 +2170,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     if (!hasCategoryForType(categories, categoryId, nextType)) {
       setCategoryId("");
       setCategoryInput("");
+    }
+  }
+
+  function handleSubscriptionTypeChange(nextType: TransactionType) {
+    setSubscriptionType(nextType);
+    if (!hasCategoryForType(categories, subscriptionCategoryId, nextType)) {
+      setSubscriptionCategoryId("");
+      setSubscriptionCategoryInput("");
     }
   }
 
@@ -2172,7 +2244,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       Bütçe sayfası artık kategorili.
                     </h1>
                     <p className="text-foreground/78 max-w-[62ch] text-base leading-7 sm:text-lg sm:leading-8">
-                      Özet burada kalır; tek seferlik işlem, tekrarlayan ödeme ve fiş tarama aynı
+                      Özet burada kalır; tek seferlik işlem, tekrarlayan kayıt ve fiş tarama aynı
                       İşlemler ekranından yönetilir. Böylece kayıt ekleme akışı tek yerde kalır.
                     </p>
                   </div>
@@ -2267,7 +2339,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <p>Yeni işlem, fiş veya tekrarlayan ödeme geldikçe koç buraya uyarı çıkarır.</p>
+                  <p>Yeni işlem, fiş veya tekrarlayan kayıt geldikçe koç buraya uyarı çıkarır.</p>
                   <Button
                     type="button"
                     size="sm"
@@ -2311,9 +2383,9 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     "Ay sonuna kadar kullanılabilir",
                   ],
                   [
-                    "Gelecek ay tahmini",
-                    formatKurus(recurringMonthlyTotal),
-                    "Aktif tekrarlar; kesinleşmiş borç değildir",
+                    "Tekrarlayan net",
+                    formatKurus(recurringMonthlyNetTotal),
+                    `Gelir ${formatKurus(recurringIncomeMonthlyTotal)} / gider ${formatKurus(recurringExpenseMonthlyTotal)}`,
                   ],
                   [
                     "Riskli kategori",
@@ -2400,7 +2472,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   <p className="mt-2 text-sm leading-5 text-muted-foreground">
                     {isKid
                       ? "Aldığın harçlığı, yaptığın alışverişi veya fişini bu sayfadan ekleyebilirsin."
-                      : "Tek seferlik gelir/gider, tekrarlayan ödeme ve fiş tarama aynı ekrandan eklenir."}
+                      : "Tek seferlik gelir/gider, tekrarlayan kayıt ve fiş tarama aynı ekrandan eklenir."}
                   </p>
                 </div>
 
@@ -2534,7 +2606,23 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   </form>
                 ) : entryMode === "recurring" ? (
                   <form className="space-y-4" onSubmit={handleCreateSubscription}>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-type" className="text-sm font-medium">
+                          Tür
+                        </label>
+                        <select
+                          id="subscription-type"
+                          className={selectClassName}
+                          value={subscriptionType}
+                          onChange={(event) =>
+                            handleSubscriptionTypeChange(event.target.value as TransactionType)
+                          }
+                        >
+                          <option value="expense">Gider</option>
+                          <option value="income">Gelir</option>
+                        </select>
+                      </div>
                       <div className="space-y-2">
                         <label htmlFor="subscription-name" className="text-sm font-medium">
                           Ad
@@ -2543,7 +2631,9 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                           id="subscription-name"
                           value={subscriptionName}
                           onChange={(event) => setSubscriptionName(event.target.value)}
-                          placeholder="Ödeme adı"
+                          placeholder={
+                            subscriptionType === "income" ? "Maaş, kira geliri" : "Ödeme adı"
+                          }
                           required
                         />
                       </div>
@@ -2637,7 +2727,11 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         value={subscriptionCategoryInput}
                         categories={subscriptionCategories}
                         onValueChange={handleSubscriptionCategoryInput}
-                        helper="Gider kategorilerinden seç veya yeni bir ad yaz."
+                        helper={
+                          subscriptionType === "income"
+                            ? "Gelir kategorilerinden seç veya yeni bir ad yaz."
+                            : "Gider kategorilerinden seç veya yeni bir ad yaz."
+                        }
                       />
                       <div className="space-y-2">
                         <label htmlFor="subscription-merchant" className="text-sm font-medium">
@@ -2682,13 +2776,17 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                 <div className="receipt-tape p-4 pt-6 sm:p-5 sm:pt-7">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="eyebrow">Tekrarlayan aylık etki</p>
+                      <p className="eyebrow">Tekrarlayan aylık net</p>
                       <h3 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                        {formatKurus(recurringMonthlyTotal)}
+                        {formatKurus(recurringMonthlyNetTotal)}
                       </h3>
                     </div>
                     <span className="stamp-label bg-background/80">Toplam</span>
                   </div>
+                  <p className="mt-2 text-xs font-semibold text-muted-foreground">
+                    Gelir {formatKurus(recurringIncomeMonthlyTotal)} / gider{" "}
+                    {formatKurus(recurringExpenseMonthlyTotal)}
+                  </p>
                   <div className="mt-4">
                     <RecurringBars
                       subscriptions={subscriptions}
@@ -2773,7 +2871,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     <div>
                       <p className="eyebrow">Yenilenen kayıtlar</p>
                       <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                        Tekrarlayan ödemeler
+                        Tekrarlayan kayıtlar
                       </h2>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2798,11 +2896,11 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     <div className="receipt-tape px-4 py-6">
                       <Repeat2 className="h-6 w-6 text-primary" />
                       <h3 className="mt-4 font-display text-2xl font-black">
-                        Tekrarlayan ödeme yok
+                        Tekrarlayan kayıt yok
                       </h3>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        Abonelik veya fatura eklediğinde tekil tutarlar ve aylık toplam burada
-                        görünür.
+                        Maaş, kira geliri, abonelik veya fatura eklediğinde tekil tutarlar ve aylık
+                        toplam burada görünür.
                       </p>
                     </div>
                   ) : (
@@ -2873,7 +2971,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       <FullListDialog
         open={isSubscriptionListOpen}
         onOpenChange={setIsSubscriptionListOpen}
-        title="Tüm tekrarlayan ödemeler"
+        title="Tüm tekrarlayan kayıtlar"
         description={`Bu profilde görünen ${subscriptions.length} tekrarlayan kayıt.`}
       >
         {subscriptions.map((subscription) => (

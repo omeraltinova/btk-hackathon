@@ -1204,13 +1204,22 @@ def _spending_answer(result: dict[str, object]) -> str:
 
 def _subscription_answer(result: dict[str, object]) -> str:
     count = _int_result(result, "count")
-    total = str(result["monthly_total_formatted"])
     if count == 0:
         return (
-            "Aktif abonelik veya tekrarlayan ödeme kaydı bulamadım. "
+            "Aktif abonelik veya tekrarlayan gelir/gider kaydı bulamadım. "
             "Eklediğinde aylık etkisini burada birlikte takip edebiliriz."
         )
-    return f"Aktif tekrarlayan ödemelerin aylık etkisi {total}. Toplam {count} kayıt var."
+    income_total = str(result.get("monthly_income_total_formatted", "0,00 ₺"))
+    expense_total = str(result.get("monthly_expense_total_formatted", "0,00 ₺"))
+    net_total = str(
+        result.get("monthly_net_total_formatted")
+        or result.get("monthly_total_formatted")
+        or "0,00 ₺"
+    )
+    return (
+        f"Aktif tekrarlayan kayıtların aylık net etkisi {net_total}. "
+        f"Düzenli gelir {income_total}, düzenli gider {expense_total}. Toplam {count} kayıt var."
+    )
 
 
 def _receipt_answer(result: dict[str, object]) -> str:

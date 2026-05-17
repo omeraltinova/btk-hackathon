@@ -912,7 +912,7 @@ def build_subscriptions_summary(
     *,
     only_active: bool = True,
 ) -> dict[str, object]:
-    """Return scoped subscriptions and their MVP monthly equivalent total."""
+    """Return scoped recurring income/expense records and monthly equivalents."""
     query = select(Subscription).where(Subscription.user_id.in_(visible_user_ids(current_user)))
     if only_active:
         query = query.where(Subscription.is_active.is_(True))
@@ -925,6 +925,8 @@ def build_subscriptions_summary(
 
     rows: list[dict[str, object]] = []
     monthly_total = Decimal("0")
+    monthly_income_total = Decimal("0")
+    monthly_expense_total = Decimal("0")
     for subscription in subscriptions:
         monthly = monthly_equivalent(
             Decimal(subscription.amount),
@@ -933,6 +935,10 @@ def build_subscriptions_summary(
             subscription.billing_cycle,
         )
         monthly_total += monthly
+        if subscription.type == "income":
+            monthly_income_total += monthly
+        else:
+            monthly_expense_total += monthly
         rows.append(
             {
                 "id": str(subscription.id),
@@ -940,6 +946,7 @@ def build_subscriptions_summary(
                 "merchant": subscription.merchant,
                 "amount": _decimal_text(Decimal(subscription.amount)),
                 "amount_formatted": format_tl(Decimal(subscription.amount)),
+                "type": subscription.type,
                 "billing_cycle": subscription.billing_cycle,
                 "recurrence_interval": subscription.recurrence_interval,
                 "recurrence_unit": subscription.recurrence_unit,
@@ -974,6 +981,12 @@ def build_subscriptions_summary(
         "count": len(rows),
         "monthly_total": _decimal_text(monthly_total),
         "monthly_total_formatted": format_tl(monthly_total),
+        "monthly_income_total": _decimal_text(monthly_income_total),
+        "monthly_income_total_formatted": format_tl(monthly_income_total),
+        "monthly_expense_total": _decimal_text(monthly_expense_total),
+        "monthly_expense_total_formatted": format_tl(monthly_expense_total),
+        "monthly_net_total": _decimal_text(monthly_income_total - monthly_expense_total),
+        "monthly_net_total_formatted": format_tl(monthly_income_total - monthly_expense_total),
         "subscriptions": rows,
     }
 
@@ -2760,7 +2773,7 @@ def get_subscriptions_tool(
     only_active: bool | str = True,
     user_id: Annotated[str, InjectedState("user_id")] = "",
 ) -> dict[str, object]:
-    """Kullanıcının abonelik ve tekrarlayan ödeme özetini döner."""
+    """Kullanıcının abonelik ve tekrarlayan gelir/gider özetini döner."""
     with SessionLocal() as db:
         return build_subscriptions_summary(
             db,

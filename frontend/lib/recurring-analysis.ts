@@ -13,7 +13,9 @@ export function isSubscriptionPaymentCandidate(
   transaction: Transaction,
   subscription: Subscription,
 ): boolean {
-  if (transaction.user_id !== subscription.user_id || transaction.type !== "expense") return false;
+  if (transaction.user_id !== subscription.user_id || transaction.type !== subscription.type) {
+    return false;
+  }
   if (!isPastTransaction(transaction)) return false;
 
   const subscriptionMerchant = textToken(subscription.merchant);

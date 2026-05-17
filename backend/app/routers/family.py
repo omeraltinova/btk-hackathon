@@ -198,6 +198,8 @@ def family_overview(
             expense_by_user[transaction.user_id] += amount
 
     for subscription in subscriptions:
+        if subscription.type != "expense":
+            continue
         recurring_by_user[subscription.user_id] += monthly_equivalent(
             Decimal(subscription.amount),
             subscription.recurrence_interval,

@@ -197,6 +197,7 @@ def build_insight_candidates(
         next_billing_date = subscription.next_billing_date
         if next_billing_date is None:
             continue
+        is_income = subscription.type == "income"
         candidates.append(
             InsightCandidate(
                 user_id=subscription.user_id,
@@ -204,14 +205,15 @@ def build_insight_candidates(
                 title=f"{subscription.name} yaklaşıyor",
                 content=(
                     f"{next_billing_date.strftime('%d.%m.%Y')} tarihinde "
-                    f"{format_tl(Decimal(subscription.amount))} ödeme görünüyor."
+                    f"{format_tl(Decimal(subscription.amount))} "
+                    f"{'gelir girişi' if is_income else 'ödeme'} görünüyor."
                 ),
-                severity="warning",
+                severity="info" if is_income else "warning",
                 action_label="Tekrarları aç",
             ),
         )
 
-    monthly_subscriptions = sum(
+    monthly_subscription_expenses = sum(
         (
             monthly_equivalent(
                 Decimal(item.amount),
@@ -220,17 +222,19 @@ def build_insight_candidates(
                 item.billing_cycle,
             )
             for item in subscriptions
+            if item.type == "expense"
         ),
         Decimal("0"),
     )
-    if current_income > 0 and monthly_subscriptions > current_income * Decimal("0.10"):
+    if current_income > 0 and monthly_subscription_expenses > current_income * Decimal("0.10"):
         candidates.append(
             InsightCandidate(
                 user_id=current_user.id,
                 insight_type="savings_opportunity",
                 title="Tekrarlayan ödemeler dikkat istiyor",
                 content=(
-                    f"Aktif tekrarlayan ödemelerin aylık etkisi {format_tl(monthly_subscriptions)}. "
+                    "Aktif tekrarlayan ödemelerin aylık etkisi "
+                    f"{format_tl(monthly_subscription_expenses)}. "
                     "Bu tutar gelirinin %10'unu aşıyor."
                 ),
                 action_label="Tekrarları gözden geçir",

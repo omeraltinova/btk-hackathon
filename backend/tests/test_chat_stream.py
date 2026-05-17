@@ -248,6 +248,7 @@ def make_subscription(user_id: UUID, amount: str = "120.00") -> Subscription:
         name="Dijital servis",
         merchant="Servis",
         amount=Decimal(amount),
+        type="expense",
         billing_cycle="monthly",
         recurrence_interval=1,
         recurrence_unit="month",

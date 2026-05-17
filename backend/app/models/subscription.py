@@ -18,6 +18,7 @@ class Subscription(TimestampMixin, Base):
 
     __tablename__ = "subscriptions"
     __table_args__ = (
+        CheckConstraint("type IN ('income','expense')", name="type_valid"),
         CheckConstraint(
             "billing_cycle IN ('weekly','monthly','yearly','custom')",
             name="billing_cycle_valid",
@@ -43,6 +44,7 @@ class Subscription(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     merchant: Mapped[str | None] = mapped_column(String, nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    type: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'expense'"))
     billing_cycle: Mapped[str] = mapped_column(String, nullable=False)
     recurrence_interval: Mapped[int] = mapped_column(
         Integer,

@@ -184,13 +184,16 @@ def make_transaction(
     )
 
 
-def make_subscription(user: User, *, amount: str, cycle: str = "monthly") -> Subscription:
+def make_subscription(
+    user: User, *, amount: str, cycle: str = "monthly", tx_type: str = "expense"
+) -> Subscription:
     return Subscription(
         id=uuid4(),
         user_id=user.id,
         name="Ev interneti",
         merchant="TurkNet",
         amount=Decimal(amount),
+        type=tx_type,
         billing_cycle=cycle,
         recurrence_interval=1,
         recurrence_unit={"weekly": "week", "yearly": "year"}.get(cycle, "month"),
@@ -330,6 +333,7 @@ def test_parent_can_read_family_financial_overview(
         ],
     )
     fake_session.subscriptions.append(make_subscription(parent, amount="100.00"))
+    fake_session.subscriptions.append(make_subscription(parent, amount="5000.00", tx_type="income"))
 
     response = client.get("/api/family/overview", headers=auth_header(parent))
 

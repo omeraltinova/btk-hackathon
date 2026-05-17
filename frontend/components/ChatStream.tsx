@@ -164,12 +164,22 @@ function describeToolResult(event: Extract<ChatStreamEvent, { type: "tool_result
     return `${total} / ${count} işlem`;
   }
   if (event.tool_name === "get_subscriptions") {
-    const total =
-      typeof result.monthly_total_formatted === "string"
-        ? result.monthly_total_formatted
+    const netTotal =
+      typeof result.monthly_net_total_formatted === "string"
+        ? result.monthly_net_total_formatted
+        : typeof result.monthly_total_formatted === "string"
+          ? result.monthly_total_formatted
+          : "0,00 ₺";
+    const incomeTotal =
+      typeof result.monthly_income_total_formatted === "string"
+        ? result.monthly_income_total_formatted
+        : "0,00 ₺";
+    const expenseTotal =
+      typeof result.monthly_expense_total_formatted === "string"
+        ? result.monthly_expense_total_formatted
         : "0,00 ₺";
     const count = typeof result.count === "number" ? result.count : 0;
-    return `${total} aylık etki / ${count} kayıt`;
+    return `${netTotal} net / gelir ${incomeTotal} / gider ${expenseTotal} / ${count} kayıt`;
   }
   if (event.tool_name === "analyze_receipt") {
     const merchant = typeof result.merchant === "string" ? result.merchant : "Fiş";

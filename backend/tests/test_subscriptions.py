@@ -138,6 +138,7 @@ def make_subscription(
         name="Tekrarlayan ödeme",
         merchant="Hizmet",
         amount=Decimal(amount),
+        type="expense",
         billing_cycle=cycle,
         recurrence_interval=1,
         recurrence_unit={"weekly": "week", "yearly": "year"}.get(cycle, "month"),
@@ -195,8 +196,36 @@ def test_create_subscription_assigns_current_user_and_validates_category() -> No
     assert result.user_id == user.id
     assert result.name == "Elektrik faturası"
     assert result.merchant == "Dağıtım şirketi"
+    assert result.type == "expense"
     assert result.category_id == category.id
     assert result.monthly_equivalent == Decimal("450.25")
+    assert db.committed is True
+
+
+def test_create_subscription_accepts_recurring_income() -> None:
+    user = make_user()
+    category = make_category()
+    category.name = "Maaş"
+    db = FakeSession(categories=[category], user_ids=[user.id])
+
+    result = create_subscription(
+        SubscriptionCreate(
+            name="Maaş",
+            merchant="Okul",
+            amount=Decimal("32000.00"),
+            type="income",
+            billing_cycle="monthly",
+            next_billing_date=date(2026, 6, 1),
+            category_id=category.id,
+        ),
+        db=db,
+        current_user=user,
+    )
+
+    assert result.type == "income"
+    assert result.amount == Decimal("32000.00")
+    assert result.monthly_equivalent == Decimal("32000.00")
+    assert db.subscriptions[0].type == "income"
     assert db.committed is True
 
 
@@ -234,7 +263,7 @@ def test_update_subscription_rejects_other_user_row() -> None:
         update_subscription(other.id, SubscriptionUpdate(is_active=False), db=db, current_user=user)
 
     assert exc.value.status_code == 404
-    assert exc.value.detail == "Tekrarlayan ödeme bulunamadı."
+    assert exc.value.detail == "Tekrarlayan kayıt bulunamadı."
 
 
 def test_delete_subscription_removes_scoped_row() -> None:

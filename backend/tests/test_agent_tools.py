@@ -294,6 +294,7 @@ def make_subscription(
         name=name,
         merchant=merchant,
         amount=Decimal(amount),
+        type="expense",
         billing_cycle=cycle,
         recurrence_interval=1,
         recurrence_unit={"weekly": "week", "yearly": "year"}.get(cycle, "month"),
@@ -365,6 +366,30 @@ def test_build_subscriptions_summary_filters_active_and_calculates_monthly_total
     assert result["count"] == 2
     assert result["monthly_total"] == "220.00"
     assert result["monthly_total_formatted"] == "220,00 ₺"
+    assert result["monthly_income_total"] == "0.00"
+    assert result["monthly_expense_total"] == "220.00"
+
+
+def test_build_subscriptions_summary_splits_recurring_income_and_expense() -> None:
+    user = make_user()
+    salary = make_subscription(user_id=user.id, amount="30000.00", name="Maaş")
+    salary.type = "income"
+    db = FakeSession(
+        subscriptions=[
+            salary,
+            make_subscription(user_id=user.id, amount="120.00"),
+        ],
+    )
+
+    result = build_subscriptions_summary(db, user)
+
+    assert result["monthly_total"] == "30120.00"
+    assert result["monthly_income_total"] == "30000.00"
+    assert result["monthly_expense_total"] == "120.00"
+    assert result["monthly_net_total"] == "29880.00"
+    rows = result["subscriptions"]
+    assert isinstance(rows, list)
+    assert {row["type"] for row in rows if isinstance(row, dict)} == {"income", "expense"}
 
 
 def test_build_spending_chart_returns_string_amounts_not_float() -> None:
@@ -1096,3 +1121,36 @@ def test_build_smart_saving_plan_creates_top_category_goals() -> None:
     assert result["expected_monthly_saving_formatted"] == "195,00 ₺"
     assert result["subscription_monthly_total_formatted"] == "120,00 ₺"
     assert len(db.saving_goals) == 2
+
+
+def test_build_smart_saving_plan_excludes_recurring_income_from_subscription_burden() -> None:
+    user = make_user()
+    market = make_category("Market")
+    salary = make_subscription(user_id=user.id, amount="30000.00", name="Maaş")
+    salary.type = "income"
+    db = FakeSession(
+        categories=[market],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=market.id,
+                amount="900.00",
+                occurred_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+            ),
+        ],
+        subscriptions=[
+            salary,
+            make_subscription(user_id=user.id, amount="120.00"),
+        ],
+    )
+
+    result = build_smart_saving_plan(
+        db,
+        user,
+        message="Market giderimi kısmam lazım.",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["subscription_count"] == 1
+    assert result["subscription_monthly_total"] == "120.00"
+    assert result["subscription_monthly_total_formatted"] == "120,00 ₺"

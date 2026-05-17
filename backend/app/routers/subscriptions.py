@@ -1,4 +1,4 @@
-"""Subscriptions router: authenticated recurring payments and bills."""
+"""Subscriptions router: authenticated recurring income and expense records."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ def _to_read(subscription: Subscription) -> SubscriptionRead:
         name=subscription.name,
         merchant=subscription.merchant,
         amount=subscription.amount,
+        type=subscription.type,
         billing_cycle=subscription.billing_cycle,
         recurrence_interval=subscription.recurrence_interval,
         recurrence_unit=subscription.recurrence_unit,
@@ -86,7 +87,7 @@ def _get_scoped_subscription(
     if subscription is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tekrarlayan ödeme bulunamadı.",
+            detail="Tekrarlayan kayıt bulunamadı.",
         )
     return subscription
 
@@ -147,6 +148,7 @@ def create_subscription(
         name=payload.name,
         merchant=payload.merchant,
         amount=payload.amount,
+        type=payload.type,
         billing_cycle=payload.billing_cycle,
         recurrence_interval=payload.recurrence_interval or 1,
         recurrence_unit=payload.recurrence_unit or "month",

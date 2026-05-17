@@ -219,6 +219,7 @@ def build_smart_saving_plan(
                 subscription.billing_cycle,
             )
             for subscription in subscriptions
+            if subscription.type == "expense"
         ),
         Decimal("0"),
     )
@@ -273,7 +274,9 @@ def build_smart_saving_plan(
         "goals": created_goals,
         "expected_monthly_saving": _decimal_text(expected_monthly_saving),
         "expected_monthly_saving_formatted": format_tl(expected_monthly_saving),
-        "subscription_count": len(subscriptions),
+        "subscription_count": sum(
+            1 for subscription in subscriptions if subscription.type == "expense"
+        ),
         "subscription_monthly_total": _decimal_text(subscription_monthly_total),
         "subscription_monthly_total_formatted": format_tl(subscription_monthly_total),
         "subscription_note": (
