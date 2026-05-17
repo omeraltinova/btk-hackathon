@@ -414,6 +414,7 @@ export function ChatStream() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [supportsSpeechInput, setSupportsSpeechInput] = useState(false);
+  const [showVoiceHint, setShowVoiceHint] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceReplies, setVoiceReplies] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -492,10 +493,35 @@ export function ChatStream() {
   }, []);
 
   useEffect(() => {
-    setSupportsSpeechInput(
+    const isSupported =
       typeof window !== "undefined" &&
-        ("SpeechRecognition" in window || "webkitSpeechRecognition" in window),
-    );
+      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+    setSupportsSpeechInput(isSupported);
+    if (isSupported && typeof window !== "undefined") {
+      try {
+        const seen = window.localStorage.getItem("cuzdan-kocu.voice-hint-shown");
+        if (!seen) {
+          setShowVoiceHint(true);
+          const timer = window.setTimeout(() => {
+            setShowVoiceHint(false);
+            try {
+              window.localStorage.setItem("cuzdan-kocu.voice-hint-shown", "1");
+            } catch {
+              // localStorage failure is non-blocking.
+            }
+          }, 8000);
+          return () => {
+            window.clearTimeout(timer);
+            recognitionRef.current?.abort();
+            if (typeof window !== "undefined" && "speechSynthesis" in window) {
+              window.speechSynthesis.cancel();
+            }
+          };
+        }
+      } catch {
+        // Ignore localStorage read failures; hint just stays off.
+      }
+    }
     return () => {
       recognitionRef.current?.abort();
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -779,6 +805,16 @@ export function ChatStream() {
       if (!draft.trim()) setDraft("Bu fişi analiz eder misin?");
     } catch (err) {
       setFileError(err instanceof Error ? err.message : "Fiş görseli okunamadı.");
+    }
+  }
+
+  function dismissVoiceHint() {
+    if (!showVoiceHint) return;
+    setShowVoiceHint(false);
+    try {
+      window.localStorage.setItem("cuzdan-kocu.voice-hint-shown", "1");
+    } catch {
+      // best-effort persistence.
     }
   }
 
@@ -1074,18 +1110,43 @@ export function ChatStream() {
             <span className="sr-only">Fiş ekle</span>
           </label>
           {supportsSpeechInput ? (
-            <button
-              type="button"
-              aria-label={isListening ? "Ses kaydını durdur" : "Sesli yaz"}
-              disabled={isStreaming || isHydrating}
-              onClick={handleVoiceInput}
-              className={cn(
-                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background/70 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50",
-                isListening ? "border-primary bg-primary/10 text-primary" : "",
-              )}
-            >
-              <Mic className="h-4 w-4" />
-            </button>
+            <div className="relative inline-flex items-center justify-center">
+              <button
+                type="button"
+                aria-label={isListening ? "Ses kaydını durdur" : "Sesli yaz"}
+                disabled={isStreaming || isHydrating}
+                onClick={() => {
+                  dismissVoiceHint();
+                  handleVoiceInput();
+                }}
+                className={cn(
+                  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background/70 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50",
+                  isListening ? "border-primary bg-primary/10 text-primary" : "",
+                )}
+              >
+                <Mic className="h-4 w-4" />
+              </button>
+              {showVoiceHint ? (
+                <div
+                  role="status"
+                  className="absolute bottom-full left-1/2 z-10 mb-2 w-max max-w-[14rem] -translate-x-1/2 rounded-2xl border border-primary/35 bg-card px-3 py-2 text-xs font-semibold text-foreground shadow-lg"
+                >
+                  <span className="block leading-snug">Mikrofona dokun, koça sesli soru sor.</span>
+                  <button
+                    type="button"
+                    onClick={dismissVoiceHint}
+                    aria-label="İpucunu kapat"
+                    className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-border bg-background text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-1/2 top-full -mt-px h-2 w-2 -translate-x-1/2 rotate-45 border-b border-r border-primary/35 bg-card"
+                  />
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <Input
             placeholder={activeSuggestion}

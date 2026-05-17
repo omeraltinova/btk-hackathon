@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   LineChart,
   LogOut,
+  Mail,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -19,7 +20,7 @@ import {
 import type { Session } from "next-auth";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -28,15 +29,18 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { useKidMode } from "@/lib/kid-mode";
 import { cn } from "@/lib/utils";
 
+const ENVELOPE_HREF = "/goals?sekme=zarflar";
+
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
   { href: "/transactions", label: "İşlemler", section: "02", icon: WalletCards },
   { href: "/income-expense", label: "Gelir/Gider", section: "03", icon: LineChart },
   { href: "/goals", label: "Hedefler", section: "04", icon: Target },
-  { href: "/learn", label: "Dersler", section: "05", icon: BookOpen },
-  { href: "/chat", label: "Sohbet", section: "06", icon: MessageSquare },
-  { href: "/family", label: "Aile", section: "07", icon: Users },
-  { href: "/account", label: "Hesap", section: "08", icon: UserRound },
+  { href: ENVELOPE_HREF, label: "Zarflar", section: "05", icon: Mail },
+  { href: "/learn", label: "Dersler", section: "06", icon: BookOpen },
+  { href: "/chat", label: "Sohbet", section: "07", icon: MessageSquare },
+  { href: "/family", label: "Aile", section: "08", icon: Users },
+  { href: "/account", label: "Hesap", section: "09", icon: UserRound },
 ] as const;
 
 const KID_NAV_ITEMS = [
@@ -47,6 +51,26 @@ const KID_NAV_ITEMS = [
   { href: "/chat", label: "Koç", section: "05", icon: Sparkles },
   { href: "/account", label: "Profilim", section: "06", icon: UserRound },
 ] as const;
+
+function isEnvelopeView(pathname: string, sekme: string | null, zarf: string | null): boolean {
+  return pathname === "/goals" && (sekme === "zarflar" || zarf !== null);
+}
+
+function isNavActive(
+  href: string,
+  pathname: string,
+  searchParams: URLSearchParams | null,
+): boolean {
+  const sekme = searchParams?.get("sekme") ?? null;
+  const zarf = searchParams?.get("zarf") ?? null;
+  if (href === "/dashboard") return pathname === href;
+  if (href === ENVELOPE_HREF) return isEnvelopeView(pathname, sekme, zarf);
+  if (href === "/goals") {
+    if (pathname.startsWith("/goals/")) return true;
+    return pathname === "/goals" && !isEnvelopeView(pathname, sekme, zarf);
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 const ROLE_LABELS = {
   parent: "Ebeveyn",
@@ -70,6 +94,7 @@ type SidebarProps = {
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isKid } = useKidMode();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const baseNavItems = isKid
@@ -169,10 +194,7 @@ export function Sidebar({ user }: SidebarProps) {
         className="flex gap-2 overflow-x-auto px-3 pb-3 [scrollbar-width:none] lg:mt-6 lg:flex-1 lg:flex-col lg:gap-2 lg:overflow-visible lg:px-4 lg:pb-0 [&::-webkit-scrollbar]:hidden"
       >
         {navItems.map((item) => {
-          const isActive =
-            item.href === "/dashboard"
-              ? pathname === item.href
-              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive = isNavActive(item.href, pathname, searchParams);
           const Icon = item.icon;
           return (
             <Link

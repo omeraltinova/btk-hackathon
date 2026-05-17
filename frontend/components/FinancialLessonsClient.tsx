@@ -6,6 +6,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { WeeklyQuizCard } from "@/components/WeeklyQuizCard";
 import { rememberActiveConversationId, rememberPendingChatMessage } from "@/lib/chat-session";
 import { cn } from "@/lib/utils";
 
@@ -263,6 +264,7 @@ export function FinancialLessonsClient() {
 
   return (
     <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+      <WeeklyQuizCard />
       <section className="receipt-tape hard-shadow rounded-[2rem] border border-border/80 bg-card p-5 sm:p-7">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-end">
           <div className="max-w-3xl space-y-3">

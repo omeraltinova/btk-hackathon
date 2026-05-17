@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.auth import create_token, verify_token
 from app.db import get_db
 from app.main import app
+from app.models.category import Category
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -29,6 +30,9 @@ class FakeResult:
     def __init__(self, items: list[Any]) -> None:
         self._items = items
 
+    def all(self) -> list[Any]:
+        return self._items
+
     def scalar_one_or_none(self) -> Any | None:
         return self._items[0] if self._items else None
 
@@ -39,12 +43,22 @@ class FakeResult:
 class FakeSession:
     def __init__(self) -> None:
         self.users: list[User] = []
+        self.categories: list[Category] = []
         self.transactions: list[Transaction] = []
         self.subscriptions: list[Subscription] = []
 
     def execute(self, statement: object) -> FakeResult:
         descriptions = getattr(statement, "column_descriptions", [])
         entity = descriptions[0].get("entity") if descriptions else None
+        expression = descriptions[0].get("expr") if descriptions else None
+        if entity is None and getattr(expression, "name", None) == "id":
+            return FakeResult(
+                [
+                    type("CategoryRow", (), {"id": category.id, "name": category.name})()
+                    for category in self.categories
+                    if self._matches_category(statement, category)
+                ],
+            )
         if entity is not User:
             if entity is Transaction:
                 return FakeResult(
@@ -60,6 +74,14 @@ class FakeSession:
                         subscription
                         for subscription in self.subscriptions
                         if self._matches_user_scoped_row(statement, subscription.user_id)
+                    ],
+                )
+            if entity is Category:
+                return FakeResult(
+                    [
+                        category
+                        for category in self.categories
+                        if self._matches_category(statement, category)
                     ],
                 )
             return FakeResult([])
@@ -107,6 +129,25 @@ class FakeSession:
             if column_name == "user_id" and isinstance(value, list | tuple | set):
                 return user_id in value
         return True
+
+    @staticmethod
+    def _matches_category(statement: object, category: Category) -> bool:
+        text = str(statement)
+        if str(category.id) not in text and "POSTCOMPILE_id" in text:
+            # SQLAlchemy stores IN-clause values out-of-band for this fake; if
+            # the compiled marker is present, inspect criteria below.
+            pass
+        id_matches = True
+        user_matches = True
+        for criterion in getattr(statement, "_where_criteria", ()):  # pragma: no branch - test fake
+            for clause in getattr(criterion, "clauses", [criterion]):
+                column_name = getattr(getattr(clause, "left", None), "name", None)
+                value = getattr(getattr(clause, "right", None), "value", None)
+                if column_name == "id" and isinstance(value, list | tuple | set):
+                    id_matches = category.id in value
+                if column_name == "user_id" and isinstance(value, list | tuple | set):
+                    user_matches = category.user_id in value or category.user_id is None
+        return id_matches and user_matches
 
     @staticmethod
     def _ensure_timestamps(user: User) -> None:
@@ -165,6 +206,7 @@ def make_transaction(
     *,
     amount: str,
     tx_type: str,
+    category_id: UUID | None = None,
     merchant: str = "Test",
     occurred_at: datetime | None = None,
     source: str = "manual",
@@ -174,7 +216,7 @@ def make_transaction(
         user_id=user.id,
         amount=Decimal(amount),
         type=tx_type,
-        category_id=None,
+        category_id=category_id,
         description="Aile özeti testi",
         merchant=merchant,
         occurred_at=occurred_at or datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
@@ -203,6 +245,20 @@ def make_subscription(
         detected_from_transactions=False,
         usage_score=None,
     )
+
+
+def make_category(*, name: str, user_id: UUID | None = None) -> Category:
+    category = Category(
+        id=uuid4(),
+        user_id=user_id,
+        name=name,
+        icon=None,
+        parent_id=None,
+        budget_monthly=None,
+    )
+    category.created_at = datetime(2026, 5, 12, 12, 0, tzinfo=UTC)
+    category.updated_at = datetime(2026, 5, 12, 12, 0, tzinfo=UTC)
+    return category
 
 
 def test_parent_can_create_list_update_and_switch_child(
@@ -354,6 +410,43 @@ def test_parent_can_read_family_financial_overview(
     assert parent_row["latest_transaction_type"] == "expense"
     assert child_row["expense_share_percent"] == "15.25"
     assert child_row["recurring_count"] == 0
+
+
+def test_family_overview_includes_scoped_category_breakdown(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    parent = make_user()
+    child = make_user(role="child", name="Elif Yılmaz", parent_id=parent.id)
+    market = make_category(name="Market", user_id=None)
+    school = make_category(name="Okul", user_id=child.id)
+    foreign = make_category(name="Gizli", user_id=uuid4())
+    fake_session.users.extend([parent, child])
+    fake_session.categories.extend([market, school, foreign])
+    fake_session.transactions.extend(
+        [
+            make_transaction(parent, amount="200.00", tx_type="expense", category_id=market.id),
+            make_transaction(child, amount="50.00", tx_type="expense", category_id=school.id),
+            make_transaction(parent, amount="10.00", tx_type="expense", category_id=foreign.id),
+        ],
+    )
+
+    response = client.get("/api/family/overview", headers=auth_header(parent))
+
+    assert response.status_code == 200
+    members = response.json()["members"]
+    parent_breakdown = members[0]["category_breakdown"]
+    child_breakdown = members[1]["category_breakdown"]
+    assert parent_breakdown[0]["category_name"] == "Market"
+    assert parent_breakdown[1]["category_name"] == "Kategorisiz"
+    assert child_breakdown == [
+        {
+            "category_id": str(school.id),
+            "category_name": "Okul",
+            "amount": "50.00",
+            "share_percent": "100.00",
+        },
+    ]
 
 
 def test_child_cannot_read_family_financial_overview(

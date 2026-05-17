@@ -333,6 +333,13 @@ export type FamilyMember = AuthUser & {
   updated_at: string;
 };
 
+export type FamilyMemberCategoryBreakdown = {
+  category_id: string | null;
+  category_name: string;
+  amount: string;
+  share_percent: string;
+};
+
 export type FamilyMemberFinance = {
   user_id: string;
   name: string;
@@ -352,6 +359,7 @@ export type FamilyMemberFinance = {
   latest_transaction_merchant: string | null;
   latest_transaction_amount: string | null;
   latest_transaction_type: TransactionType | null;
+  category_breakdown: FamilyMemberCategoryBreakdown[];
 };
 
 export type FamilyOverview = {

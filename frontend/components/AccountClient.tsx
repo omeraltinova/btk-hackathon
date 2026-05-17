@@ -4,6 +4,7 @@ import {
   BrainCircuit,
   Download,
   Loader2,
+  Mail,
   Save,
   ShieldAlert,
   ShieldCheck,
@@ -285,8 +286,94 @@ export function AccountClient() {
 
       <DataExportSection />
 
+      <EmailSummarySection email={user?.email} />
+
       <DangerZoneSection user={user} />
     </div>
+  );
+}
+
+function nextMondayLabel(): string {
+  const today = new Date();
+  const day = today.getDay();
+  const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7 || 7;
+  const next = new Date(today);
+  next.setDate(today.getDate() + daysUntilMonday);
+  return new Intl.DateTimeFormat("tr-TR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }).format(next);
+}
+
+const EMAIL_SUMMARY_STORAGE_KEY = "cuzdan-kocu.email-summary.enabled";
+
+function EmailSummarySection({ email }: { email: string | null | undefined }) {
+  const [enabled, setEnabled] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      setEnabled(window.localStorage.getItem(EMAIL_SUMMARY_STORAGE_KEY) === "on");
+    } catch {
+      // ignore localStorage failures; toggle just stays off.
+    } finally {
+      setHydrated(true);
+    }
+  }, []);
+
+  function handleToggle() {
+    setEnabled((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(EMAIL_SUMMARY_STORAGE_KEY, next ? "on" : "off");
+      } catch {
+        // best-effort persistence
+      }
+      toast.success(
+        next ? "Haftalık özet e-postası planlandı." : "Haftalık özet e-postası kapatıldı.",
+      );
+      return next;
+    });
+  }
+
+  return (
+    <section className="ledger-sheet max-w-4xl p-5 sm:p-8">
+      <div className="relative z-10 grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+        <div>
+          <span className="stamp-label bg-background/70">Haftalık özet</span>
+          <h2 className="mt-3 font-display text-3xl font-black tracking-tight">
+            Pazartesi sabahı özet e-postası
+          </h2>
+          <p className="mt-2 max-w-[58ch] text-sm leading-6 text-muted-foreground">
+            Açık olduğunda haftanın geliri, gideri, en yüksek üç kategorisi ve hedef ilerlemen
+            pazartesi sabahı kısa bir e-posta olarak gelir.
+            {email ? (
+              <>
+                {" "}
+                Gönderim adresi: <strong className="font-bold">{email}</strong>.
+              </>
+            ) : null}
+          </p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {enabled
+              ? `Sonraki gönderim yaklaşık ${nextMondayLabel()}.`
+              : "Demo aşamasında gerçek e-posta gönderilmez; bu tercih yalnızca tarayıcına kaydedilir."}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant={enabled ? "default" : "outline"}
+          onClick={handleToggle}
+          disabled={!hydrated}
+          className="md:justify-self-end"
+          aria-pressed={enabled}
+        >
+          <Mail className="h-4 w-4" />
+          {enabled ? "Açık" : "Kapalı"}
+        </Button>
+      </div>
+    </section>
   );
 }
 

@@ -381,7 +381,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     değil) ve A-4 (tavsiye yasağı) ihlal edilemez. P5 (çocuk dilinde somut
     örnek) ile uyumlu: çocuk modunda görsel anlatımı kuvvetlendirir. Maliyet
     için her kullanıcıya günlük 10 görsel sınırı uygulanır.
-18. **Gelir/gider detay ve düzenleme yüzeyi:** `/dashboard/income-expense`
+18. **Gelir/gider detay ve düzenleme yüzeyi:** `/income-expense`
     ayrı bir detay sayfasıdır. Kullanıcı kendi kapsamındaki gelir/gider
     kayıtlarını tarih, tutar, kategori, satıcı/kaynak ve not alanlarıyla
     düzenleyebilir; ekleme formunda olduğu gibi tarih girebilir. Gelir ve gider
@@ -390,9 +390,9 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     dashboard kısa kalır; detay sayfası kategori dağılımı, Recharts tooltip,
     işlem listesi ve tekrarlayan ödeme ayrıntılarını gösterir. Yeni backend
     veri kapsamı yoktur; mevcut scoped transaction/subscription endpoint'leri
-    kullanılır. Abonelik geçmişi, `transactions` tablosunda `subscription_id`
-    olmadığı için merchant/name/amount benzerliğiyle sunumsal olarak eşlenir;
-    kesin occurrence takibi gerekiyorsa ayrı schema değişikliği gerekir.
+    kullanılır. Abonelik geçmişi `transactions.subscription_id` ilişkisiyle
+    kesin eşlenir; eski veya manuel satırlarda ilişki boşsa yalnızca sunumsal
+    geri dönüş olarak satıcı/ad/tutar benzerliği kullanılabilir.
 19. **Tekrarlayan kayıt otomatik gelir/gider yazımı ve gelecek ay tahmini:** Aktif
     abonelik/fatura veya düzenli gelir `next_billing_date` gününe geldiğinde sistem
     bu kaydı `subscriptions.type` değerine göre gelir ya da gider işlemine otomatik
@@ -449,7 +449,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     ve aktif abonelik etkisini inceler. Mevcut `saving_goals` yapısında 1–2
     kategori bazlı tasarruf hedefi ve amaç netse bir birikim hedefi oluşturabilir,
     haftalık limit/aylık katkı/taktik verir. Kullanıcı mevcut hedeflerini sorarsa
-    sohbet içinde bar grafik ve kısa özet gösterilir; `/dashboard/goals` kartları
+    sohbet içinde bar grafik ve kısa özet gösterilir; `/goals` kartları
     tıklanınca detay, ilerleme grafiği ve taktikler açılır. Bu akış da yatırım
     tavsiyesi vermez; sadece bütçe ve alışkanlık koçluğu yapar.
 23. **Finans Okulu (hazır + anlık özel AI dersleri):** Frontend, kontrollü bir başlık
@@ -483,12 +483,23 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     veya base64 fiş verisi hafızaya alınmaz. Parent, child hafızasına yalnızca
     family-switch ile aktif profil child olduğunda yazabilir; prompt'tan gelen
     `user_id` kullanılmaz.
+27. **Final demo polish yüzeyleri:** Ana uygulama kabuğunda breadcrumb ve ayrı
+    `Zarflar` navigasyon linki vardır; zarf linki mevcut `/goals?sekme=zarflar`
+    yüzeyini kullanır ve eski dashboard linkleri `next.config.ts` redirect'leriyle
+    korunur. Dashboard boş durum/onboarding turu, context-aware insight aksiyonları,
+    5 sn geri almalı insight kapatma, aylık özet paylaşım kartı, ay sonu
+    projeksiyon bandı ve yaklaşık benchmark kartı gösterir. Aile sayfası parent-only
+    finans özetini üye bazlı kategori kırılımıyla genişletir. Çocuk lite modda
+    kalıcı rozet şeridi gösterilebilir. Finans Okulu'nda haftalık mini quiz widget'ı
+    eğitim amaçlıdır ve yatırım/ürün tavsiyesi vermez. Bildirim merkezi okundu
+    durumu ve geri almalı kapatma kullanır. Hesap sayfasındaki haftalık e-posta
+    özeti toggle'ı demo/mock tercihtir; gerçek e-posta göndermez ve yalnızca
+    tarayıcı localStorage'ına kaydedilir.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-27. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
-28. Quiz modu
-29. CSV export
+28. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
+29. Tam quiz modu ve kalıcı öğrenme ilerlemesi
 30. Magic link auth (email-only login, parola yok)
 
 ---
@@ -520,8 +531,8 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 ```
 ┌────────────────────────────────────────────────┐
 │ Next.js Frontend (port 3000)                    │
-│  /dashboard  /dashboard/transactions  /chat      │
-│  /receipts  /family  /account                    │
+│  /dashboard  /transactions  /income-expense      │
+│  /goals  /learn  /chat  /family  /account        │
 └──────────────────┬──────────────────────────────┘
                    │ HTTPS
 ┌──────────────────▼──────────────────────────────┐
@@ -1136,8 +1147,19 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.30
+**Doküman versiyonu:** 0.32
 **Son güncelleme:** 17 Mayıs 2026
+**v0.32 değişiklikleri:** Route ve abonelik geçmişi metni mevcut implementasyonla
+hizalandı: canlı detay yüzeyleri `/transactions`, `/income-expense` ve `/goals`
+altındadır; eski `/dashboard/...` linkleri yalnızca redirect olarak korunur.
+Tekrarlayan ödeme geçmişi artık `transactions.subscription_id` ile kesin eşlenir;
+heuristic eşleşme yalnızca ilişkisiz eski/manuel satırlar için sunumsal fallback'tir.
+**v0.31 değişiklikleri:** Final demo polish kapsamı §12.2'ye eklendi: breadcrumb,
+zarf navigasyonu, onboarding/boş durum, insight geri alma/okundu, aylık özet
+paylaşım kartı, aile kategori kırılımı, çocuk rozetleri, ay sonu projeksiyon bandı,
+yaklaşık benchmark, haftalık quiz widget'ı, sesli koç keşif ipucu ve mock haftalık
+e-posta özeti. Bu yüzeyler mevcut scoped endpoint'leri kullanır; yeni tablo, gerçek
+e-posta gönderimi veya yatırım tavsiyesi yoktur.
 **v0.30 değişiklikleri:** Tekrarlayan kayıt modeli düzenli gelirleri de kapsayacak
 şekilde genişletildi. `subscriptions.type` gelir/gider yönünü belirler; materializer
 aynı idempotency kuralıyla `transactions.source='recurring'` kaydını gelir veya

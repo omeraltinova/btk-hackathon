@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ArrowDownRight,
   ArrowUpRight,
-  BookOpen,
   CalendarDays,
   Edit3,
   ImagePlus,
@@ -21,9 +20,23 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
 
+import { BenchmarksCard } from "@/components/BenchmarksCard";
+import { EmptyDashboardHero } from "@/components/EmptyDashboardHero";
 import { InsightBanner } from "@/components/InsightBanner";
+import { KidBadgesShelf } from "@/components/KidBadgesShelf";
+import { MonthlySummaryShareCard } from "@/components/MonthlySummaryShareCard";
+import { OnboardingTour } from "@/components/OnboardingTour";
 import { ReceiptUploader } from "@/components/ReceiptUploader";
 import { SpendingChart } from "@/components/SpendingChart";
 import { TransactionEditDialog } from "@/components/TransactionEditDialog";
@@ -414,44 +427,122 @@ function MonthEndProjection({ summary }: { summary: TransactionSummary | null })
   const daysLeft = Math.max(daysInMonth - elapsedDays, 0);
   const currentExpense = amountToKurus(summary?.expense ?? "0");
   const remainingBudget = amountToKurus(summary?.remaining_budget ?? "0");
+  const budgetedMonth = amountToKurus(summary?.budgeted_month ?? "0");
   const projectedExpense = Math.round((currentExpense * daysInMonth) / elapsedDays);
   const safeDaily = daysLeft > 0 ? Math.max(0, Math.round(remainingBudget / daysLeft)) : 0;
+  const scale = Math.max(projectedExpense, budgetedMonth, currentExpense, 1) * 1.05;
+  const actualPercent = Math.max(0, Math.min(100, (currentExpense / scale) * 100));
+  const projectedPercent = Math.max(0, Math.min(100, (projectedExpense / scale) * 100));
+  const projectionExtra = Math.max(0, projectedPercent - actualPercent);
+  const budgetPercent =
+    budgetedMonth > 0 ? Math.max(0, Math.min(100, (budgetedMonth / scale) * 100)) : null;
+  const exceedsBudget = budgetedMonth > 0 && projectedExpense > budgetedMonth;
 
   return (
     <section className="ledger-sheet p-5 sm:p-7">
-      <div className="relative z-10 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <div>
-          <p className="eyebrow">Ay sonu projeksiyonu</p>
-          <h2 className="mt-2 font-display text-[1.75rem] font-black leading-none sm:text-3xl">
-            Bu ay sonu ne olur?
-          </h2>
-          <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
-            Bu kart kesin taahhüt değil; sadece bugüne kadarki harcama temposunu aya yayarak görünür
-            kılar.
-          </p>
+      <div className="relative z-10 space-y-5">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div>
+            <p className="eyebrow">Ay sonu projeksiyonu</p>
+            <h2 className="mt-2 font-display text-[1.75rem] font-black leading-none sm:text-3xl">
+              Bu ay sonu ne olur?
+            </h2>
+            <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
+              Bu kart kesin taahhüt değil; sadece bugüne kadarki harcama temposunu aya yayarak
+              görünür kılar.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[28rem]">
+            <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                Mevcut hızla
+              </p>
+              <p className="mt-3 font-display text-2xl font-black tabular-nums text-primary">
+                {formatKurus(projectedExpense)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">ay sonu gider tahmini</p>
+            </div>
+            <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                Güvenli günlük tempo
+              </p>
+              <p className="mt-3 font-display text-2xl font-black tabular-nums text-accent-foreground">
+                {formatKurus(safeDaily)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {daysLeft > 0 ? `${daysLeft} gün için yaklaşık üst sınır` : "Ay bugün kapanıyor"}
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[28rem]">
-          <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
-            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-              <CalendarDays className="h-4 w-4 text-primary" />
-              Mevcut hızla
-            </p>
-            <p className="mt-3 font-display text-2xl font-black tabular-nums text-primary">
-              {formatKurus(projectedExpense)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">ay sonu gider tahmini</p>
-          </div>
-          <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+
+        <div className="rounded-[1.4rem] border border-border/70 bg-card/55 p-4">
+          <div className="flex items-baseline justify-between gap-2">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-              Güvenli günlük tempo
+              Bugüne kadar / projeksiyon
             </p>
-            <p className="mt-3 font-display text-2xl font-black tabular-nums text-accent-foreground">
-              {formatKurus(safeDaily)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {daysLeft > 0 ? `${daysLeft} gün için yaklaşık üst sınır` : "Ay bugün kapanıyor"}
+            <p className="text-xs text-muted-foreground">
+              Gün {elapsedDays} / {daysInMonth}
             </p>
           </div>
+          <div
+            className="month-projection-bar relative mt-3 h-5 overflow-hidden rounded-full bg-muted/55"
+            role="img"
+            aria-label={`Bugüne kadar ${formatKurus(currentExpense)}, projeksiyon ${formatKurus(projectedExpense)}.${
+              budgetedMonth > 0 ? ` Bütçe ${formatKurus(budgetedMonth)}.` : ""
+            }`}
+          >
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-primary transition-all"
+              style={{ width: `${actualPercent}%` }}
+            />
+            {projectionExtra > 0 ? (
+              <div
+                className="absolute inset-y-0 transition-all"
+                style={{
+                  left: `${actualPercent}%`,
+                  width: `${projectionExtra}%`,
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, oklch(var(--primary) / 0.55) 0 6px, oklch(var(--primary) / 0.18) 6px 12px)",
+                }}
+              />
+            ) : null}
+            {budgetPercent !== null ? (
+              <div
+                className="absolute inset-y-0 w-px bg-accent"
+                style={{ left: `${budgetPercent}%` }}
+                title={`Bütçe sınırı: ${formatKurus(budgetedMonth)}`}
+              />
+            ) : null}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+              Bugüne kadar {formatKurus(currentExpense)}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-3 rounded-sm"
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, oklch(var(--primary) / 0.55) 0 4px, oklch(var(--primary) / 0.18) 4px 8px)",
+                }}
+              />
+              Projeksiyon {formatKurus(projectedExpense)}
+            </span>
+            {budgetPercent !== null ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-px bg-accent" />
+                Bütçe {formatKurus(budgetedMonth)}
+              </span>
+            ) : null}
+          </div>
+          {exceedsBudget ? (
+            <p className="mt-2 text-xs font-semibold text-destructive">
+              Mevcut tempo aylık bütçeyi aşıyor.
+            </p>
+          ) : null}
         </div>
       </div>
     </section>
@@ -1687,7 +1778,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [isAddingSubscription, setIsAddingSubscription] = useState(false);
   const [isRefreshingInsights, setIsRefreshingInsights] = useState(false);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
-  const [dismissingInsightId, setDismissingInsightId] = useState<string | null>(null);
+  const pendingInsightDismissalsRef = useRef<Map<string, number>>(new Map());
   const [isTransactionListOpen, setIsTransactionListOpen] = useState(false);
   const [isSubscriptionListOpen, setIsSubscriptionListOpen] = useState(false);
   const [isRecurringImpactOpen, setIsRecurringImpactOpen] = useState(false);
@@ -1763,6 +1854,16 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   useEffect(() => {
     void loadDashboardData();
   }, [loadDashboardData]);
+
+  useEffect(() => {
+    const timers = pendingInsightDismissalsRef.current;
+    return () => {
+      for (const handle of timers.values()) {
+        window.clearTimeout(handle);
+      }
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     function handleActiveProfileChange() {
@@ -1863,20 +1964,49 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
-  async function handleDismissInsight(insightId: string) {
-    setDismissingInsightId(insightId);
+  function handleDismissInsight(insightId: string) {
+    const target = insights.find((insight) => insight.id === insightId);
+    if (target === undefined) return;
+    if (pendingInsightDismissalsRef.current.has(insightId)) return;
+
+    // Optimistic UI: drop the row immediately so user feels response.
+    setInsights((current) => current.filter((insight) => insight.id !== insightId));
     setError(null);
-    try {
-      await api<ProactiveInsight>(`/api/insights/${insightId}/dismiss`, {
-        method: "PATCH",
-        silent: true,
-      });
-      setInsights((current) => current.filter((insight) => insight.id !== insightId));
-    } catch (err) {
-      setError(friendlyError(err, "Koç notu kapatılamadı, tekrar dener misin?"));
-    } finally {
-      setDismissingInsightId(null);
-    }
+
+    const timer = window.setTimeout(() => {
+      pendingInsightDismissalsRef.current.delete(insightId);
+      void (async () => {
+        try {
+          await api<ProactiveInsight>(`/api/insights/${insightId}/dismiss`, {
+            method: "PATCH",
+            silent: true,
+          });
+        } catch (err) {
+          setInsights((current) =>
+            current.some((insight) => insight.id === insightId) ? current : [target, ...current],
+          );
+          setError(friendlyError(err, "Koç notu kapatılamadı, tekrar dener misin?"));
+        }
+      })();
+    }, 5000);
+    pendingInsightDismissalsRef.current.set(insightId, timer);
+
+    toast("Koç notu kapatıldı.", {
+      action: {
+        label: "Geri al",
+        onClick: () => {
+          const pending = pendingInsightDismissalsRef.current.get(insightId);
+          if (pending !== undefined) {
+            window.clearTimeout(pending);
+            pendingInsightDismissalsRef.current.delete(insightId);
+          }
+          setInsights((current) =>
+            current.some((insight) => insight.id === insightId) ? current : [target, ...current],
+          );
+        },
+      },
+      duration: 5000,
+    });
   }
 
   function handleStartSmartPlan() {
@@ -2216,6 +2346,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
 
   return (
     <div className="page-enter space-y-8">
+      <OnboardingTour disabled={isKid} />
       <DashboardTabs activeView={view} />
 
       {view === "overview" ? (
@@ -2248,6 +2379,11 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   Yeni bir harçlık ya da gider eklemek için aşağıdaki Hareketler kartını
                   kullanabilirsin.
                 </p>
+                <KidBadgesShelf
+                  transactions={transactions}
+                  income={monthlyIncome}
+                  expense={monthlyExpense}
+                />
               </div>
             ) : (
               <div className="ledger-sheet binder-holes p-5 pl-8 sm:p-9 sm:pl-20">
@@ -2265,6 +2401,10 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                 </div>
               </div>
             )}
+
+            {!isLoading && transactions.length === 0 && subscriptions.length === 0 ? (
+              <EmptyDashboardHero isKid={isKid} />
+            ) : null}
 
             <InsightBanner
               title={
@@ -2291,40 +2431,62 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       {visibleInsightCount - 1} ek koç notu hazır.
                     </p>
                   ) : null}
-                  <div className="flex flex-wrap gap-2">
-                    {primaryInsight.action_label ? (
-                      <Button asChild size="sm">
-                        <Link href={insightHref(primaryInsight)}>
-                          {primaryInsight.action_label}
-                          <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                    ) : null}
-                    <Button asChild size="sm" variant="secondary">
-                      <Link href="/goals">
-                        Hedef oluştur
-                        <Target className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <Button asChild size="sm" variant="secondary">
-                      <Link href="/learn">
-                        Dersi aç
-                        <BookOpen className="h-4 w-4" />
-                      </Link>
-                    </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(() => {
+                      const type = primaryInsight.insight_type;
+                      const isOverspend =
+                        type === "spending_spike" || type === "category_overspending";
+                      const wantsPlan =
+                        type === "monthly_status" ||
+                        type === "savings_opportunity" ||
+                        type === "goal_at_risk_critical" ||
+                        isOverspend;
+                      const wantsGoalLink = type === "goal_reached";
+                      return (
+                        <>
+                          {primaryInsight.action_label ? (
+                            <Button asChild size="sm">
+                              <Link href={insightHref(primaryInsight)}>
+                                {primaryInsight.action_label}
+                                <ArrowRight className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          ) : null}
+                          {isOverspend && !primaryInsight.action_label ? (
+                            <Button asChild size="sm">
+                              <Link href="/goals">
+                                Tasarruf hedefi aç
+                                <Target className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          ) : null}
+                          {wantsGoalLink ? (
+                            <Button asChild size="sm" variant="secondary">
+                              <Link href="/goals">
+                                Hedeflerime bak
+                                <Target className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          ) : wantsPlan ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={handleStartSmartPlan}
+                            >
+                              Plan çıkar
+                              <Sparkles className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                     <Button
                       type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleStartSmartPlan}
-                    >
-                      Plan çıkar
-                      <Sparkles className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
+                      size="icon"
+                      variant="ghost"
+                      title="Koç notlarını yenile"
+                      aria-label="Koç notlarını yenile"
                       onClick={handleRefreshInsights}
                       disabled={isRefreshingInsights}
                     >
@@ -2333,21 +2495,16 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       ) : (
                         <RefreshCw className="h-4 w-4" />
                       )}
-                      Yenile
                     </Button>
                     <Button
                       type="button"
-                      size="sm"
+                      size="icon"
                       variant="ghost"
-                      onClick={() => void handleDismissInsight(primaryInsight.id)}
-                      disabled={dismissingInsightId === primaryInsight.id}
+                      title="Bu uyarıyı kapat"
+                      aria-label="Bu uyarıyı kapat"
+                      onClick={() => handleDismissInsight(primaryInsight.id)}
                     >
-                      {dismissingInsightId === primaryInsight.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <XCircle className="h-4 w-4" />
-                      )}
-                      Kapat
+                      <XCircle className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
@@ -2459,10 +2616,18 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                 />
               </div>
               <MonthEndProjection summary={summary} />
+              {!isKid ? (
+                <div className="flex justify-end">
+                  <MonthlySummaryShareCard summary={summary} />
+                </div>
+              ) : null}
               <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
                 <SummaryStatus summary={summary} />
                 <SpendingChart summary={summary} />
               </div>
+              {!isKid && summary !== null ? (
+                <BenchmarksCard categoryTotals={summary.category_totals} />
+              ) : null}
             </>
           )}
         </>

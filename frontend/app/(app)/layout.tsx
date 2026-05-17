@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { ActiveProfileBanner } from "@/components/ActiveProfileBanner";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Sidebar } from "@/components/sidebar";
 import { authOptions } from "@/lib/auth";
@@ -24,8 +25,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="min-h-screen lg:flex">
         <Sidebar user={session.user} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="bg-background/88 flex min-h-16 items-center justify-end border-b border-border/70 px-3 py-3 backdrop-blur sm:px-6 lg:px-8">
-            <div className="flex min-w-0 items-center justify-end gap-2 text-xs text-muted-foreground">
+          <header className="bg-background/88 flex min-h-16 items-center justify-between gap-3 border-b border-border/70 px-3 py-3 backdrop-blur sm:px-6 lg:px-8">
+            <Breadcrumbs />
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-xs text-muted-foreground">
               <ActiveProfileBanner />
               <ThemeToggle />
             </div>
