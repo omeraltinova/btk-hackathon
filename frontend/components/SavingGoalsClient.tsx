@@ -12,7 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -252,6 +252,7 @@ function RelatedSpendingList({
 
 export function SavingGoalsClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isKid } = useKidMode();
   const [categories, setCategories] = useState<Category[]>([]);
   const [goals, setGoals] = useState<SavingGoal[]>([]);
@@ -319,6 +320,31 @@ export function SavingGoalsClient() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only; form state should not refetch.
   }, []);
+
+  // Use the serialized query string as the dependency so this effect fires on
+  // every query change — `useSearchParams()` itself can hand back a stable
+  // ReadonlyURLSearchParams reference in some Next.js navigation paths
+  // (notably when only the query changes and pathname stays put, e.g. the
+  // sidebar Zarflar link going from /goals to /goals?sekme=zarflar). Compare
+  // by string content to keep the surface in sync with the URL deterministically.
+  const searchParamsKey = searchParams.toString();
+  useEffect(
+    () => {
+      const requestedGoalId = searchParams.get("hedef");
+      const isEnvelopeRoute = searchParams.has("zarf") || searchParams.get("sekme") === "zarflar";
+      setActiveSurface(isEnvelopeRoute ? "envelopes" : "goals");
+      if (requestedGoalId && goals.some((goal) => goal.id === requestedGoalId)) {
+        setSelectedGoalId(requestedGoalId);
+      } else if (requestedGoalId === null && !isEnvelopeRoute) {
+        setSelectedGoalId((current) => current ?? goals[0]?.id ?? null);
+      }
+    },
+    // searchParams itself is intentionally not a dep — `useSearchParams()` can
+    // return a stable reference across query-only navigations. Trigger on the
+    // serialized content of the query string instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [goals, searchParamsKey],
+  );
 
   useEffect(() => {
     const requestedGoalId = goalIdFromLocation();
@@ -432,7 +458,7 @@ export function SavingGoalsClient() {
     event.preventDefault();
     setActiveSurface("goals");
     setSelectedGoalId(goalId);
-    window.history.pushState(null, "", goalHref(goalId));
+    router.push(goalHref(goalId));
   }
 
   function handleSurfaceSelect(event: MouseEvent<HTMLAnchorElement>, surface: GoalSurface) {
@@ -444,7 +470,7 @@ export function SavingGoalsClient() {
     setActiveSurface(surface);
     const nextHref =
       surface === "goals" && selectedGoalId ? goalHref(selectedGoalId) : surfaceHref(surface);
-    window.history.pushState(null, "", nextHref);
+    router.push(nextHref);
   }
 
   async function patchGoal(

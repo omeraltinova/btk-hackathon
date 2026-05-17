@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, PencilLine, PiggyBank, Trash2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -229,6 +230,8 @@ function EnvelopeBudgetRow({
 }
 
 export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
   const [budgetDrafts, setBudgetDrafts] = useState<Record<string, string>>({});
@@ -264,6 +267,19 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
     setSelectedSlug(slugFromLocation());
     void loadSummary();
   }, [loadSummary]);
+
+  // Compare by serialized query string content; useSearchParams() in App
+  // Router can hand back a stable reference across query-only navigations,
+  // so the effect must depend on `.toString()` to fire reliably when the
+  // user clicks a Link that only changes the `?zarf=...` slug.
+  const envelopeSearchKey = searchParams.toString();
+  useEffect(
+    () => {
+      setSelectedSlug(searchParams.get("zarf"));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [envelopeSearchKey],
+  );
 
   useEffect(() => {
     function handlePopState() {
@@ -302,7 +318,7 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
 
   function selectEnvelope(slug: string) {
     setSelectedSlug(slug);
-    window.history.pushState(null, "", envelopeHref(slug));
+    router.push(envelopeHref(slug));
   }
 
   async function handleCreateEnvelopeBudget() {
@@ -341,7 +357,7 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
           ...current,
           [existingEnvelope.slug]: amountInput(existingEnvelope.budget),
         }));
-        window.history.pushState(null, "", envelopeHref(existingEnvelope.slug));
+        router.push(envelopeHref(existingEnvelope.slug));
       }
     } catch (err) {
       setError(friendlyError(err, "Zarf eklenemedi, tekrar dener misin?"));
@@ -370,7 +386,7 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
       setSummary(nextSummary);
       setBudgetDrafts((current) => ({ ...current, [envelope.slug]: amountInput(normalized) }));
       setSelectedSlug(envelope.slug);
-      window.history.pushState(null, "", envelopeHref(envelope.slug));
+      router.push(envelopeHref(envelope.slug));
     } catch (err) {
       setError(friendlyError(err, "Zarf limiti güncellenemedi, tekrar dener misin?"));
     } finally {
