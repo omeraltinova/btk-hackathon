@@ -761,9 +761,9 @@ def _envelope_mutation_approval(message: str) -> dict[str, object] | None:
             approval_id=_approval_id(),
             tool_name="delete_envelope_budget",
             tool_input={"slug": "__lookup_required__", "name": name},
-            action_label="Zarfı kapat",
-            summary=f"{name} zarfı aktif profil için kapatılacak.",
-            details=["Kategori silinmez.", "Zarf limiti 0,00 ₺ yapılır."],
+            action_label="Zarfı sil",
+            summary=f"{name} zarfı aktif profilden silinecek.",
+            details=["Zarf listeden kaldırılır.", "Mevcut gelir/gider kayıtları silinmez."],
         )
     if amount is None:
         return None

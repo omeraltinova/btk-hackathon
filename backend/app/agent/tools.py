@@ -3105,7 +3105,7 @@ def delete_envelope_budget_tool(
     slug: str,
     user_id: Annotated[str, InjectedState("user_id")] = "",
 ) -> dict[str, object]:
-    """Bir zarfı aktif profil için devre dışı bırakır; limiti 0,00 ₺ yapar."""
+    """Bir zarfı aktif profilin zarf listesinden siler."""
     with SessionLocal() as db:
         return build_envelope_budget_delete(db, _load_current_user(db, user_id), slug=slug)
 

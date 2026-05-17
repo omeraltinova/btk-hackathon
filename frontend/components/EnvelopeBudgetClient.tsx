@@ -103,7 +103,7 @@ function progressPercent(envelope: TransactionBudgetEnvelope): number {
 
 function detailNote(envelope: TransactionBudgetEnvelope): string {
   if (amountToKurus(envelope.budget) <= 0) {
-    return "Bu zarf kapalı. Yeni bir aylık limit verdiğinde tekrar takip edilir.";
+    return "Bu zarf görünür listede değil. Yeni limit verirsen tekrar oluşturulur.";
   }
   if (envelope.is_savings_goal) {
     return "Bu zarf harcama uyarısı değil; ay içindeki birikim hedefini görünür tutar.";
@@ -401,7 +401,7 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
 
   async function handleDeleteEnvelopeBudget(envelope: TransactionBudgetEnvelope) {
     const confirmed = window.confirm(
-      `${envelope.label} silinsin mi? Bu işlem zarf limitini 0,00 ₺ yapar; sonra yeniden limit verebilirsin.`,
+      `${envelope.label} silinsin mi? Zarf listeden kaldırılır; mevcut gelir/gider kayıtların silinmez.`,
     );
     if (!confirmed) return;
 
@@ -616,8 +616,8 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
               </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              Silmek gerçek kategoriyi kaldırmaz; seçili profil için limiti 0,00 ₺ yapar. Yeniden
-              limit verince zarf tekrar açılır.
+              Silmek zarfı listeden kaldırır; mevcut gelir/gider kayıtların silinmez. Aynı adla
+              yeniden limit verirsen zarf tekrar oluşturulur.
             </p>
           </form>
         </div>

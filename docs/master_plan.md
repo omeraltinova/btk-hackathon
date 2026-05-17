@@ -418,7 +418,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     `delete_envelope_budget` araçlarıyla scoped zarf listesini görebilir ve zarf
     limitlerini yönetebilir. `create_envelope_budget` kullanıcıdan gelen zarf adını
     kabul eder; hazır adlar mevcut zarfa, farklı adlar özel zarf kategorisine
-    yazılır. Zarf oluşturan, limit değiştiren veya zarfı kapatan agent işlemleri
+    yazılır. Zarf oluşturan, limit değiştiren veya zarfı silen agent işlemleri
     araç çalışmadan önce sohbet içinde açık kullanıcı onayı ister; okuma ve
     görselleştirme araçları onaysız çalışabilir. Agent aynı scoped zarf özetini kullanarak kalan bütçe ve ay sonuna
     kadar güvenli günlük harcama yanıtı verir.
@@ -1193,8 +1193,8 @@ olarak kullanıcı özel zarf açabilir, fakat yeni tablo yoktur; özel zarflar 
 kullanıcının kategori kaydı ve pozitif `budget_monthly` değeriyle temsil edilir.
 **v0.25 değişiklikleri:** Zarf ve akıllı hedef agent yönetim kapsamı netleştirildi:
 agent hedefleri ve zarfları listeleyebilir, oluşturabilir, güncelleyebilir ve
-silebilir. Zarf silme gerçek kategori silmez; aktif profil için zarf limitini
-`0,00 ₺` yapan mevcut shadow-category modelini kullanır.
+silebilir. Not: v0.33 zarf silme davranışını güncelledi; aktif profil için zarf
+satırı listeden kaldırılır, gelir/gider kayıtları silinmez.
 **v0.24 değişiklikleri:** Finans Okulu kapsamı anlık özel ders üretimini içerecek
 şekilde genişletildi. `create_custom_lesson` agent aracıdır; konu/seviye/süre/
 örnek/quiz/görsel tercihleriyle yapılandırılmış ders taslağı üretir, kalıcı ders
