@@ -64,6 +64,15 @@ export type CategoryCreateInput = {
   budget_monthly?: string | null;
 };
 
+export type CategoryBudgetUpdateInput = {
+  budget_monthly: string;
+};
+
+export type EnvelopeCreateInput = {
+  name: string;
+  budget_monthly: string;
+};
+
 export type Transaction = {
   id: string;
   user_id: string;
@@ -146,6 +155,7 @@ export type TransactionBudgetEnvelope = {
   used_percent: string | null;
   status: "safe" | "watch" | "over";
   is_savings_goal: boolean;
+  is_custom: boolean;
 };
 
 export type TransactionSummary = {
@@ -169,12 +179,16 @@ export type TransactionSummary = {
 export type SavingGoal = {
   id: string;
   user_id: string;
+  goal_type: "expense_reduction" | "accumulation";
   category_id: string | null;
   category_name: string;
   title: string;
   baseline_amount: string;
   target_spending_amount: string;
   target_saving_amount: string;
+  target_amount: string | null;
+  current_amount: string;
+  monthly_contribution: string | null;
   start_date: string;
   end_date: string;
   status: "active" | "completed" | "paused";
@@ -182,11 +196,20 @@ export type SavingGoal = {
   created_by: "manual" | "agent";
 };
 
+export type SavingGoalUpdateInput = {
+  title?: string | null;
+  status?: "active" | "completed" | "paused" | null;
+  current_amount?: string | null;
+  contribution_amount?: string | null;
+  monthly_contribution?: string | null;
+};
+
 export type SavingGoalProgress = {
   goal: SavingGoal;
   actual_spending: string;
   saved_amount: string;
   remaining_limit: string;
+  remaining_amount: string;
   progress_percent: string;
   expected_spending_to_date: string;
   status_label: "on_track" | "at_risk" | "over_limit" | "completed";
@@ -234,6 +257,8 @@ export type ChatStreamRequest = {
   receipt_image_base64?: string | null;
   receipt_filename?: string | null;
   receipt_content_type?: string | null;
+  approval_id?: string | null;
+  approval_decision?: "approved" | "rejected" | null;
 };
 
 export type ChatToolPayload = Record<string, unknown>;
@@ -279,6 +304,16 @@ export type ChatStreamEvent =
       conversation_id: string;
       image_url: string;
       alt_text: string;
+    }
+  | {
+      type: "approval_required";
+      conversation_id: string;
+      approval_id: string;
+      tool_name: string;
+      action_label: string;
+      summary: string;
+      details: string[];
+      input: ChatToolPayload;
     }
   | {
       type: "delta";

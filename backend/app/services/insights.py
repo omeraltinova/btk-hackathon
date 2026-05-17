@@ -268,22 +268,44 @@ def refresh_insights_for_user(
         .scalars()
         .all(),
     )
+    existing_by_key: dict[tuple[UUID, str, str], ProactiveInsight] = {}
     for insight in existing:
-        insight.is_dismissed = True
+        key = (insight.user_id, insight.insight_type, insight.title)
+        if key in existing_by_key:
+            insight.is_dismissed = True
+            continue
+        existing_by_key[key] = insight
 
-    generated = [
-        ProactiveInsight(
-            user_id=candidate.user_id,
-            insight_type=candidate.insight_type,
-            title=candidate.title,
-            content=candidate.content,
-            severity=candidate.severity,
-            action_label=candidate.action_label,
-            is_dismissed=False,
+    generated: list[ProactiveInsight] = []
+    active_keys: set[tuple[UUID, str, str]] = set()
+    for candidate in build_insight_candidates(db, current_user, now=now):
+        key = (candidate.user_id, candidate.insight_type, candidate.title)
+        active_keys.add(key)
+        existing_insight = existing_by_key.get(key)
+        if existing_insight is not None:
+            existing_insight.content = candidate.content
+            existing_insight.severity = candidate.severity
+            existing_insight.action_label = candidate.action_label
+            existing_insight.is_dismissed = False
+            generated.append(existing_insight)
+            continue
+        generated.append(
+            ProactiveInsight(
+                user_id=candidate.user_id,
+                insight_type=candidate.insight_type,
+                title=candidate.title,
+                content=candidate.content,
+                severity=candidate.severity,
+                action_label=candidate.action_label,
+                is_dismissed=False,
+            ),
         )
-        for candidate in build_insight_candidates(db, current_user, now=now)
-    ]
-    db.add_all(generated)
+
+    for key, insight in existing_by_key.items():
+        if key not in active_keys:
+            insight.is_dismissed = True
+
+    db.add_all([insight for insight in generated if insight.id is None])
     db.commit()
     for insight in generated:
         db.refresh(insight)

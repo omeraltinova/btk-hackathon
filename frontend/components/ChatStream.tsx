@@ -2,16 +2,22 @@
 
 import {
   Bot,
+  Check,
   ImagePlus,
   Loader2,
   MessageSquareText,
+  Mic,
   Plus,
   Send,
   Sparkles,
+  Volume2,
+  VolumeX,
   Wrench,
   X,
+  XCircle,
 } from "lucide-react";
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { ChatChart } from "@/components/ChatChart";
 import { ChatMessage } from "@/components/ChatMessage";
@@ -48,6 +54,7 @@ type ChatMessageItem = {
   content: string;
   isStreaming?: boolean;
   attachments?: ChatAttachmentItem[];
+  approval?: ApprovalRequestItem;
 };
 
 type ChatPanel = "chat" | "tools";
@@ -65,12 +72,59 @@ type ReceiptAttachment = {
   base64: string;
 };
 
+type ApprovalRequestItem = {
+  approvalId: string;
+  toolName: string;
+  actionLabel: string;
+  summary: string;
+  details: string[];
+  input: ChatToolPayload;
+  status: "pending" | "approved" | "rejected";
+};
+
+type SpeechRecognitionAlternative = {
+  transcript: string;
+};
+
+type SpeechRecognitionResult = {
+  0?: SpeechRecognitionAlternative;
+};
+
+type SpeechRecognitionEventLike = {
+  results: ArrayLike<SpeechRecognitionResult>;
+};
+
+type SpeechRecognitionErrorLike = {
+  error?: string;
+};
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorLike) => void) | null;
+  onend: (() => void) | null;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
+
 const ADULT_SUGGESTIONS = [
   "Bu ay markete ne kadar harcadım?",
   "Market harcamam ay ay nasıl değişti?",
-  "Aktif aboneliklerimi özetler misin?",
-  "Kredi kartı asgarisini ödersem ne olur?",
-  "Enflasyonu aile bütçesiyle açıklar mısın?",
+  "Hedeflerimi göster",
+  "Aboneliklerim nasıl gidiyor?",
+  "Çocuğuma faiz nedir kumbarayla anlat",
 ] as const;
 
 const KID_SUGGESTIONS = [
@@ -94,6 +148,7 @@ function describeToolInput(input: ChatToolPayload): string {
     return `${category} / son ${days} gün`;
   }
   if ("only_active" in input) return "Aktif kayıtlar";
+  if ("status" in input) return input.status === "all" ? "Tüm hedefler" : "Aktif hedefler";
   if ("filename" in input) return String(input.filename);
   if ("concept" in input) return String(input.concept);
   if ("scenario" in input) return "Senaryo simülasyonu";
@@ -128,6 +183,12 @@ function describeToolResult(event: Extract<ChatStreamEvent, { type: "tool_result
       typeof result.total_amount_formatted === "string" ? result.total_amount_formatted : "0,00 ₺";
     return `Grafik hazır / ${total}`;
   }
+  if (event.tool_name === "get_saving_goals" || event.tool_name === "visualize_saving_goals") {
+    const count = typeof result.count === "number" ? result.count : 0;
+    return event.tool_name === "visualize_saving_goals"
+      ? `Hedef grafiği hazır / ${count} hedef`
+      : `${count} hedef`;
+  }
   if (event.tool_name === "get_user_memory") {
     const count = typeof result.count === "number" ? result.count : 0;
     return `${count} hafıza kaydı`;
@@ -136,6 +197,35 @@ function describeToolResult(event: Extract<ChatStreamEvent, { type: "tool_result
     return typeof result.image_url === "string" ? "Görsel hazır" : "Görsel hazırlanamadı";
   }
   return "Sonuç alındı";
+}
+
+function approvalFromEvent(
+  event: Extract<ChatStreamEvent, { type: "approval_required" }>,
+): ApprovalRequestItem {
+  return {
+    approvalId: event.approval_id,
+    toolName: event.tool_name,
+    actionLabel: event.action_label,
+    summary: event.summary,
+    details: event.details,
+    input: event.input,
+    status: "pending",
+  };
+}
+
+function approvalStatusText(status: ApprovalRequestItem["status"]): string {
+  if (status === "approved") return "Onaylandı";
+  if (status === "rejected") return "Reddedildi";
+  return "Onay bekliyor";
+}
+
+function renderApprovalInput(input: ChatToolPayload): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (value === null || value === undefined || key === "message") continue;
+    parts.push(`${key}: ${String(value)}`);
+  }
+  return parts.join(" · ");
 }
 
 function renderAttachment(attachment: ChatAttachmentItem) {
@@ -153,6 +243,88 @@ function renderAttachment(attachment: ChatAttachmentItem) {
         {attachment.altText}
       </figcaption>
     </figure>
+  );
+}
+
+function ApprovalCard({
+  approval,
+  disabled,
+  onDecision,
+}: {
+  approval: ApprovalRequestItem;
+  disabled: boolean;
+  onDecision: (approval: ApprovalRequestItem, decision: "approved" | "rejected") => void;
+}) {
+  const inputText = renderApprovalInput(approval.input);
+
+  return (
+    <section className="cash-envelope overflow-hidden px-4 py-4 text-sm shadow-sm sm:px-5">
+      <div className="relative z-10 space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="eyebrow">Onay fişi</p>
+            <h4 className="mt-1 font-display text-xl font-black tracking-tight">
+              {approval.actionLabel}
+            </h4>
+          </div>
+          <span
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-[0.7rem] font-black uppercase tracking-[0.12em]",
+              approval.status === "pending"
+                ? "border-accent/55 bg-accent/25 text-accent-foreground"
+                : "bg-primary/12 border-primary/35 text-foreground",
+            )}
+          >
+            {approvalStatusText(approval.status)}
+          </span>
+        </div>
+        <p className="font-semibold leading-6 text-foreground">{approval.summary}</p>
+        {approval.details.length > 0 ? (
+          <ul className="space-y-1 text-muted-foreground">
+            {approval.details.map((detail) => (
+              <li key={detail} className="flex gap-2">
+                <span aria-hidden="true">-</span>
+                <span>{detail}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {inputText ? (
+          <p className="rounded-2xl border border-border/65 bg-background/55 px-3 py-2 text-xs font-semibold text-muted-foreground">
+            {inputText}
+          </p>
+        ) : null}
+        {approval.status === "pending" ? (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onDecision(approval, "approved")}
+              disabled={disabled}
+              className="min-h-10"
+            >
+              {disabled ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
+              Onayla
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onDecision(approval, "rejected")}
+              disabled={disabled}
+              className="min-h-10"
+            >
+              <XCircle className="h-4 w-4" />
+              Reddet
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -174,6 +346,25 @@ function readFileAsBase64(file: File): Promise<string> {
 
 function friendlyError(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
+}
+
+function textForSpeech(value: string): string {
+  return value
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`#>~-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function speakAssistantAnswer(text: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const content = textForSpeech(text);
+  if (!content) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(content);
+  utterance.lang = "tr-TR";
+  window.speechSynthesis.speak(utterance);
 }
 
 function messagesFromThread(thread: ConversationMessages): ChatMessageItem[] {
@@ -212,9 +403,13 @@ export function ChatStream() {
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
+  const [supportsSpeechInput, setSupportsSpeechInput] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceReplies, setVoiceReplies] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const pendingMessageRef = useRef<PendingChatMessage | null>(null);
   const pendingMessageStartedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -285,6 +480,23 @@ export function ChatStream() {
       window.removeEventListener(ACTIVE_PROFILE_EVENT, reloadForProfile);
     };
   }, []);
+
+  useEffect(() => {
+    setSupportsSpeechInput(
+      typeof window !== "undefined" &&
+        ("SpeechRecognition" in window || "webkitSpeechRecognition" in window),
+    );
+    return () => {
+      recognitionRef.current?.abort();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setVoiceReplies(isKid);
+  }, [isKid]);
 
   useEffect(() => {
     if (activePanel !== "chat") return;
@@ -384,6 +596,22 @@ export function ChatStream() {
       );
       return;
     }
+    if (event.type === "approval_required") {
+      const approval = approvalFromEvent(event);
+      setMessages((current) =>
+        current.map((message) => (message.id === assistantId ? { ...message, approval } : message)),
+      );
+      setToolTrace((current) => [
+        {
+          id: crypto.randomUUID(),
+          name: event.tool_name,
+          status: "running",
+          detail: "Kullanıcı onayı bekleniyor",
+        },
+        ...current,
+      ]);
+      return;
+    }
     if (event.type === "delta") {
       setMessages((current) =>
         current.map((message) =>
@@ -406,7 +634,12 @@ export function ChatStream() {
   const sendMessage = useCallback(
     async (
       text: string,
-      options: { receipt?: ReceiptAttachment | null; resetConversation?: boolean } = {},
+      options: {
+        receipt?: ReceiptAttachment | null;
+        resetConversation?: boolean;
+        approvalId?: string;
+        approvalDecision?: "approved" | "rejected";
+      } = {},
     ): Promise<boolean> => {
       const trimmedText = text.trim();
       if (!trimmedText || isStreaming || isHydrating) return false;
@@ -417,6 +650,7 @@ export function ChatStream() {
       const assistantId = crypto.randomUUID();
       const receipt = options.receipt ?? null;
       const targetConversationId = options.resetConversation ? null : conversationId;
+      let assistantText = "";
 
       if (options.resetConversation) {
         rememberActiveConversationId(null);
@@ -446,10 +680,16 @@ export function ChatStream() {
             receipt_image_base64: receipt?.base64 ?? null,
             receipt_filename: receipt?.filename ?? null,
             receipt_content_type: receipt?.contentType ?? null,
+            approval_id: options.approvalId ?? null,
+            approval_decision: options.approvalDecision ?? null,
           },
-          (streamEvent) => applyStreamEvent(streamEvent, assistantId),
+          (streamEvent) => {
+            if (streamEvent.type === "delta") assistantText += streamEvent.content;
+            applyStreamEvent(streamEvent, assistantId);
+          },
           { signal: controller.signal },
         );
+        if (voiceReplies) speakAssistantAnswer(assistantText);
         return true;
       } catch (err) {
         if ((err as Error).name === "AbortError") return false;
@@ -465,7 +705,7 @@ export function ChatStream() {
         setIsStreaming(false);
       }
     },
-    [applyStreamEvent, conversationId, isHydrating, isStreaming],
+    [applyStreamEvent, conversationId, isHydrating, isStreaming, voiceReplies],
   );
 
   useEffect(() => {
@@ -477,6 +717,31 @@ export function ChatStream() {
     clearPendingChatMessage();
     void sendMessage(pendingMessage.message, { resetConversation: pendingMessage.startNew });
   }, [isHydrating, isStreaming, sendMessage]);
+
+  const sendApprovalDecision = useCallback(
+    (approval: ApprovalRequestItem, decision: "approved" | "rejected") => {
+      if (isStreaming || isHydrating) return;
+      setMessages((current) =>
+        current.map((message) =>
+          message.approval?.approvalId === approval.approvalId
+            ? {
+                ...message,
+                approval: {
+                  ...message.approval,
+                  status: decision === "approved" ? "approved" : "rejected",
+                },
+              }
+            : message,
+        ),
+      );
+      const text = decision === "approved" ? "Bu işlemi onaylıyorum." : "Bu işlemi reddediyorum.";
+      void sendMessage(text, {
+        approvalId: approval.approvalId,
+        approvalDecision: decision,
+      });
+    },
+    [isHydrating, isStreaming, sendMessage],
+  );
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -507,6 +772,48 @@ export function ChatStream() {
     }
   }
 
+  function handleVoiceInput() {
+    if (isStreaming || isHydrating) return;
+    const SpeechRecognitionConstructorRef =
+      window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!SpeechRecognitionConstructorRef) {
+      toast.error("Bu tarayıcı sesli giriş desteklemiyor.");
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    recognitionRef.current?.abort();
+    const recognition = new SpeechRecognitionConstructorRef();
+    recognitionRef.current = recognition;
+    recognition.lang = "tr-TR";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      if (!transcript) return;
+      setDraft((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
+    };
+    recognition.onerror = (event) => {
+      if (event.error === "aborted") return;
+      toast.error("Ses alınamadı, tekrar dener misin?");
+      setIsListening(false);
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+    };
+    try {
+      setIsListening(true);
+      recognition.start();
+    } catch {
+      setIsListening(false);
+      toast.error("Mikrofon başlatılamadı.");
+    }
+  }
+
   function handleNewConversation() {
     if (isStreaming || isHydrating) return;
     abortRef.current?.abort();
@@ -518,6 +825,9 @@ export function ChatStream() {
     setHistoryError(null);
     setDraft("");
     setActivePanel("chat");
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
     rememberActiveConversationId(null);
   }
 
@@ -613,22 +923,24 @@ export function ChatStream() {
                       ? "Harçlığın, kumbaran veya merak ettiğin bir şey hakkında soru sorabilirsin. Örneğin: 'Faiz nedir?' ya da 'Harçlığımı nasıl biriktiririm?'"
                       : "Son sohbetin varsa burada açılır; yeni konuşma başlatmak için üstteki düğmeyi kullanabilirsin."}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setDraft(activeSuggestion)}
-                    className="mt-4 w-full rounded-2xl border border-border/70 bg-background/75 px-4 py-3 text-left transition-colors hover:border-primary/45 hover:bg-card"
-                  >
+                  <div className="mt-4">
                     <span className="flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                       <Sparkles className="h-3.5 w-3.5 text-primary" />
-                      Deneyebileceğin soru
+                      Deneyebileceğin sorular
                     </span>
-                    <span
-                      key={activeSuggestion}
-                      className="suggestion-rotate mt-2 block text-sm font-bold text-foreground"
-                    >
-                      {activeSuggestion}
-                    </span>
-                  </button>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          onClick={() => setDraft(suggestion)}
+                          className="rounded-2xl border border-border/70 bg-background/75 px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:border-primary/45 hover:bg-card"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               ) : (
                 messages.map((message) => (
@@ -639,6 +951,13 @@ export function ChatStream() {
                     isStreaming={message.isStreaming}
                   >
                     {message.attachments?.map(renderAttachment)}
+                    {message.approval ? (
+                      <ApprovalCard
+                        approval={message.approval}
+                        disabled={isStreaming || isHydrating}
+                        onDecision={sendApprovalDecision}
+                      />
+                    ) : null}
                   </ChatMessage>
                 ))
               )}
@@ -708,7 +1027,31 @@ export function ChatStream() {
             ) : null}
           </div>
         ) : null}
-        <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-2 text-xs font-semibold text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => setVoiceReplies((current) => !current)}
+            className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 transition-colors hover:bg-background/70 hover:text-foreground"
+          >
+            {voiceReplies ? (
+              <Volume2 className="h-3.5 w-3.5" />
+            ) : (
+              <VolumeX className="h-3.5 w-3.5" />
+            )}
+            {voiceReplies ? "Sesli oku açık" : "Sesli oku kapalı"}
+          </button>
+          {supportsSpeechInput ? (
+            <span>{isListening ? "Dinliyorum..." : "Mikrofon hazır"}</span>
+          ) : null}
+        </div>
+        <div
+          className={cn(
+            "grid gap-2",
+            supportsSpeechInput
+              ? "grid-cols-[2.75rem_2.75rem_minmax(0,1fr)_2.75rem]"
+              : "grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]",
+          )}
+        >
           <label className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border bg-background/70 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground">
             <input
               type="file"
@@ -720,6 +1063,20 @@ export function ChatStream() {
             <ImagePlus className="h-4 w-4" />
             <span className="sr-only">Fiş ekle</span>
           </label>
+          {supportsSpeechInput ? (
+            <button
+              type="button"
+              aria-label={isListening ? "Ses kaydını durdur" : "Sesli yaz"}
+              disabled={isStreaming || isHydrating}
+              onClick={handleVoiceInput}
+              className={cn(
+                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background/70 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50",
+                isListening ? "border-primary bg-primary/10 text-primary" : "",
+              )}
+            >
+              <Mic className="h-4 w-4" />
+            </button>
+          ) : null}
           <Input
             placeholder={activeSuggestion}
             value={draft}

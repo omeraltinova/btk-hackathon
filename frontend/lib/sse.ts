@@ -24,6 +24,17 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
   if (value.type === "image") {
     return typeof value.image_url === "string" && typeof value.alt_text === "string";
   }
+  if (value.type === "approval_required") {
+    return (
+      typeof value.approval_id === "string" &&
+      typeof value.tool_name === "string" &&
+      typeof value.action_label === "string" &&
+      typeof value.summary === "string" &&
+      Array.isArray(value.details) &&
+      value.details.every((item) => typeof item === "string") &&
+      isRecord(value.input)
+    );
+  }
   if (value.type === "delta") return typeof value.content === "string";
   return value.type === "done";
 }

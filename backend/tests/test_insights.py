@@ -246,3 +246,33 @@ def test_refresh_insights_dismisses_old_active_items_and_persists_new_ones() -> 
     assert len(refreshed) == 1
     assert refreshed[0].insight_type == "low_activity"
     assert refreshed[0] in db.insights
+
+
+def test_refresh_insights_updates_matching_active_item_without_duplicate() -> None:
+    user = make_user()
+    existing = ProactiveInsight(
+        id=uuid4(),
+        user_id=user.id,
+        insight_type="low_activity",
+        title="Defter sessiz kalmış",
+        content="Eski içerik",
+        severity="warning",
+        action_label="Eski aksiyon",
+        is_dismissed=False,
+    )
+    existing.created_at = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    existing.updated_at = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    db = FakeSession(insights=[existing])
+
+    refreshed = refresh_insights_for_user(
+        db,
+        user,
+        now=datetime(2026, 5, 12, 12, 0, tzinfo=UTC),
+    )
+
+    assert refreshed == [existing]
+    assert len(db.insights) == 1
+    assert existing.is_dismissed is False
+    assert existing.severity == "info"
+    assert existing.action_label == "İşlem ekle"
+    assert "Son 30 günde" in existing.content

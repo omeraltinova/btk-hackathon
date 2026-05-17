@@ -39,6 +39,7 @@ class BudgetEnvelope:
     used_percent: Decimal | None
     status: str
     is_savings_goal: bool
+    is_custom: bool = False
 
 
 @dataclass(frozen=True)
@@ -135,22 +136,62 @@ def _category_matches(definition: EnvelopeDefinition, category: Category) -> boo
     return _fold(category.name) in aliases
 
 
+def envelope_definition_for_slug(slug: str) -> EnvelopeDefinition | None:
+    folded = _fold(slug)
+    for definition in ENVELOPE_DEFINITIONS:
+        if _fold(definition.slug) == folded:
+            return definition
+    return None
+
+
+def envelope_definition_for_category_name(name: str) -> EnvelopeDefinition | None:
+    folded = _fold(name)
+    for definition in ENVELOPE_DEFINITIONS:
+        aliases = {_fold(alias) for alias in definition.category_aliases}
+        if folded in aliases:
+            return definition
+    return None
+
+
+def custom_envelope_slug(category: Category) -> str:
+    return f"custom-{category.id}"
+
+
+def custom_envelope_category_id(slug: str) -> UUID | None:
+    prefix = "custom-"
+    if not slug.startswith(prefix):
+        return None
+    try:
+        return UUID(slug.removeprefix(prefix))
+    except ValueError:
+        return None
+
+
+def category_matches_envelope(definition: EnvelopeDefinition, category: Category) -> bool:
+    return _category_matches(definition, category)
+
+
 def _budget_for_matches(categories: list[Category]) -> Decimal:
-    owned_budget = sum(
-        (
-            Decimal(category.budget_monthly)
-            for category in categories
-            if category.user_id is not None and category.budget_monthly is not None
-        ),
-        Decimal("0"),
-    )
-    if owned_budget > 0:
-        return _money(owned_budget)
+    owned_budgets = [
+        category.budget_monthly
+        for category in categories
+        if category.user_id is not None and category.budget_monthly is not None
+    ]
+    if owned_budgets:
+        return _money(
+            sum(
+                (Decimal(budget) for budget in owned_budgets),
+                Decimal("0"),
+            ),
+        )
+
     system_budget = sum(
         (
-            Decimal(category.budget_monthly)
+            Decimal(budget)
             for category in categories
-            if category.user_id is None and category.budget_monthly is not None
+            if category.user_id is None
+            for budget in [category.budget_monthly]
+            if budget is not None
         ),
         Decimal("0"),
     )
@@ -177,12 +218,14 @@ def build_envelope_budget_summary(
         period_end = period_end.replace(tzinfo=UTC)
     days_left = _days_left_in_month(period_end)
     envelopes: list[BudgetEnvelope] = []
+    matched_category_ids: set[UUID] = set()
 
     for definition in ENVELOPE_DEFINITIONS:
         matching_categories = [
             category for category in categories if _category_matches(definition, category)
         ]
         matching_category_ids = {category.id for category in matching_categories}
+        matched_category_ids.update(matching_category_ids)
         spent = _money(
             sum(
                 (
@@ -225,6 +268,50 @@ def build_envelope_budget_summary(
                 used_percent=used_percent,
                 status=status,
                 is_savings_goal=definition.is_savings_goal,
+            ),
+        )
+
+    for category in categories:
+        if category.id in matched_category_ids:
+            continue
+        if category.user_id is None or category.budget_monthly is None:
+            continue
+        if Decimal(category.budget_monthly) <= 0:
+            continue
+
+        spent = _money(current_category_totals.get(category.id, Decimal("0")))
+        budget = _money(Decimal(category.budget_monthly))
+        remaining = _money(budget - spent)
+        safe_daily = (
+            _money(remaining / Decimal(days_left))
+            if remaining > 0 and days_left > 0
+            else Decimal("0.00")
+        )
+        used_percent = (
+            ((spent / budget) * Decimal("100")).quantize(PERCENT_QUANT, rounding=ROUND_HALF_UP)
+            if budget > 0
+            else None
+        )
+        status = "safe"
+        if budget > 0 and spent > budget:
+            status = "over"
+        elif used_percent is not None and used_percent >= Decimal("80.0"):
+            status = "watch"
+
+        envelopes.append(
+            BudgetEnvelope(
+                slug=custom_envelope_slug(category),
+                label=f"{category.name} zarfı",
+                category_name=category.name,
+                budget=budget,
+                spent=spent,
+                remaining=remaining,
+                days_left_in_month=days_left,
+                safe_daily_amount=safe_daily,
+                used_percent=used_percent,
+                status=status,
+                is_savings_goal=False,
+                is_custom=True,
             ),
         )
 

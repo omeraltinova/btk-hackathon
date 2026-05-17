@@ -4,8 +4,10 @@ import {
   ArrowRight,
   ArrowDownRight,
   ArrowUpRight,
+  BookOpen,
   CalendarDays,
   Edit3,
+  ImagePlus,
   Loader2,
   PiggyBank,
   Plus,
@@ -13,13 +15,16 @@ import {
   RefreshCw,
   Repeat2,
   Sparkles,
+  Target,
   Trash2,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { InsightBanner } from "@/components/InsightBanner";
+import { ReceiptUploader } from "@/components/ReceiptUploader";
 import { SpendingChart } from "@/components/SpendingChart";
 import { TransactionEditDialog } from "@/components/TransactionEditDialog";
 import { Button } from "@/components/ui/button";
@@ -34,6 +39,7 @@ import { Input } from "@/components/ui/input";
 import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
 import { api, ApiError } from "@/lib/api";
 import { categoriesForType, hasCategoryForType } from "@/lib/category-groups";
+import { rememberActiveConversationId, rememberPendingChatMessage } from "@/lib/chat-session";
 import { defaultDateTimeLocal, toDateTimeLocal, toIsoDateTime } from "@/lib/datetime";
 import { useKidMode } from "@/lib/kid-mode";
 import { amountInput, isValidAmount, normalizeAmountInput } from "@/lib/money-input";
@@ -53,6 +59,8 @@ import type {
   CategoryCreateInput,
   ProactiveInsight,
   RecurrenceUnit,
+  SavingGoal,
+  SavingGoalProgress,
   Subscription,
   SubscriptionCreateInput,
   SubscriptionUpdateInput,
@@ -65,6 +73,7 @@ import type {
 } from "@/lib/types";
 
 type DashboardView = "overview" | "transactions" | "income-expense";
+type EntryMode = "one_time" | "recurring" | "receipt";
 
 type DashboardClientProps = {
   view?: DashboardView;
@@ -154,7 +163,7 @@ function insightHref(insight: ProactiveInsight): string {
     insight.insight_type === "receipt_activity" ||
     insight.action_label?.toLocaleLowerCase("tr-TR").includes("fiş")
   ) {
-    return "/receipts";
+    return "/dashboard/transactions";
   }
   if (insight.action_label?.includes("İşlem")) {
     return "/dashboard/transactions";
@@ -174,6 +183,66 @@ function sortCategories(categories: Category[]): Category[] {
     if (ownership !== 0) return ownership;
     return first.name.localeCompare(second.name, "tr");
   });
+}
+
+function normalizeLookup(value: string): string {
+  return value.trim().toLocaleLowerCase("tr-TR");
+}
+
+function findCategoryByInput(categories: Category[], value: string): Category | null {
+  const normalized = normalizeLookup(value);
+  if (!normalized) return null;
+  return categories.find((category) => normalizeLookup(category.name) === normalized) ?? null;
+}
+
+function uniqueSuggestions(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const label = value?.trim();
+    if (!label) continue;
+    const key = normalizeLookup(label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(label);
+  }
+  return result.sort((first, second) => first.localeCompare(second, "tr"));
+}
+
+function CategoryNameInput({
+  id,
+  value,
+  categories,
+  onValueChange,
+  helper,
+}: {
+  id: string;
+  value: string;
+  categories: Category[];
+  onValueChange: (value: string) => void;
+  helper: string;
+}) {
+  const listId = `${id}-options`;
+  return (
+    <div className="space-y-2">
+      <label htmlFor={id} className="text-sm font-medium">
+        Kategori
+      </label>
+      <Input
+        id={id}
+        list={listId}
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+        placeholder="Kategori seç veya yeni yaz"
+      />
+      <datalist id={listId}>
+        {categories.map((category) => (
+          <option key={category.id} value={category.name} />
+        ))}
+      </datalist>
+      <p className="text-xs leading-5 text-muted-foreground">{helper}</p>
+    </div>
+  );
 }
 
 function subscriptionToDraft(subscription: Subscription): SubscriptionDraft {
@@ -330,6 +399,57 @@ function SummaryStatus({ summary }: { summary: TransactionSummary | null }) {
               </p>
             </div>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MonthEndProjection({ summary }: { summary: TransactionSummary | null }) {
+  const today = new Date();
+  const elapsedDays = Math.max(today.getDate(), 1);
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysLeft = Math.max(daysInMonth - elapsedDays, 0);
+  const currentExpense = amountToKurus(summary?.expense ?? "0");
+  const remainingBudget = amountToKurus(summary?.remaining_budget ?? "0");
+  const projectedExpense = Math.round((currentExpense * daysInMonth) / elapsedDays);
+  const safeDaily = daysLeft > 0 ? Math.max(0, Math.round(remainingBudget / daysLeft)) : 0;
+
+  return (
+    <section className="ledger-sheet p-5 sm:p-7">
+      <div className="relative z-10 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+        <div>
+          <p className="eyebrow">Ay sonu projeksiyonu</p>
+          <h2 className="mt-2 font-display text-[1.75rem] font-black leading-none sm:text-3xl">
+            Bu ay sonu ne olur?
+          </h2>
+          <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
+            Bu kart kesin taahhüt değil; sadece bugüne kadarki harcama temposunu aya yayarak görünür
+            kılar.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[28rem]">
+          <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              Mevcut hızla
+            </p>
+            <p className="mt-3 font-display text-2xl font-black tabular-nums text-primary">
+              {formatKurus(projectedExpense)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">ay sonu gider tahmini</p>
+          </div>
+          <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+              Güvenli günlük tempo
+            </p>
+            <p className="mt-3 font-display text-2xl font-black tabular-nums text-accent-foreground">
+              {formatKurus(safeDaily)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {daysLeft > 0 ? `${daysLeft} gün için yaklaşık üst sınır` : "Ay bugün kapanıyor"}
+            </p>
+          </div>
         </div>
       </div>
     </section>
@@ -1199,113 +1319,268 @@ const envelopeStatusLabels: Record<TransactionBudgetEnvelope["status"], string> 
   over: "Aşıldı",
 };
 
+function goalSummaryTone(goal: SavingGoal) {
+  if (goal.goal_type === "accumulation") {
+    return {
+      badge: "border-primary/40 bg-primary/10 text-primary",
+      progress: "bg-primary",
+      row: "border-primary/25 bg-primary/10",
+      text: "text-primary",
+      label: "Birikim",
+    };
+  }
+  return {
+    badge: "border-accent/60 bg-accent/25 text-accent-foreground",
+    progress: "bg-accent",
+    row: "border-accent/40 bg-accent/15",
+    text: "text-accent-foreground",
+    label: "Tasarruf",
+  };
+}
+
+function GoalSlider({
+  goals,
+  progressByGoalId,
+  isLoading,
+}: {
+  goals: SavingGoal[];
+  progressByGoalId: Record<string, SavingGoalProgress>;
+  isLoading: boolean;
+}) {
+  const activeGoals = goals.filter((goal) => goal.status === "active");
+
+  return (
+    <section className="ledger-sheet p-4 sm:p-5">
+      <div className="relative z-10 space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="eyebrow">Hedef rayı</p>
+            <h2 className="mt-1 font-display text-2xl font-black leading-none sm:text-[1.7rem]">
+              Birikim ve tasarruf
+            </h2>
+          </div>
+          <Button asChild size="sm" variant="secondary" className="w-fit">
+            <Link href="/dashboard/goals">
+              Hedefleri aç
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 rounded-[1.25rem] border border-border/70 bg-background/70 p-3 text-sm font-bold text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Hedefler yükleniyor.
+          </div>
+        ) : activeGoals.length === 0 ? (
+          <p className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3 text-sm font-bold text-muted-foreground">
+            Aktif hedef yok. Birikim veya tasarruf hedefi eklediğinde burada kayan liste görünür.
+          </p>
+        ) : (
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {activeGoals.slice(0, 6).map((goal) => {
+              const tone = goalSummaryTone(goal);
+              const progress = progressByGoalId[goal.id];
+              const progressWidth = progress
+                ? Math.max(0, Math.min(100, Number(progress.progress_percent)))
+                : 0;
+              const remaining =
+                goal.goal_type === "accumulation"
+                  ? (progress?.remaining_amount ?? goal.target_amount ?? "0")
+                  : (progress?.remaining_limit ?? goal.target_spending_amount);
+              return (
+                <Link
+                  key={goal.id}
+                  href={`/dashboard/goals?hedef=${encodeURIComponent(goal.id)}`}
+                  className={cn(
+                    "min-w-0 rounded-[1.25rem] border p-3 transition-transform duration-200 ease-quint hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    tone.row,
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-flex rounded-full border px-2.5 py-1 text-[0.68rem] font-black",
+                      tone.badge,
+                    )}
+                  >
+                    {tone.label}
+                  </span>
+                  <p className="mt-2 truncate font-display text-lg font-black">{goal.title}</p>
+                  <p className="mt-1 text-xs font-bold text-muted-foreground">
+                    {goal.goal_type === "accumulation" ? "Kalan tutar" : goal.category_name}
+                  </p>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-background/80">
+                    <div
+                      className={cn("h-full rounded-full", tone.progress)}
+                      style={{ width: `${progressWidth}%` }}
+                    />
+                  </div>
+                  <p
+                    className={cn(
+                      "mt-3 truncate font-display text-lg font-black tabular-nums",
+                      tone.text,
+                    )}
+                  >
+                    {formatKurus(amountToKurus(remaining))}
+                  </p>
+                </Link>
+              );
+            })}
+            {activeGoals.length > 6 ? (
+              <Link
+                href="/dashboard/goals"
+                className="grid min-h-32 place-items-center rounded-[1.25rem] border border-dashed border-border/80 bg-background/65 p-3 text-center text-sm font-black text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                +{activeGoals.length - 6} hedef daha
+              </Link>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }) {
   const envelopes = summary?.envelopes ?? [];
   const savingsEnvelope = envelopes.find((envelope) => envelope.is_savings_goal) ?? null;
+  const orderedEnvelopes = envelopes
+    .map((envelope, index) => ({ envelope, index }))
+    .sort((first, second) => {
+      const priority = (envelope: TransactionBudgetEnvelope) => {
+        if (envelope.status === "over") return 0;
+        if (envelope.status === "watch") return 1;
+        if (envelope.is_savings_goal) return 2;
+        return 3;
+      };
+      return priority(first.envelope) - priority(second.envelope) || first.index - second.index;
+    })
+    .map(({ envelope }) => envelope);
+  const previewEnvelopes = orderedEnvelopes.slice(0, 4);
+  const hiddenEnvelopeCount = Math.max(orderedEnvelopes.length - previewEnvelopes.length, 0);
 
-  return (
-    <section className="ledger-sheet p-5 sm:p-8">
-      <div className="relative z-10 space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="eyebrow">Zarf bütçesi</p>
-            <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
-              Aile bütçesi zarflara ayrıldı
-            </h2>
-            <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
-              Market, fatura, okul, ulaşım, harçlık ve birikim hedefi aynı aylık bütçe penceresinde
-              izlenir.
+  function renderEnvelopeRow(envelope: TransactionBudgetEnvelope) {
+    const budget = amountToKurus(envelope.budget);
+    const spent = amountToKurus(envelope.spent);
+    const remaining = amountToKurus(envelope.remaining);
+    const safeDailyAmount = amountToKurus(envelope.safe_daily_amount);
+    const progress = budget > 0 ? Math.min(100, Math.max(0, (spent / budget) * 100)) : 0;
+    const label = envelope.is_savings_goal ? "Birikim" : envelopeStatusLabels[envelope.status];
+
+    return (
+      <div
+        key={envelope.slug}
+        className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3"
+      >
+        <div className="grid gap-3 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(13rem,1.2fr)_auto] sm:items-center">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/dashboard/goals?zarf=${encodeURIComponent(envelope.slug)}`}
+                className={cn(
+                  "truncate font-display text-lg font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  envelope.is_savings_goal ? "hover:text-primary" : "hover:text-foreground",
+                )}
+              >
+                {envelope.label}
+              </Link>
+              <span
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[0.68rem] font-black",
+                  envelope.is_savings_goal
+                    ? "border border-primary/40 bg-primary/10 text-primary"
+                    : envelope.status === "over"
+                      ? "bg-destructive text-destructive-foreground"
+                      : envelope.status === "watch"
+                        ? "bg-accent text-accent-foreground"
+                        : "border border-border/70 bg-muted text-foreground",
+                )}
+              >
+                {label}
+              </span>
+            </div>
+            <p className="mt-1 text-xs font-bold text-muted-foreground">
+              {formatUsedPercent(envelope.used_percent)}
             </p>
           </div>
-          {savingsEnvelope ? (
-            <div className="cash-envelope min-w-64 p-4">
-              <div className="relative z-10">
-                <p className="flex items-center gap-2 text-sm font-bold text-secondary-foreground/80">
-                  <PiggyBank className="h-4 w-4" />
-                  Birikim hedefi
-                </p>
-                <p className="mt-3 font-display text-2xl font-black tabular-nums">
-                  {formatKurus(amountToKurus(savingsEnvelope.budget))}
-                </p>
-                <p className="mt-1 text-xs font-bold text-muted-foreground">
-                  Kalan {formatKurus(amountToKurus(savingsEnvelope.remaining))}
-                </p>
-              </div>
+
+          <div className="space-y-2">
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  "h-full rounded-full",
+                  envelope.is_savings_goal
+                    ? "bg-primary"
+                    : envelope.status === "over"
+                      ? "bg-destructive"
+                      : envelope.status === "watch"
+                        ? "bg-accent"
+                        : "bg-muted-foreground/45",
+                )}
+                style={{ width: `${progress}%` }}
+              />
             </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-bold text-muted-foreground">
+              <span>Bütçe {formatKurus(budget)}</span>
+              <span>Harcanan {formatKurus(spent)}</span>
+              <span>
+                {envelope.is_savings_goal ? "Günlük hedef" : "Güvenli günlük"}{" "}
+                {formatKurus(safeDailyAmount)}
+              </span>
+            </div>
+          </div>
+
+          <div className="sm:text-right">
+            <p className="text-xs font-bold text-muted-foreground">Kalan</p>
+            <p
+              className={cn(
+                "font-display text-2xl font-black tabular-nums leading-none",
+                remaining < 0 ? "text-destructive" : "text-foreground",
+              )}
+            >
+              {formatKurus(remaining)}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <section className="ledger-sheet p-4 sm:p-5">
+      <div className="relative z-10 space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="eyebrow">Zarf özeti</p>
+            <h2 className="mt-1 font-display text-2xl font-black leading-none sm:text-[1.7rem]">
+              Aylık sınırlar kısa görünümde
+            </h2>
+          </div>
+          {savingsEnvelope ? (
+            <p className="flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-2 text-xs font-black text-primary">
+              <PiggyBank className="h-4 w-4" />
+              Birikim hedefi {formatKurus(amountToKurus(savingsEnvelope.budget))}
+            </p>
           ) : null}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {envelopes.map((envelope) => {
-            const budget = amountToKurus(envelope.budget);
-            const spent = amountToKurus(envelope.spent);
-            const remaining = amountToKurus(envelope.remaining);
-            const progress = budget > 0 ? Math.min(100, Math.max(0, (spent / budget) * 100)) : 0;
-            return (
-              <div key={envelope.slug} className="cash-envelope min-h-56 p-5">
-                <div className="relative z-10 flex h-full flex-col justify-between gap-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-display text-xl font-black">{envelope.label}</p>
-                      <p className="mt-1 text-xs font-bold text-muted-foreground">
-                        {formatUsedPercent(envelope.used_percent)}
-                      </p>
-                    </div>
-                    <span
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs font-black",
-                        envelope.is_savings_goal
-                          ? "bg-background/75 text-primary"
-                          : envelope.status === "over"
-                            ? "bg-destructive text-destructive-foreground"
-                            : envelope.status === "watch"
-                              ? "bg-accent text-accent-foreground"
-                              : "bg-background/75 text-primary",
-                      )}
-                    >
-                      {envelope.is_savings_goal ? "Hedef" : envelopeStatusLabels[envelope.status]}
-                    </span>
-                  </div>
+        {previewEnvelopes.length > 0 ? (
+          <div className="grid gap-3">{previewEnvelopes.map(renderEnvelopeRow)}</div>
+        ) : (
+          <p className="rounded-[1.25rem] border border-border/70 bg-background/70 p-3 text-sm font-bold text-muted-foreground">
+            Zarf verisi oluşunca burada kısa bir liste görünür.
+          </p>
+        )}
 
-                  <div className="space-y-3">
-                    <div className="h-3 overflow-hidden rounded-full bg-background/75">
-                      <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-2xl bg-background/60 p-3">
-                        <p className="font-bold text-muted-foreground">Bütçe</p>
-                        <p className="mt-1 font-display text-lg font-black tabular-nums">
-                          {formatKurus(budget)}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl bg-background/60 p-3">
-                        <p className="font-bold text-muted-foreground">Harcanan</p>
-                        <p className="mt-1 font-display text-lg font-black tabular-nums">
-                          {formatKurus(spent)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-bold text-muted-foreground">Kalan</p>
-                    <p className="mt-1 font-display text-3xl font-black tabular-nums">
-                      {formatKurus(remaining)}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Ay sonuna {envelope.days_left_in_month} gün var;{" "}
-                      {envelope.is_savings_goal ? "günlük hedef" : "günlük güvenli tutar"} yaklaşık{" "}
-                      {formatKurus(amountToKurus(envelope.safe_daily_amount))}.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {orderedEnvelopes.length > 0 ? (
+          <Button asChild size="sm" variant="secondary" className="w-fit">
+            <Link href="/dashboard/goals?sekme=zarflar">
+              Tüm zarfları göster
+              {hiddenEnvelopeCount > 0 ? ` (+${hiddenEnvelopeCount})` : null}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        ) : null}
       </div>
     </section>
   );
@@ -1341,15 +1616,19 @@ export function DashboardTabs({ activeView }: { activeView: DashboardView }) {
 }
 
 export function DashboardClient({ view = "overview" }: DashboardClientProps) {
+  const router = useRouter();
   const { isKid } = useKidMode();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [savingGoals, setSavingGoals] = useState<SavingGoal[]>([]);
+  const [savingGoalProgress, setSavingGoalProgress] = useState<Record<string, SavingGoalProgress>>(
+    {},
+  );
   const [insights, setInsights] = useState<ProactiveInsight[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [isAddingSubscription, setIsAddingSubscription] = useState(false);
   const [isRefreshingInsights, setIsRefreshingInsights] = useState(false);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
@@ -1361,13 +1640,13 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [editedTransactionId, setEditedTransactionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [type, setType] = useState<TransactionType>("expense");
-  const [entryMode, setEntryMode] = useState<"one_time" | "recurring">("one_time");
+  const [entryMode, setEntryMode] = useState<EntryMode>("one_time");
   const [amount, setAmount] = useState("");
   const [merchant, setMerchant] = useState("");
   const [description, setDescription] = useState("");
   const [occurredAt, setOccurredAt] = useState(defaultDateTimeLocal);
   const [categoryId, setCategoryId] = useState("");
-  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryInput, setCategoryInput] = useState("");
   const [subscriptionName, setSubscriptionName] = useState("");
   const [subscriptionMerchant, setSubscriptionMerchant] = useState("");
   const [subscriptionAmount, setSubscriptionAmount] = useState("");
@@ -1376,22 +1655,33 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [subscriptionUnit, setSubscriptionUnit] = useState<RecurrenceUnit>("month");
   const [subscriptionNextDate, setSubscriptionNextDate] = useState("");
   const [subscriptionCategoryId, setSubscriptionCategoryId] = useState("");
+  const [subscriptionCategoryInput, setSubscriptionCategoryInput] = useState("");
 
   const loadDashboardData = useCallback(async () => {
     setError(null);
     try {
-      const [transactionData, categoryData, summaryData, subscriptionData, insightData] =
+      const [transactionData, categoryData, summaryData, subscriptionData, goalData, insightData] =
         await Promise.all([
           api<Transaction[]>("/api/transactions", { silent: true }),
           api<Category[]>("/api/categories", { silent: true }),
           api<TransactionSummary>("/api/transactions/summary", { silent: true }),
           api<Subscription[]>("/api/subscriptions", { silent: true }),
+          api<SavingGoal[]>("/api/saving-goals?status=active", { silent: true }),
           api<ProactiveInsight[]>("/api/insights", { silent: true }),
         ]);
       setTransactions(transactionData);
       setCategories(sortCategories(categoryData));
       setSummary(summaryData);
       setSubscriptions(subscriptionData);
+      setSavingGoals(goalData);
+      const progressRows = await Promise.all(
+        goalData.map((goal) =>
+          api<SavingGoalProgress>(`/api/saving-goals/${goal.id}/progress`, { silent: true }),
+        ),
+      );
+      setSavingGoalProgress(
+        Object.fromEntries(progressRows.map((progress) => [progress.goal.id, progress])),
+      );
       setInsights(insightData);
     } catch (err) {
       setError(friendlyError(err, "Bütçe verileri yüklenemedi, biraz sonra tekrar dener misin?"));
@@ -1444,6 +1734,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const subscriptionCategories = useMemo(
     () => categoriesForType(categories, "expense"),
     [categories],
+  );
+  const merchantSuggestions = useMemo(
+    () =>
+      uniqueSuggestions([
+        ...transactions.map((transaction) => transaction.merchant),
+        ...subscriptions.map((subscription) => subscription.merchant),
+      ]),
+    [transactions, subscriptions],
   );
 
   const monthly = useMemo(
@@ -1505,6 +1803,18 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
+  function handleStartSmartPlan() {
+    rememberPendingChatMessage({
+      message:
+        "Akıllı hedef planı çıkar. Son harcamalarıma bakıp nereden kısabileceğimi ve hangi birikim hedefini açabileceğimi öner.",
+      source: "dashboard",
+      title: "Akıllı hedef planı",
+      startNew: true,
+    });
+    rememberActiveConversationId(null);
+    router.push("/chat");
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -1515,17 +1825,29 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setIsSubmitting(false);
       return;
     }
-    const nextCategoryId = hasCategoryForType(categories, categoryId, type) ? categoryId : "";
-    const payload: TransactionCreateInput = {
-      amount: normalizedAmount,
-      type,
-      category_id: nextCategoryId || null,
-      merchant: merchant || null,
-      description: description || null,
-      occurred_at: toIsoDateTime(occurredAt),
-    };
-
+    if (
+      categoryInput.trim().length === 1 &&
+      findCategoryByInput(transactionCategories, categoryInput) === null
+    ) {
+      setError("Yeni kategori adı en az iki karakter olmalı.");
+      setIsSubmitting(false);
+      return;
+    }
     try {
+      const resolvedCategoryId = await resolveCategoryId({
+        input: categoryInput,
+        allowedCategories: transactionCategories,
+        currentId: categoryId,
+        fallbackType: type,
+      });
+      const payload: TransactionCreateInput = {
+        amount: normalizedAmount,
+        type,
+        category_id: resolvedCategoryId || null,
+        merchant: merchant || null,
+        description: description || null,
+        occurred_at: toIsoDateTime(occurredAt),
+      };
       const created = await api<Transaction>("/api/transactions", {
         method: "POST",
         body: payload,
@@ -1536,6 +1858,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setMerchant("");
       setDescription("");
       setOccurredAt(defaultDateTimeLocal());
+      setCategoryInput("");
+      setCategoryId("");
       await refreshSummary();
       void refreshInsights().catch(() => undefined);
     } catch (err) {
@@ -1545,15 +1869,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
-  async function handleCreateCategory() {
-    const name = newCategoryName.trim();
+  async function handleCreateCategory(nameInput: string): Promise<Category> {
+    const name = nameInput.trim();
     if (name.length < 2) {
       setError("Kategori adı en az iki karakter olmalı.");
-      return;
+      throw new Error("Kategori adı en az iki karakter olmalı.");
     }
 
     setError(null);
-    setIsCreatingCategory(true);
     const payload: CategoryCreateInput = { name };
     try {
       const created = await api<Category>("/api/categories", {
@@ -1575,14 +1898,31 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
           created,
         ]),
       );
-      setCategoryId(created.id);
-      setSubscriptionCategoryId(created.id);
-      setNewCategoryName("");
+      return created;
     } catch (err) {
       setError(friendlyError(err, "Kategori eklenemedi, tekrar dener misin?"));
-    } finally {
-      setIsCreatingCategory(false);
+      throw err;
     }
+  }
+
+  async function resolveCategoryId({
+    input,
+    allowedCategories,
+    currentId,
+    fallbackType,
+  }: {
+    input: string;
+    allowedCategories: Category[];
+    currentId: string;
+    fallbackType: TransactionType;
+  }): Promise<string> {
+    const typed = input.trim();
+    if (!typed) return "";
+    const matched = findCategoryByInput(allowedCategories, typed);
+    if (matched) return matched.id;
+    if (currentId && hasCategoryForType(categories, currentId, fallbackType)) return currentId;
+    const created = await handleCreateCategory(typed);
+    return created.id;
   }
 
   async function handleDelete(transactionId: string) {
@@ -1617,19 +1957,32 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setIsAddingSubscription(false);
       return;
     }
-    const payload: SubscriptionCreateInput = {
-      name: subscriptionName,
-      merchant: subscriptionMerchant || null,
-      amount: normalizedAmount,
-      billing_cycle: subscriptionCycle,
-      recurrence_interval: subscriptionCycle === "custom" ? recurrenceInterval : null,
-      recurrence_unit: subscriptionCycle === "custom" ? subscriptionUnit : null,
-      next_billing_date: subscriptionNextDate || null,
-      category_id: subscriptionCategoryId || null,
-      is_active: true,
-    };
-
+    if (
+      subscriptionCategoryInput.trim().length === 1 &&
+      findCategoryByInput(subscriptionCategories, subscriptionCategoryInput) === null
+    ) {
+      setError("Yeni kategori adı en az iki karakter olmalı.");
+      setIsAddingSubscription(false);
+      return;
+    }
     try {
+      const resolvedCategoryId = await resolveCategoryId({
+        input: subscriptionCategoryInput,
+        allowedCategories: subscriptionCategories,
+        currentId: subscriptionCategoryId,
+        fallbackType: "expense",
+      });
+      const payload: SubscriptionCreateInput = {
+        name: subscriptionName,
+        merchant: subscriptionMerchant || null,
+        amount: normalizedAmount,
+        billing_cycle: subscriptionCycle,
+        recurrence_interval: subscriptionCycle === "custom" ? recurrenceInterval : null,
+        recurrence_unit: subscriptionCycle === "custom" ? subscriptionUnit : null,
+        next_billing_date: subscriptionNextDate || null,
+        category_id: resolvedCategoryId || null,
+        is_active: true,
+      };
       const created = await api<Subscription>("/api/subscriptions", {
         method: "POST",
         body: payload,
@@ -1643,6 +1996,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setSubscriptionInterval("1");
       setSubscriptionUnit("month");
       setSubscriptionNextDate("");
+      setSubscriptionCategoryId("");
+      setSubscriptionCategoryInput("");
       void refreshInsights().catch(() => undefined);
     } catch (err) {
       setError(friendlyError(err, "Tekrarlayan ödeme kaydedilemedi, tekrar dener misin?"));
@@ -1724,11 +2079,10 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
-  // In kid lite mode we always force the simple one-off entry — recurring
-  // payments belong to the parent surface. We sync the local entryMode so the
-  // form below renders the simpler path even if previous state carried over.
+  // In kid lite mode recurring payments belong to the parent surface, but receipt
+  // scanning remains available as a simple way to add a purchase.
   useEffect(() => {
-    if (isKid && entryMode !== "one_time") {
+    if (isKid && entryMode === "recurring") {
       setEntryMode("one_time");
     }
   }, [isKid, entryMode]);
@@ -1751,7 +2105,27 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     setType(nextType);
     if (!hasCategoryForType(categories, categoryId, nextType)) {
       setCategoryId("");
+      setCategoryInput("");
     }
+  }
+
+  function handleTransactionCategoryInput(nextValue: string) {
+    setCategoryInput(nextValue);
+    setCategoryId(findCategoryByInput(transactionCategories, nextValue)?.id ?? "");
+  }
+
+  function handleSubscriptionCategoryInput(nextValue: string) {
+    setSubscriptionCategoryInput(nextValue);
+    setSubscriptionCategoryId(findCategoryByInput(subscriptionCategories, nextValue)?.id ?? "");
+  }
+
+  function handleReceiptConfirmed(transaction: Transaction) {
+    setTransactions((current) => [
+      transaction,
+      ...current.filter((item) => item.id !== transaction.id),
+    ]);
+    void refreshSummary();
+    void refreshInsights().catch(() => undefined);
   }
 
   return (
@@ -1798,7 +2172,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       Bütçe sayfası artık kategorili.
                     </h1>
                     <p className="text-foreground/78 max-w-[62ch] text-base leading-7 sm:text-lg sm:leading-8">
-                      Özet burada kalır; tek seferlik işlem ve tekrarlayan ödeme girişi aynı
+                      Özet burada kalır; tek seferlik işlem, tekrarlayan ödeme ve fiş tarama aynı
                       İşlemler ekranından yönetilir. Böylece kayıt ekleme akışı tek yerde kalır.
                     </p>
                   </div>
@@ -1840,6 +2214,27 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         </Link>
                       </Button>
                     ) : null}
+                    <Button asChild size="sm" variant="secondary">
+                      <Link href="/dashboard/goals">
+                        Hedef oluştur
+                        <Target className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button asChild size="sm" variant="secondary">
+                      <Link href="/learn">
+                        Dersi aç
+                        <BookOpen className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleStartSmartPlan}
+                    >
+                      Plan çıkar
+                      <Sparkles className="h-4 w-4" />
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
@@ -1930,7 +2325,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       : "Bütçe aşımı görünmüyor",
                   ],
                 ] as const)
-            ).map(([label, value, detail], index) => (
+            ).map(([label, value, detail]) => (
               <div key={label} className="cash-envelope min-h-40 p-4 sm:min-h-44 sm:p-5">
                 <div className="relative z-10 flex h-full flex-col justify-between gap-6">
                   <p className="text-sm font-bold text-secondary-foreground/80">{label}</p>
@@ -1940,9 +2335,6 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     </p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p>
                   </div>
-                  <span className="font-display text-xs font-bold text-primary/70">
-                    {isKid ? `KART ${index + 1}` : `ZARF ${index + 1}`}
-                  </span>
                 </div>
               </div>
             ))}
@@ -1972,7 +2364,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
             </div>
           ) : (
             <>
-              <BudgetEnvelopeBoard summary={summary} />
+              <div className="grid min-w-0 gap-6 2xl:grid-cols-[1fr_1fr]">
+                <BudgetEnvelopeBoard summary={summary} />
+                <GoalSlider
+                  goals={savingGoals}
+                  progressByGoalId={savingGoalProgress}
+                  isLoading={isLoading}
+                />
+              </div>
+              <MonthEndProjection summary={summary} />
               <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
                 <SummaryStatus summary={summary} />
                 <SpendingChart summary={summary} />
@@ -1983,481 +2383,464 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       ) : null}
 
       {view === "transactions" ? (
-        <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(25rem,0.68fr)_minmax(39rem,1.32fr)]">
-          <section className="ledger-sheet p-4 sm:p-6">
-            <div className="relative z-10 space-y-5">
-              <div>
-                <p className="eyebrow">{isKid ? "Yeni hareket" : "Kayıt girişi"}</p>
-                <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                  {isKid ? "Bir şey ekleyelim mi?" : "Yeni kayıt ekle"}
-                </h2>
-                <p className="mt-2 text-sm leading-5 text-muted-foreground">
-                  {isKid
-                    ? "Aldığın harçlığı veya yaptığın bir alışverişi buraya yazabilirsin."
-                    : "Tek seferlik gelir/gider veya tekrarlayan ödeme aynı ekrandan eklenir."}
-                </p>
-              </div>
-
-              {isKid ? null : (
-                <div className="grid grid-cols-2 gap-2 rounded-[1.5rem] border border-border/70 bg-background/70 p-2">
-                  {(
-                    [
-                      ["one_time", "Tek seferlik", ReceiptText],
-                      ["recurring", "Tekrarlayan", Repeat2],
-                    ] as const
-                  ).map(([mode, label, Icon]) => {
-                    const isActive = entryMode === mode;
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={cn(
-                          "flex min-h-10 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-bold transition-all duration-200 ease-quint",
-                          isActive
-                            ? "bg-primary text-primary-foreground shadow-sm"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                        )}
-                        onClick={() => setEntryMode(mode)}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {label}
-                      </button>
-                    );
-                  })}
+        <>
+          <div
+            className={cn(
+              "grid min-w-0 gap-5",
+              "2xl:grid-cols-[minmax(25rem,0.68fr)_minmax(39rem,1.32fr)]",
+            )}
+          >
+            <section className="ledger-sheet p-4 sm:p-6">
+              <div className="relative z-10 space-y-5">
+                <div>
+                  <p className="eyebrow">{isKid ? "Yeni hareket" : "Kayıt girişi"}</p>
+                  <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
+                    {isKid ? "Bir şey ekleyelim mi?" : "Yeni kayıt ekle"}
+                  </h2>
+                  <p className="mt-2 text-sm leading-5 text-muted-foreground">
+                    {isKid
+                      ? "Aldığın harçlığı, yaptığın alışverişi veya fişini bu sayfadan ekleyebilirsin."
+                      : "Tek seferlik gelir/gider, tekrarlayan ödeme ve fiş tarama aynı ekrandan eklenir."}
+                  </p>
                 </div>
-              )}
 
-              <div
-                className={cn(
-                  "bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-3",
-                  isKid && "hidden",
-                )}
-              >
-                <label htmlFor="new-category-name" className="text-sm font-medium">
-                  Yeni kategori
-                </label>
-                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <Input
-                    id="new-category-name"
-                    value={newCategoryName}
-                    onChange={(event) => setNewCategoryName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void handleCreateCategory();
-                      }
-                    }}
-                    placeholder="Kategori adı"
-                  />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="min-h-11"
-                    disabled={isCreatingCategory}
-                    onClick={() => void handleCreateCategory()}
+                {isKid ? null : (
+                  <div
+                    className={cn(
+                      "grid gap-2 rounded-[1.5rem] border border-border/70 bg-background/70 p-2",
+                      isKid ? "grid-cols-2" : "grid-cols-3",
+                    )}
                   >
-                    {isCreatingCategory ? "Ekleniyor..." : "Ekle"}
-                  </Button>
-                </div>
-              </div>
+                    {(isKid
+                      ? ([
+                          ["one_time", "Hareket", ReceiptText],
+                          ["receipt", "Fiş tara", ImagePlus],
+                        ] as const)
+                      : ([
+                          ["one_time", "Tek seferlik", ReceiptText],
+                          ["recurring", "Tekrarlayan", Repeat2],
+                          ["receipt", "Fiş tara", ImagePlus],
+                        ] as const)
+                    ).map(([mode, label, Icon]) => {
+                      const isActive = entryMode === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={cn(
+                            "flex min-h-10 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-bold transition-all duration-200 ease-quint",
+                            isActive
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                          )}
+                          onClick={() => setEntryMode(mode)}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
-              {entryMode === "one_time" ? (
-                <form className="space-y-4" onSubmit={handleSubmit}>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="transaction-type" className="text-sm font-medium">
-                        Tür
-                      </label>
-                      <select
-                        id="transaction-type"
-                        className={selectClassName}
-                        value={type}
-                        onChange={(event) =>
-                          handleTransactionTypeChange(event.target.value as TransactionType)
-                        }
-                      >
-                        <option value="expense">{isKid ? "Harcadım" : "Gider"}</option>
-                        <option value="income">{isKid ? "Aldım" : "Gelir"}</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="transaction-amount" className="text-sm font-medium">
-                        Tutar
-                      </label>
-                      <Input
-                        id="transaction-amount"
-                        inputMode="decimal"
-                        placeholder="Tutar gir"
-                        value={amount}
-                        onChange={(event) => setAmount(event.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="transaction-category" className="text-sm font-medium">
-                        Kategori
-                      </label>
-                      <select
-                        id="transaction-category"
-                        className={selectClassName}
-                        value={categoryId}
-                        onChange={(event) => setCategoryId(event.target.value)}
-                      >
-                        <option value="">Kategori seçme</option>
-                        {transactionCategories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                            {category.user_id ? " · özel" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="transaction-date" className="text-sm font-medium">
-                        Tarih ve saat
-                      </label>
-                      <Input
-                        id="transaction-date"
-                        type="datetime-local"
-                        value={occurredAt}
-                        onChange={(event) => setOccurredAt(event.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="transaction-merchant" className="text-sm font-medium">
-                      Satıcı veya kaynak
-                    </label>
-                    <Input
-                      id="transaction-merchant"
-                      value={merchant}
-                      onChange={(event) => setMerchant(event.target.value)}
-                      placeholder="İsteğe bağlı"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label htmlFor="transaction-description" className="text-sm font-medium">
-                      Not
-                    </label>
-                    <Input
-                      id="transaction-description"
-                      value={description}
-                      onChange={(event) => setDescription(event.target.value)}
-                      placeholder="Kısa açıklama"
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" disabled={isSubmitting}>
-                    {isSubmitting ? "Kaydediliyor..." : "Tek seferlik kaydı ekle"}
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </form>
-              ) : (
-                <form className="space-y-4" onSubmit={handleCreateSubscription}>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-name" className="text-sm font-medium">
-                        Ad
-                      </label>
-                      <Input
-                        id="subscription-name"
-                        value={subscriptionName}
-                        onChange={(event) => setSubscriptionName(event.target.value)}
-                        placeholder="Ödeme adı"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-amount" className="text-sm font-medium">
-                        Tutar
-                      </label>
-                      <Input
-                        id="subscription-amount"
-                        inputMode="decimal"
-                        value={subscriptionAmount}
-                        onChange={(event) => setSubscriptionAmount(event.target.value)}
-                        placeholder="Tutar gir"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-cycle" className="text-sm font-medium">
-                        Yenilenme
-                      </label>
-                      <select
-                        id="subscription-cycle"
-                        className={selectClassName}
-                        value={subscriptionCycle}
-                        onChange={(event) =>
-                          handleSubscriptionCycleChange(event.target.value as BillingCycle)
-                        }
-                      >
-                        <option value="weekly">Haftalık</option>
-                        <option value="monthly">Aylık</option>
-                        <option value="yearly">Yıllık</option>
-                        <option value="custom">Özel</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-next-date" className="text-sm font-medium">
-                        Sonraki tarih
-                      </label>
-                      <Input
-                        id="subscription-next-date"
-                        type="date"
-                        value={subscriptionNextDate}
-                        onChange={(event) => setSubscriptionNextDate(event.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  {subscriptionCycle === "custom" ? (
+                {entryMode === "one_time" ? (
+                  <form className="space-y-4" onSubmit={handleSubmit}>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <label htmlFor="subscription-interval" className="text-sm font-medium">
-                          Tekrar aralığı
+                        <label htmlFor="transaction-type" className="text-sm font-medium">
+                          Tür
+                        </label>
+                        <select
+                          id="transaction-type"
+                          className={selectClassName}
+                          value={type}
+                          onChange={(event) =>
+                            handleTransactionTypeChange(event.target.value as TransactionType)
+                          }
+                        >
+                          <option value="expense">{isKid ? "Harcadım" : "Gider"}</option>
+                          <option value="income">{isKid ? "Aldım" : "Gelir"}</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label htmlFor="transaction-amount" className="text-sm font-medium">
+                          Tutar
                         </label>
                         <Input
-                          id="subscription-interval"
-                          type="number"
-                          min={1}
-                          value={subscriptionInterval}
-                          onChange={(event) => setSubscriptionInterval(event.target.value)}
+                          id="transaction-amount"
+                          inputMode="decimal"
+                          placeholder="Tutar gir"
+                          value={amount}
+                          onChange={(event) => setAmount(event.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <CategoryNameInput
+                        id="transaction-category"
+                        value={categoryInput}
+                        categories={transactionCategories}
+                        onValueChange={handleTransactionCategoryInput}
+                        helper="Listeden seçebilir ya da yeni kategori adını yazabilirsin."
+                      />
+                      <div className="space-y-2">
+                        <label htmlFor="transaction-date" className="text-sm font-medium">
+                          Tarih ve saat
+                        </label>
+                        <Input
+                          id="transaction-date"
+                          type="datetime-local"
+                          value={occurredAt}
+                          onChange={(event) => setOccurredAt(event.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="transaction-merchant" className="text-sm font-medium">
+                        Satıcı veya kaynak
+                      </label>
+                      <Input
+                        id="transaction-merchant"
+                        list="merchant-source-options"
+                        value={merchant}
+                        onChange={(event) => setMerchant(event.target.value)}
+                        placeholder="İsteğe bağlı"
+                      />
+                      <datalist id="merchant-source-options">
+                        {merchantSuggestions.map((suggestion) => (
+                          <option key={suggestion} value={suggestion} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="transaction-description" className="text-sm font-medium">
+                        Not
+                      </label>
+                      <Input
+                        id="transaction-description"
+                        value={description}
+                        onChange={(event) => setDescription(event.target.value)}
+                        placeholder="Kısa açıklama"
+                      />
+                    </div>
+                    <Button type="submit" className="w-full" disabled={isSubmitting}>
+                      {isSubmitting ? "Kaydediliyor..." : "Tek seferlik kaydı ekle"}
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </form>
+                ) : entryMode === "recurring" ? (
+                  <form className="space-y-4" onSubmit={handleCreateSubscription}>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-name" className="text-sm font-medium">
+                          Ad
+                        </label>
+                        <Input
+                          id="subscription-name"
+                          value={subscriptionName}
+                          onChange={(event) => setSubscriptionName(event.target.value)}
+                          placeholder="Ödeme adı"
                           required
                         />
                       </div>
                       <div className="space-y-2">
-                        <label htmlFor="subscription-unit" className="text-sm font-medium">
-                          Aralık birimi
+                        <label htmlFor="subscription-amount" className="text-sm font-medium">
+                          Tutar
                         </label>
-                        <select
-                          id="subscription-unit"
-                          className={selectClassName}
-                          value={subscriptionUnit}
-                          onChange={(event) =>
-                            setSubscriptionUnit(event.target.value as RecurrenceUnit)
-                          }
-                        >
-                          {Object.entries(recurrenceUnitLabels).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
+                        <Input
+                          id="subscription-amount"
+                          inputMode="decimal"
+                          value={subscriptionAmount}
+                          onChange={(event) => setSubscriptionAmount(event.target.value)}
+                          placeholder="Tutar gir"
+                          required
+                        />
                       </div>
                     </div>
-                  ) : null}
 
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-category" className="text-sm font-medium">
-                        Kategori
-                      </label>
-                      <select
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-cycle" className="text-sm font-medium">
+                          Yenilenme
+                        </label>
+                        <select
+                          id="subscription-cycle"
+                          className={selectClassName}
+                          value={subscriptionCycle}
+                          onChange={(event) =>
+                            handleSubscriptionCycleChange(event.target.value as BillingCycle)
+                          }
+                        >
+                          <option value="weekly">Haftalık</option>
+                          <option value="monthly">Aylık</option>
+                          <option value="yearly">Yıllık</option>
+                          <option value="custom">Özel</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-next-date" className="text-sm font-medium">
+                          Sonraki tarih
+                        </label>
+                        <Input
+                          id="subscription-next-date"
+                          type="date"
+                          value={subscriptionNextDate}
+                          onChange={(event) => setSubscriptionNextDate(event.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {subscriptionCycle === "custom" ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <label htmlFor="subscription-interval" className="text-sm font-medium">
+                            Tekrar aralığı
+                          </label>
+                          <Input
+                            id="subscription-interval"
+                            type="number"
+                            min={1}
+                            value={subscriptionInterval}
+                            onChange={(event) => setSubscriptionInterval(event.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label htmlFor="subscription-unit" className="text-sm font-medium">
+                            Aralık birimi
+                          </label>
+                          <select
+                            id="subscription-unit"
+                            className={selectClassName}
+                            value={subscriptionUnit}
+                            onChange={(event) =>
+                              setSubscriptionUnit(event.target.value as RecurrenceUnit)
+                            }
+                          >
+                            {Object.entries(recurrenceUnitLabels).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <CategoryNameInput
                         id="subscription-category"
-                        className={selectClassName}
-                        value={subscriptionCategoryId}
-                        onChange={(event) => setSubscriptionCategoryId(event.target.value)}
-                      >
-                        <option value="">Kategori seçme</option>
-                        {subscriptionCategories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                            {category.user_id ? " · özel" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="subscription-merchant" className="text-sm font-medium">
-                        Kurum veya satıcı
-                      </label>
-                      <Input
-                        id="subscription-merchant"
-                        value={subscriptionMerchant}
-                        onChange={(event) => setSubscriptionMerchant(event.target.value)}
-                        placeholder="İsteğe bağlı"
+                        value={subscriptionCategoryInput}
+                        categories={subscriptionCategories}
+                        onValueChange={handleSubscriptionCategoryInput}
+                        helper="Gider kategorilerinden seç veya yeni bir ad yaz."
                       />
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-merchant" className="text-sm font-medium">
+                          Kurum veya satıcı
+                        </label>
+                        <Input
+                          id="subscription-merchant"
+                          list="subscription-merchant-source-options"
+                          value={subscriptionMerchant}
+                          onChange={(event) => setSubscriptionMerchant(event.target.value)}
+                          placeholder="İsteğe bağlı"
+                        />
+                        <datalist id="subscription-merchant-source-options">
+                          {merchantSuggestions.map((suggestion) => (
+                            <option key={suggestion} value={suggestion} />
+                          ))}
+                        </datalist>
+                      </div>
                     </div>
-                  </div>
 
-                  <Button type="submit" className="w-full" disabled={isAddingSubscription}>
-                    {isAddingSubscription ? "Kaydediliyor..." : "Tekrarlayan kaydı ekle"}
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </form>
-              )}
-            </div>
-          </section>
-
-          <section className="space-y-5">
-            {error ? <ErrorNote>{error}</ErrorNote> : null}
-
-            {isKid ? null : (
-              <div className="receipt-tape p-4 pt-6 sm:p-5 sm:pt-7">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="eyebrow">Tekrarlayan aylık etki</p>
-                    <h3 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                      {formatKurus(recurringMonthlyTotal)}
-                    </h3>
-                  </div>
-                  <span className="stamp-label bg-background/80">Toplam</span>
-                </div>
-                <div className="mt-4">
-                  <RecurringBars
-                    subscriptions={subscriptions}
-                    limit={RECURRING_BAR_PREVIEW_LIMIT}
-                    onShowAll={() => setIsRecurringImpactOpen(true)}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="eyebrow">Veritabanı kayıtları</p>
-                  <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                    Son işlemler
-                  </h2>
-                </div>
-                <div className="flex items-center gap-2">
-                  {hiddenTransactionCount > 0 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsTransactionListOpen(true)}
-                    >
-                      Tümünü menüde gör
-                      <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
-                        +{hiddenTransactionCount}
-                      </span>
+                    <Button type="submit" className="w-full" disabled={isAddingSubscription}>
+                      {isAddingSubscription ? "Kaydediliyor..." : "Tekrarlayan kaydı ekle"}
+                      <Plus className="h-4 w-4" />
                     </Button>
-                  ) : null}
-                  <ReceiptText className="h-5 w-5 text-primary" />
-                </div>
-              </div>
-
-              {isLoading ? (
-                <div className="receipt-tape flex items-center gap-3 px-4 py-4 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  İşlemler yükleniyor...
-                </div>
-              ) : transactions.length === 0 ? (
-                <div className="receipt-tape px-4 py-6">
-                  <CalendarDays className="h-6 w-6 text-primary" />
-                  <h3 className="mt-4 font-display text-2xl font-black">Henüz işlem yok</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    İlk gerçek gelir veya giderini eklediğinde bu bölüm veritabanından dolacak.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {previewTransactions.map((item) => (
-                    <TransactionRow
-                      key={item.id}
-                      item={item}
-                      categoryNameById={categoryNameById}
-                      onEdit={(transaction) => setEditedTransactionId(transaction.id)}
-                      onDelete={(transactionId) => void handleDelete(transactionId)}
+                  </form>
+                ) : (
+                  <div className="min-w-0">
+                    <ReceiptUploader
+                      compact
+                      showHistory={false}
+                      onConfirmed={handleReceiptConfirmed}
                     />
-                  ))}
-                  {hiddenTransactionCount > 0 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => setIsTransactionListOpen(true)}
-                    >
-                      Tüm işlemleri menüde gör
-                      <ArrowRight className="h-4 w-4" />
-                      <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
-                        +{hiddenTransactionCount}
-                      </span>
-                    </Button>
-                  ) : null}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-5">
+              {error ? <ErrorNote>{error}</ErrorNote> : null}
+
+              {isKid ? null : (
+                <div className="receipt-tape p-4 pt-6 sm:p-5 sm:pt-7">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="eyebrow">Tekrarlayan aylık etki</p>
+                      <h3 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
+                        {formatKurus(recurringMonthlyTotal)}
+                      </h3>
+                    </div>
+                    <span className="stamp-label bg-background/80">Toplam</span>
+                  </div>
+                  <div className="mt-4">
+                    <RecurringBars
+                      subscriptions={subscriptions}
+                      limit={RECURRING_BAR_PREVIEW_LIMIT}
+                      onShowAll={() => setIsRecurringImpactOpen(true)}
+                    />
+                  </div>
                 </div>
               )}
-            </div>
 
-            {isKid ? null : (
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="eyebrow">Yenilenen kayıtlar</p>
+                    <p className="eyebrow">Veritabanı kayıtları</p>
                     <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                      Tekrarlayan ödemeler
+                      Son işlemler
                     </h2>
                   </div>
                   <div className="flex items-center gap-2">
-                    {hiddenSubscriptionCount > 0 ? (
+                    {hiddenTransactionCount > 0 ? (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setIsSubscriptionListOpen(true)}
+                        onClick={() => setIsTransactionListOpen(true)}
                       >
                         Tümünü menüde gör
                         <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
-                          +{hiddenSubscriptionCount}
+                          +{hiddenTransactionCount}
                         </span>
                       </Button>
                     ) : null}
-                    <Repeat2 className="h-5 w-5 text-primary" />
+                    <ReceiptText className="h-5 w-5 text-primary" />
                   </div>
                 </div>
 
-                {subscriptions.length === 0 ? (
+                {isLoading ? (
+                  <div className="receipt-tape flex items-center gap-3 px-4 py-4 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    İşlemler yükleniyor...
+                  </div>
+                ) : transactions.length === 0 ? (
                   <div className="receipt-tape px-4 py-6">
-                    <Repeat2 className="h-6 w-6 text-primary" />
-                    <h3 className="mt-4 font-display text-2xl font-black">Tekrarlayan ödeme yok</h3>
+                    <CalendarDays className="h-6 w-6 text-primary" />
+                    <h3 className="mt-4 font-display text-2xl font-black">Henüz işlem yok</h3>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Abonelik veya fatura eklediğinde tekil tutarlar ve aylık toplam burada
-                      görünür.
+                      İlk gerçek gelir veya giderini eklediğinde bu bölüm veritabanından dolacak.
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {previewSubscriptions.map((subscription) => (
-                      <SubscriptionRow
-                        key={subscription.id}
-                        subscription={subscription}
+                    {previewTransactions.map((item) => (
+                      <TransactionRow
+                        key={item.id}
+                        item={item}
                         categoryNameById={categoryNameById}
-                        isUpdating={updatingSubscriptionId === subscription.id}
-                        onManage={(item) => setManagedSubscriptionId(item.id)}
-                        onToggle={(item) => void handleToggleSubscription(item)}
-                        onDelete={(subscriptionId) => void handleDeleteSubscription(subscriptionId)}
+                        onEdit={(transaction) => setEditedTransactionId(transaction.id)}
+                        onDelete={(transactionId) => void handleDelete(transactionId)}
                       />
                     ))}
-                    {hiddenSubscriptionCount > 0 ? (
+                    {hiddenTransactionCount > 0 ? (
                       <Button
                         type="button"
                         variant="outline"
                         className="w-full"
-                        onClick={() => setIsSubscriptionListOpen(true)}
+                        onClick={() => setIsTransactionListOpen(true)}
                       >
-                        Tüm tekrarlayanları menüde gör
+                        Tüm işlemleri menüde gör
                         <ArrowRight className="h-4 w-4" />
                         <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
-                          +{hiddenSubscriptionCount}
+                          +{hiddenTransactionCount}
                         </span>
                       </Button>
                     ) : null}
                   </div>
                 )}
               </div>
-            )}
-          </section>
-        </div>
+
+              {isKid ? null : (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="eyebrow">Yenilenen kayıtlar</p>
+                      <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
+                        Tekrarlayan ödemeler
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {hiddenSubscriptionCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsSubscriptionListOpen(true)}
+                        >
+                          Tümünü menüde gör
+                          <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
+                            +{hiddenSubscriptionCount}
+                          </span>
+                        </Button>
+                      ) : null}
+                      <Repeat2 className="h-5 w-5 text-primary" />
+                    </div>
+                  </div>
+
+                  {subscriptions.length === 0 ? (
+                    <div className="receipt-tape px-4 py-6">
+                      <Repeat2 className="h-6 w-6 text-primary" />
+                      <h3 className="mt-4 font-display text-2xl font-black">
+                        Tekrarlayan ödeme yok
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        Abonelik veya fatura eklediğinde tekil tutarlar ve aylık toplam burada
+                        görünür.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {previewSubscriptions.map((subscription) => (
+                        <SubscriptionRow
+                          key={subscription.id}
+                          subscription={subscription}
+                          categoryNameById={categoryNameById}
+                          isUpdating={updatingSubscriptionId === subscription.id}
+                          onManage={(item) => setManagedSubscriptionId(item.id)}
+                          onToggle={(item) => void handleToggleSubscription(item)}
+                          onDelete={(subscriptionId) =>
+                            void handleDeleteSubscription(subscriptionId)
+                          }
+                        />
+                      ))}
+                      {hiddenSubscriptionCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => setIsSubscriptionListOpen(true)}
+                        >
+                          Tüm tekrarlayanları menüde gör
+                          <ArrowRight className="h-4 w-4" />
+                          <span className="bg-primary/12 rounded-full px-2 py-0.5 text-xs">
+                            +{hiddenSubscriptionCount}
+                          </span>
+                        </Button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+        </>
       ) : null}
 
       <FullListDialog

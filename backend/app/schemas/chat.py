@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+ApprovalDecision = str
+
 
 class ChatStreamRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1200)
@@ -11,6 +13,8 @@ class ChatStreamRequest(BaseModel):
     receipt_image_base64: str | None = Field(default=None, max_length=7_000_000)
     receipt_filename: str | None = Field(default=None, max_length=120)
     receipt_content_type: str | None = Field(default=None, max_length=80)
+    approval_id: str | None = Field(default=None, max_length=80)
+    approval_decision: ApprovalDecision | None = Field(default=None, max_length=16)
 
     @field_validator("message")
     @classmethod
@@ -27,3 +31,13 @@ class ChatStreamRequest(BaseModel):
             return None
         normalized = " ".join(value.split())
         return normalized or None
+
+    @field_validator("approval_decision")
+    @classmethod
+    def normalize_approval_decision(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split()).casefold()
+        if normalized not in {"approved", "rejected"}:
+            raise ValueError("Onay kararı approved veya rejected olmalı.")
+        return normalized

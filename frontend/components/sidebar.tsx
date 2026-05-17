@@ -9,9 +9,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PiggyBank,
-  Receipt,
   Sparkles,
-  Sticker,
   Target,
   UserRound,
   Users,
@@ -26,6 +24,7 @@ import { useEffect, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useKidMode } from "@/lib/kid-mode";
 import { cn } from "@/lib/utils";
 
@@ -36,9 +35,8 @@ const NAV_ITEMS = [
   { href: "/dashboard/goals", label: "Hedefler", section: "04", icon: Target },
   { href: "/learn", label: "Dersler", section: "05", icon: BookOpen },
   { href: "/chat", label: "Sohbet", section: "06", icon: MessageSquare },
-  { href: "/receipts", label: "Fişler", section: "07", icon: Receipt },
-  { href: "/family", label: "Aile", section: "08", icon: Users },
-  { href: "/account", label: "Hesap", section: "09", icon: UserRound },
+  { href: "/family", label: "Aile", section: "07", icon: Users },
+  { href: "/account", label: "Hesap", section: "08", icon: UserRound },
 ] as const;
 
 const KID_NAV_ITEMS = [
@@ -47,8 +45,7 @@ const KID_NAV_ITEMS = [
   { href: "/dashboard/goals", label: "Hedefim", section: "03", icon: Target },
   { href: "/learn", label: "Öğren", section: "04", icon: BookOpen },
   { href: "/chat", label: "Koç", section: "05", icon: Sparkles },
-  { href: "/receipts", label: "Fişlerim", section: "06", icon: Sticker },
-  { href: "/account", label: "Profilim", section: "07", icon: UserRound },
+  { href: "/account", label: "Profilim", section: "06", icon: UserRound },
 ] as const;
 
 const ROLE_LABELS = {
@@ -123,21 +120,24 @@ export function Sidebar({ user }: SidebarProps) {
             <p className="text-xs text-muted-foreground">{brandSubtitle}</p>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="hidden rounded-[1rem] lg:inline-flex"
-          aria-label={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
-          title={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
-          onClick={handleToggleSidebar}
-        >
-          {isCollapsed ? (
-            <PanelLeftOpen className="h-4 w-4" />
-          ) : (
-            <PanelLeftClose className="h-4 w-4" />
-          )}
-        </Button>
+        <div className={cn("flex shrink-0 items-center gap-2", isCollapsed && "lg:flex-col")}>
+          <NotificationBell collapsed={isCollapsed} />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="hidden rounded-[1rem] lg:inline-flex"
+            aria-label={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
+            title={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
+            onClick={handleToggleSidebar}
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
         <span
           className={cn(
             "stamp-label shrink-0 bg-background/65 text-primary lg:mt-6 lg:inline-flex",

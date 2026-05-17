@@ -294,6 +294,18 @@ def update_child(
     return child
 
 
+@router.delete("/children/{child_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_child(
+    child_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    _ensure_parent(current_user)
+    child = _get_child(child_id, current_user, db)
+    db.delete(child)
+    db.commit()
+
+
 @router.post("/switch/{child_id}", response_model=TokenResponse)
 def switch_to_child(
     child_id: UUID,

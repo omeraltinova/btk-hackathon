@@ -13,7 +13,24 @@ const pieColors = [
   "oklch(0.64 0.1 192)",
   "oklch(0.62 0.11 310)",
   "oklch(0.68 0.12 25)",
+  "oklch(0.55 0.12 235)",
+  "oklch(0.66 0.1 165)",
+  "oklch(0.6 0.12 350)",
+  "oklch(0.72 0.11 105)",
+  "oklch(0.5 0.1 285)",
+  "oklch(0.7 0.12 15)",
 ];
+
+function generatedPieColor(index: number): string {
+  const hue = (index * 137.508 + 143) % 360;
+  const lightness = 0.54 + (index % 4) * 0.055;
+  const chroma = 0.105 + (index % 3) * 0.018;
+  return `oklch(${lightness.toFixed(3)} ${chroma.toFixed(3)} ${hue.toFixed(1)})`;
+}
+
+function pieColor(index: number): string {
+  return pieColors[index] ?? generatedPieColor(index);
+}
 
 function formatPlainPercent(value: string): string {
   const parsed = Number(value.replace(",", "."));
@@ -43,7 +60,7 @@ export function SpendingChart({ summary }: SpendingChartProps) {
       item,
       percent,
       offset,
-      color: pieColors[index % pieColors.length] ?? "oklch(var(--primary))",
+      color: pieColor(index),
     };
     offset += percent;
     return slice;

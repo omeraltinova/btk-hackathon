@@ -38,4 +38,4 @@ Demo seed sonrası giriş: `ayse@demo.cuzdan-kocu.app` / `demo123`.
 
 ## Lisans
 
-MIT (Day 7'de `LICENSE` dosyası eklenecek).
+MIT — bkz. [`LICENSE`](LICENSE).
