@@ -32,9 +32,18 @@ function normalizedCategoryName(category: Category): string {
   return category.name.trim().toLocaleLowerCase("tr-TR");
 }
 
+function isEnvelopeManagedCategory(category: Category): boolean {
+  return category.budget_monthly !== null;
+}
+
 export function categoryMatchesType(category: Category, type: TransactionType): boolean {
-  if (category.user_id !== null) return true;
   const name = normalizedCategoryName(category);
+  if (category.user_id !== null) {
+    if (type === "income") {
+      return !isEnvelopeManagedCategory(category) && !EXPENSE_CATEGORY_NAMES.has(name);
+    }
+    return !INCOME_CATEGORY_NAMES.has(name) || EXPENSE_CATEGORY_NAMES.has(name);
+  }
   return type === "income" ? INCOME_CATEGORY_NAMES.has(name) : EXPENSE_CATEGORY_NAMES.has(name);
 }
 

@@ -229,25 +229,29 @@ function CategoryNameInput({
   categories,
   onValueChange,
   helper,
+  label = "Kategori",
+  placeholder = "Kategori seç veya yeni yaz",
 }: {
   id: string;
   value: string;
   categories: Category[];
   onValueChange: (value: string) => void;
   helper: string;
+  label?: string;
+  placeholder?: string;
 }) {
   const listId = `${id}-options`;
   return (
     <div className="space-y-2">
       <label htmlFor={id} className="text-sm font-medium">
-        Kategori
+        {label}
       </label>
       <Input
         id={id}
         list={listId}
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
-        placeholder="Kategori seç veya yeni yaz"
+        placeholder={placeholder}
       />
       <datalist id={listId}>
         {categories.map((category) => (
@@ -1588,7 +1592,9 @@ function GoalSlider({
 }
 
 function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }) {
-  const envelopes = summary?.envelopes ?? [];
+  const envelopes = (summary?.envelopes ?? []).filter(
+    (envelope) => amountToKurus(envelope.budget) > 0,
+  );
   const savingsEnvelope = envelopes.find((envelope) => envelope.is_savings_goal) ?? null;
   const orderedEnvelopes = envelopes
     .map((envelope, index) => ({ envelope, index }))
@@ -2126,6 +2132,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     if (!typed) return "";
     const matched = findCategoryByInput(allowedCategories, typed);
     if (matched) return matched.id;
+    const unavailable = findCategoryByInput(categories, typed);
+    if (unavailable !== null) {
+      const message =
+        fallbackType === "income"
+          ? "Bu kategori gider/zarf için ayrılmış; gelir için ayrı bir kategori seç."
+          : "Bu kategori gelir için ayrılmış; gider için ayrı bir kategori seç.";
+      setError(message);
+      throw new Error(message);
+    }
     if (currentId && hasCategoryForType(categories, currentId, fallbackType)) return currentId;
     const created = await handleCreateCategory(typed);
     return created.id;
@@ -2734,7 +2749,17 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         value={categoryInput}
                         categories={transactionCategories}
                         onValueChange={handleTransactionCategoryInput}
-                        helper="Listeden seçebilir ya da yeni kategori adını yazabilirsin."
+                        label={type === "expense" ? "Gider kategorisi / zarf" : "Gelir kategorisi"}
+                        placeholder={
+                          type === "expense"
+                            ? "Zarf kategorisi seç veya yeni yaz"
+                            : "Gelir kategorisi seç veya yeni yaz"
+                        }
+                        helper={
+                          type === "expense"
+                            ? "Aynı kategoride açık zarf varsa bu gider otomatik o zarfın harcanan tutarına eklenir."
+                            : "Gelir zarfa eklenmez; zarflar sadece gider limitlerini takip eder."
+                        }
                       />
                       <div className="space-y-2">
                         <label htmlFor="transaction-date" className="text-sm font-medium">
@@ -2906,10 +2931,20 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         value={subscriptionCategoryInput}
                         categories={subscriptionCategories}
                         onValueChange={handleSubscriptionCategoryInput}
+                        label={
+                          subscriptionType === "expense"
+                            ? "Gider kategorisi / zarf"
+                            : "Gelir kategorisi"
+                        }
+                        placeholder={
+                          subscriptionType === "expense"
+                            ? "Zarf kategorisi seç veya yeni yaz"
+                            : "Gelir kategorisi seç veya yeni yaz"
+                        }
                         helper={
                           subscriptionType === "income"
-                            ? "Gelir kategorilerinden seç veya yeni bir ad yaz."
-                            : "Gider kategorilerinden seç veya yeni bir ad yaz."
+                            ? "Gelir zarfa eklenmez; zarflar sadece gerçekleşen giderleri takip eder."
+                            : "Aynı kategoride açık zarf varsa gerçekleşen gider otomatik o zarfı doldurur."
                         }
                       />
                       <div className="space-y-2">

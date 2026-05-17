@@ -12,6 +12,9 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.db import get_db
 from app.models.category import Category
+from app.models.saving_goal import SavingGoal
+from app.models.subscription import Subscription
+from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
 from app.schemas.category import CategoryBudgetUpdate, CategoryCreate, CategoryRead, EnvelopeCreate
@@ -175,6 +178,67 @@ def create_envelope_category(
     return category
 
 
+def _clear_category_references(*, category: Category, db: Session) -> None:
+    transactions = (
+        db.execute(
+            select(Transaction).where(Transaction.category_id == category.id),
+        )
+        .scalars()
+        .all()
+    )
+    for transaction in transactions:
+        transaction.category_id = None
+
+    subscriptions = (
+        db.execute(
+            select(Subscription).where(Subscription.category_id == category.id),
+        )
+        .scalars()
+        .all()
+    )
+    for subscription in subscriptions:
+        subscription.category_id = None
+
+    saving_goals = (
+        db.execute(
+            select(SavingGoal).where(SavingGoal.category_id == category.id),
+        )
+        .scalars()
+        .all()
+    )
+    for goal in saving_goals:
+        goal.category_id = None
+
+
+def delete_envelope_category(
+    *,
+    slug: str,
+    db: Session,
+    current_user: User,
+) -> Category | None:
+    custom_category = _get_custom_envelope_category(slug=slug, db=db, current_user=current_user)
+    custom_category_id = custom_envelope_category_id(slug)
+    if custom_category is not None:
+        _clear_category_references(category=custom_category, db=db)
+        db.delete(custom_category)
+        db.commit()
+        return custom_category
+    if custom_category_id is not None:
+        return None
+
+    matches, _definition = _matching_envelope_categories(
+        slug=slug, db=db, current_user=current_user
+    )
+    owned = next((category for category in matches if category.user_id == current_user.id), None)
+    if owned is None:
+        return None
+
+    _clear_category_references(category=owned, db=db)
+    db.delete(owned)
+    db.commit()
+    return owned
+
+
 @router.get("", response_model=list[CategoryRead])
 def list_categories(
     db: Session = Depends(get_db),
@@ -259,10 +323,5 @@ def delete_envelope_budget(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    set_envelope_budget(
-        slug=slug,
-        budget_monthly=Decimal("0.00"),
-        db=db,
-        current_user=current_user,
-    )
+    delete_envelope_category(slug=slug, db=db, current_user=current_user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

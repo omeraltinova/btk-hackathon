@@ -411,8 +411,9 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     ait `categories` kaydı ve pozitif `budget_monthly` değeriyle temsil edilir.
     `Birikim zarfı` aylık hedef olarak yorumlanır, çok dönemli hedef takibi
     stretch kapsamda kalır. Zarf oluşturma/güncelleme `categories.budget_monthly`
-    üzerine aktif kullanıcı shadow kategorisi yazar; silme gerçek kategori silmez,
-    aktif profil için limiti `0,00 ₺` yapar.
+    üzerine aktif kullanıcı kategori/shadow kategorisi yazar; zarf silme aktif
+    profilin kategori-backed zarf kaydını listeden kaldırır ve mevcut işlem
+    defterindeki gelir/gider satırlarını silmez.
     Agent `get_envelopes`, `create_envelope_budget`, `update_envelope_budget` ve
     `delete_envelope_budget` araçlarıyla scoped zarf listesini görebilir ve zarf
     limitlerini yönetebilir. `create_envelope_budget` kullanıcıdan gelen zarf adını
@@ -1147,8 +1148,13 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.32
+**Doküman versiyonu:** 0.33
 **Son güncelleme:** 17 Mayıs 2026
+**v0.33 değişiklikleri:** Zarf silme davranışı kullanıcı beklentisiyle hizalandı:
+silme artık zarfı `0,00 ₺` kapalı limit olarak listede bırakmaz; aktif profil için
+kategori-backed zarf kaydı kaldırılır. Mevcut gelir/gider kayıtları silinmez;
+gerekirse kategori referansları boşaltılır. Hazır/system default kategoriler doğrudan
+mutasyona uğratılmaz.
 **v0.32 değişiklikleri:** Route ve abonelik geçmişi metni mevcut implementasyonla
 hizalandı: canlı detay yüzeyleri `/transactions`, `/income-expense` ve `/goals`
 altındadır; eski `/dashboard/...` linkleri yalnızca redirect olarak korunur.

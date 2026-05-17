@@ -126,6 +126,8 @@ class FakeSession:
             item.id = uuid4()
 
     def delete(self, item: object) -> None:
+        if isinstance(item, Category):
+            self.categories = [category for category in self.categories if category is not item]
         if isinstance(item, SavingGoal):
             self.saving_goals = [goal for goal in self.saving_goals if goal is not item]
 
@@ -833,7 +835,7 @@ def test_envelope_budget_summary_excludes_savings_goal_from_risky_category() -> 
     assert savings_envelope.status == "safe"
 
 
-def test_agent_envelope_tools_list_update_and_disable_user_shadow_budget() -> None:
+def test_agent_envelope_tools_list_update_and_delete_user_shadow_budget() -> None:
     user = make_user()
     system_market = make_category("Market", budget="600.00")
     db = FakeSession(categories=[system_market])
@@ -850,6 +852,7 @@ def test_agent_envelope_tools_list_update_and_disable_user_shadow_budget() -> No
         budget_monthly=Decimal("900.00"),
         now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
     )
+    user_shadow = next(category for category in db.categories if category.user_id == user.id)
     delete_result = build_envelope_budget_delete(
         db,
         user,
@@ -860,12 +863,10 @@ def test_agent_envelope_tools_list_update_and_disable_user_shadow_budget() -> No
     assert overview["count"] == 6
     assert update_result["updated"] is True
     assert update_result["budget_monthly_formatted"] == "900,00 ₺"
-    user_shadow = next(category for category in db.categories if category.user_id == user.id)
     assert user_shadow.name == "Market"
-    assert user_shadow.budget_monthly == Decimal("0.00")
     assert system_market.budget_monthly == Decimal("600.00")
     assert delete_result["deleted"] is True
-    assert delete_result["disabled"] is True
+    assert user_shadow not in db.categories
 
 
 def test_envelope_budget_summary_includes_custom_user_categories() -> None:
@@ -898,9 +899,8 @@ def test_agent_custom_envelope_delete_uses_custom_slug() -> None:
     )
 
     assert result["deleted"] is True
-    assert result["disabled"] is True
     assert result["slug"] == f"custom-{custom.id}"
-    assert custom.budget_monthly == Decimal("0.00")
+    assert custom not in db.categories
 
 
 def test_agent_can_create_custom_envelope_by_name() -> None:

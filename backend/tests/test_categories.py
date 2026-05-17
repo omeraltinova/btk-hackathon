@@ -97,6 +97,9 @@ class FakeSession:
         if category.id is None:
             category.id = uuid4()
 
+    def delete(self, category: Category) -> None:
+        self.categories = [item for item in self.categories if item is not category]
+
 
 def make_user(*, role: str = "individual") -> User:
     user = User(
@@ -180,18 +183,18 @@ def test_update_envelope_budget_accepts_zero_to_disable_user_zarf() -> None:
     assert db.committed is True
 
 
-def test_delete_envelope_budget_disables_instead_of_mutating_system_default() -> None:
+def test_delete_envelope_budget_removes_user_shadow_without_mutating_system_default() -> None:
     user = make_user()
     system_school = make_category("Eğitim")
     system_school.budget_monthly = Decimal("1500.00")
-    db = FakeSession([system_school], user_ids=[user.id])
+    user_school = make_category("Eğitim", user.id)
+    user_school.budget_monthly = Decimal("900.00")
+    db = FakeSession([system_school, user_school], user_ids=[user.id])
 
     response = delete_envelope_budget("okul", db=db, current_user=user)
 
-    user_shadow = next(category for category in db.categories if category.user_id == user.id)
     assert response.status_code == 204
-    assert user_shadow.name == "Eğitim"
-    assert user_shadow.budget_monthly == 0
+    assert user_school not in db.categories
     assert system_school.budget_monthly == Decimal("1500.00")
     assert db.committed is True
 
@@ -212,7 +215,7 @@ def test_create_envelope_budget_creates_custom_category_zarf() -> None:
     assert db.committed is True
 
 
-def test_delete_custom_envelope_budget_sets_zero_on_owner_category() -> None:
+def test_delete_custom_envelope_budget_removes_owner_category() -> None:
     user = make_user()
     custom = make_category("Evcil hayvan", user.id)
     custom.budget_monthly = Decimal("850.00")
@@ -221,7 +224,7 @@ def test_delete_custom_envelope_budget_sets_zero_on_owner_category() -> None:
     response = delete_envelope_budget(f"custom-{custom.id}", db=db, current_user=user)
 
     assert response.status_code == 204
-    assert custom.budget_monthly == Decimal("0.00")
+    assert custom not in db.categories
     assert db.committed is True
 
 

@@ -165,7 +165,7 @@ APPROVAL_ACTIONS_BY_TOOL = {
     "delete_saving_goal": "Hedefi sil",
     "create_envelope_budget": "Zarf ekle",
     "update_envelope_budget": "Zarf limitini güncelle",
-    "delete_envelope_budget": "Zarfı kapat",
+    "delete_envelope_budget": "Zarfı sil",
     "create_smart_saving_plan": "Akıllı hedef planı oluştur",
 }
 ENVELOPE_BUDGET_HINTS = (
@@ -1043,7 +1043,7 @@ def _approved_tool_answer(tool_name: str, result: dict[str, object]) -> str:
         return f"{name} zarfının aylık limitini {amount} yaptım."
     if tool_name == "delete_envelope_budget":
         name = str(result.get("category_name") or "Zarf")
-        return f"{name} zarfını aktif profil için kapattım. Kategori silinmedi; limit 0,00 ₺ oldu."
+        return f"{name} zarfını aktif profilden sildim."
     return "Onayladığın işlemi tamamladım."
 
 
@@ -1622,7 +1622,7 @@ def _approval_summary_for_tool(tool_name: str, tool_input: dict[str, object]) ->
             or _optional_str(tool_input.get("slug"))
             or "Seçilecek zarf"
         )
-        return f"{name} zarfı aktif profil için kapatılacak."
+        return f"{name} zarfı aktif profilden silinecek."
     return "Bu işlem aktif profil verilerini değiştirecek."
 
 
@@ -1635,7 +1635,7 @@ def _approval_details_for_tool(tool_name: str) -> list[str]:
     if tool_name == "update_envelope_budget":
         return ["Zarf limiti aktif profil için güncellenir."]
     if tool_name == "delete_envelope_budget":
-        return ["Kategori silinmez.", "Zarf limiti 0,00 ₺ yapılır."]
+        return ["Zarf listeden kaldırılır.", "Bu işlem mevcut gelir/gider kayıtlarını silmez."]
     if tool_name in {"create_accumulation_goal", "update_saving_goal"}:
         return ["İşlem defterine otomatik gelir/gider yazılmaz."]
     if tool_name == "delete_saving_goal":

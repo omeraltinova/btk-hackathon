@@ -29,7 +29,11 @@ from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
-from app.routers.categories import create_envelope_category, set_envelope_budget
+from app.routers.categories import (
+    create_envelope_category,
+    delete_envelope_category,
+    set_envelope_budget,
+)
 from app.schemas.saving_goal import SavingGoalProgressRead, SavingGoalStatus, SavingGoalUpdate
 from app.services.envelopes import (
     BudgetEnvelope,
@@ -655,16 +659,26 @@ def build_envelope_budget_delete(
     slug: str,
     now: datetime | None = None,
 ) -> dict[str, object]:
-    result = build_envelope_budget_update(
-        db,
-        current_user,
-        slug=slug,
-        budget_monthly=Decimal("0.00"),
-        now=now,
-    )
-    if "error" in result:
-        return result
-    return {**result, "deleted": True, "disabled": True}
+    overview = build_envelope_budget_overview(db, current_user, now=now)
+    envelopes = overview.get("envelopes")
+    envelope = None
+    if isinstance(envelopes, list):
+        envelope = next(
+            (item for item in envelopes if isinstance(item, dict) and item.get("slug") == slug),
+            None,
+        )
+    if envelope is None:
+        return {"error": "Zarf bulunamadı."}
+
+    deleted = delete_envelope_category(slug=slug, db=db, current_user=current_user)
+    return {
+        "deleted": True,
+        "slug": slug,
+        "category_id": str(deleted.id)
+        if deleted is not None
+        else str(envelope.get("category_id", "")),
+        "category_name": str(envelope.get("category_name") or "Zarf"),
+    }
 
 
 def build_saving_goal_creation(
