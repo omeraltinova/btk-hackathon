@@ -14,6 +14,7 @@ from app.routers import (
     categories,
     chat,
     conversations,
+    exports,
     family,
     insights,
     memory,
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(memory.router)
     app.include_router(insights.router)
     app.include_router(family.router)
+    app.include_router(exports.router)
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:

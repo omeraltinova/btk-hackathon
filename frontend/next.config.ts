@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [],
   },
+  // WHY ignore lint during build: ESLint 9 flat config (see `eslint.config.mjs`)
+  // is wired through `@eslint/eslintrc` FlatCompat, but `next build` still uses
+  // its legacy lint runner which prints a "flat-config plugin warning" on every
+  // run. Lint hygiene is enforced separately via `pnpm lint` (eslint .) so the
+  // build pipeline can stay quiet without losing CI coverage.
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 };
 
 export default nextConfig;

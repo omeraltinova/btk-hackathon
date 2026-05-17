@@ -1,16 +1,36 @@
 "use client";
 
-import { BrainCircuit, Loader2, Save, ShieldCheck } from "lucide-react";
-import { useSession } from "next-auth/react";
+import {
+  BrainCircuit,
+  Download,
+  Loader2,
+  Save,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
+import type { Session } from "next-auth";
+import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, apiDownload } from "@/lib/api";
+import { clearActiveProfile } from "@/lib/active-profile";
 import type { AccountUpdateInput, AgeStatus, AuthUser, FinanceLevel } from "@/lib/types";
+
+type SessionUser = Session["user"];
 
 const selectClassName =
   "flex h-11 w-full rounded-2xl border border-input bg-background/80 px-4 py-2 text-sm ring-offset-background transition-all duration-200 ease-quint focus-visible:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
@@ -262,6 +282,223 @@ export function AccountClient() {
           </Button>
         </div>
       </form>
+
+      <DataExportSection />
+
+      <DangerZoneSection user={user} />
     </div>
+  );
+}
+
+function formatTodayStamp(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function DataExportSection() {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  async function handleDownload() {
+    setIsDownloading(true);
+    try {
+      const filename = `cuzdan-kocu-verim-${formatTodayStamp()}.zip`;
+      await apiDownload("/api/exports/all.zip", filename);
+      toast.success("Verilerin indirildi.");
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError
+          ? err.detail
+          : "Verilerin indirilemedi, biraz sonra tekrar dener misin?",
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  return (
+    <section className="ledger-sheet max-w-4xl p-5 sm:p-8">
+      <div className="relative z-10 grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+        <div>
+          <span className="stamp-label bg-background/70">Verim benim</span>
+          <h2 className="mt-3 font-display text-3xl font-black tracking-tight">Verilerimi indir</h2>
+          <p className="mt-2 max-w-[58ch] text-sm leading-6 text-muted-foreground">
+            Tüm işlemlerini, aboneliklerini ve hedeflerini tek ZIP içinde dışa aktarabilirsin. Excel
+            uyumlu CSV, Türkçe karakterler korunur.
+          </p>
+        </div>
+        <Button
+          type="button"
+          onClick={handleDownload}
+          disabled={isDownloading}
+          className="md:justify-self-end"
+        >
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          {isDownloading ? "Hazırlanıyor..." : "Verilerimi indir (ZIP)"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function DangerZoneSection({ user }: { user: SessionUser | undefined }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const isDemo = user?.isDemo === true;
+
+  return (
+    <>
+      <section className="bg-destructive/8 max-w-4xl rounded-[1.5rem] border border-destructive/35 p-5 sm:p-8">
+        <div className="space-y-4">
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-destructive/15 text-destructive">
+              <ShieldAlert className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="font-display text-2xl font-black tracking-tight">Tehlikeli bölge</h2>
+              <p className="mt-1 max-w-[58ch] text-sm leading-6 text-muted-foreground">
+                Hesabını sildiğinde tüm işlemlerin, fişlerin, hedeflerin, aboneliklerin ve hafıza
+                notların kalıcı olarak silinir. Bu işlem geri alınamaz.
+              </p>
+            </div>
+          </div>
+
+          {isDemo ? (
+            <p className="rounded-2xl border border-destructive/30 bg-background/70 px-4 py-3 text-sm font-semibold text-foreground">
+              Demo hesabı silinemez. Demo hesaplar jüri ve sunum için korunur.
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => setIsOpen(true)}
+              disabled={isDemo}
+              title={isDemo ? "Demo hesabı silinemez." : undefined}
+            >
+              <Trash2 className="h-4 w-4" />
+              Hesabımı sil
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <DeleteAccountDialog open={isOpen} onOpenChange={setIsOpen} user={user} />
+    </>
+  );
+}
+
+function DeleteAccountDialog({
+  open,
+  onOpenChange,
+  user,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  user: SessionUser | undefined;
+}) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setCurrentPassword("");
+      setError(null);
+      setIsSubmitting(false);
+    }
+  }, [open]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await api<void>("/api/auth/me", {
+        method: "DELETE",
+        body: { current_password: currentPassword },
+        silent: true,
+      });
+      clearActiveProfile();
+      toast.success("Hesabın silindi.");
+      await signOut({ callbackUrl: "/login" });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.detail);
+      } else {
+        setError("Hesap silinemedi, tekrar dener misin?");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const isParent = user?.role === "parent";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Hesabını silmek istediğine emin misin?</DialogTitle>
+          <DialogDescription>
+            Bu işlem geri alınamaz. Tüm işlemlerin, fişlerin, hedeflerin, aboneliklerin ve hafıza
+            notların silinecek.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isParent ? (
+          <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-semibold text-foreground">
+            Çocuk profilleri ve onlara ait tüm veriler de silinecek.
+          </p>
+        ) : null}
+
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="space-y-2">
+            <label htmlFor="delete-account-password" className="text-sm font-medium">
+              Mevcut şifre
+            </label>
+            <Input
+              id="delete-account-password"
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+
+          {error ? (
+            <p className="bg-destructive/14 rounded-2xl border border-destructive/35 px-4 py-3 text-sm font-semibold text-foreground">
+              {error}
+            </p>
+          ) : null}
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isSubmitting}
+            >
+              Vazgeç
+            </Button>
+            <Button type="submit" variant="destructive" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Hesabımı kalıcı olarak sil
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.models.user import User
 from app.schemas.auth import (
+    AccountDeleteRequest,
     AccountUpdateRequest,
     AuthUser,
     DemoAccount,
@@ -214,3 +215,36 @@ def update_me(
     db.commit()
     db.refresh(current_user)
     return AuthUser.model_validate(current_user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_me(
+    payload: AccountDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Permanently delete the current account.
+
+    Demo accounts are protected so juries/judges can't accidentally wipe the
+    showcase profiles. For real accounts, password verification gates the
+    delete and DB-level ON DELETE CASCADE handles the dependent rows
+    (transactions, subscriptions, saving_goals, categories, child users via
+    parent_id).
+    """
+    if current_user.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo hesabı silinemez. Demo hesaplar jüri ve sunum için korunur.",
+        )
+    if current_user.password_hash is None or not verify_password(
+        payload.current_password,
+        current_user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mevcut şifre hatalı.",
+        )
+
+    db.delete(current_user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

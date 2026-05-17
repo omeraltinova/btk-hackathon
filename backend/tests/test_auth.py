@@ -56,6 +56,15 @@ class FakeSession:
         if user.id is None:
             user.id = uuid4()
 
+    def delete(self, user: User) -> None:
+        # Mimic ON DELETE CASCADE for child users so tests can verify the
+        # parent-delete-cascades-children invariant from master_plan §15.
+        self.users = [
+            existing
+            for existing in self.users
+            if existing.id != user.id and existing.parent_id != user.id
+        ]
+
     @staticmethod
     def _lookup(statement: object, column_name: str) -> object:
         for criterion in getattr(statement, "_where_criteria", ()):
@@ -285,3 +294,82 @@ def test_me_rejects_invalid_token(client: TestClient) -> None:
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Geçersiz oturum."
+
+
+def test_delete_me_removes_account_with_valid_password(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    user = make_user(password_hash=hash_password("guvenli-sifre-123"))
+    fake_session.users.append(user)
+
+    response = client.request(
+        "DELETE",
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {create_token(user.id)}"},
+        json={"current_password": "guvenli-sifre-123"},
+    )
+
+    assert response.status_code == 204
+    assert response.text == ""
+    assert fake_session.users == []
+
+
+def test_delete_me_cascades_to_child_accounts(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    parent = make_user(email="ayse@example.com", password_hash=hash_password("guvenli-sifre-123"))
+    child = make_user(email="elif@example.com", role="child", password_hash=None)
+    child.parent_id = parent.id
+    fake_session.users.extend([parent, child])
+
+    response = client.request(
+        "DELETE",
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {create_token(parent.id)}"},
+        json={"current_password": "guvenli-sifre-123"},
+    )
+
+    assert response.status_code == 204
+    assert fake_session.users == []
+
+
+def test_delete_me_rejects_wrong_password(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    user = make_user(password_hash=hash_password("dogru-sifre-123"))
+    fake_session.users.append(user)
+
+    response = client.request(
+        "DELETE",
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {create_token(user.id)}"},
+        json={"current_password": "yanlis-sifre"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Mevcut şifre hatalı."
+    assert fake_session.users == [user]
+
+
+def test_delete_me_blocks_demo_accounts(
+    client: TestClient,
+    fake_session: FakeSession,
+) -> None:
+    user = make_user(password_hash=hash_password("guvenli-sifre-123"))
+    user.is_demo = True
+    fake_session.users.append(user)
+
+    response = client.request(
+        "DELETE",
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {create_token(user.id)}"},
+        json={"current_password": "guvenli-sifre-123"},
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert "Demo" in detail
+    assert fake_session.users == [user]

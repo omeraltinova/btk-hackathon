@@ -131,3 +131,50 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 
   return payload as T;
 }
+
+/**
+ * Trigger a browser download for a binary endpoint (e.g. ZIP / CSV exports).
+ *
+ * Mirrors `api()` for auth and active-profile handling, but pulls the response
+ * as a Blob and clicks a synthetic anchor so the browser handles the save
+ * dialog. Errors still travel as `ApiError` so callers can surface inline UX.
+ */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
+  const headers: Record<string, string> = { Accept: "application/octet-stream" };
+  const token = await getBackendToken(true);
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, { method: "GET", headers, credentials: "include" });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    const message = describeError(0, undefined);
+    throw new ApiError(0, message);
+  }
+
+  if (!response.ok) {
+    let detail: string | undefined;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // ignore: non-JSON error bodies fall back to describeError defaults.
+    }
+    throw new ApiError(response.status, describeError(response.status, detail));
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
