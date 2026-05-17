@@ -19,6 +19,7 @@ from app.routers import (
     insights,
     memory,
     receipts,
+    recurring,
     saving_goals,
     subscriptions,
     transactions,
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(insights.router)
     app.include_router(family.router)
     app.include_router(exports.router)
+    app.include_router(recurring.router)
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:

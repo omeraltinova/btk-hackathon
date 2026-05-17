@@ -218,6 +218,17 @@ export function IncomeExpenseClient() {
   const loadData = useCallback(async () => {
     setError(null);
     try {
+      // Trigger recurring materialization first — read endpoints stopped doing
+      // this in P1.5 (docs/decisions.md). Failure is non-fatal.
+      try {
+        await api<{ created: number }>("/api/recurring/materialize", {
+          method: "POST",
+          silent: true,
+        });
+      } catch {
+        // Swallow: detail screen still loads with the existing dataset.
+      }
+
       const [transactionData, categoryData, subscriptionData] = await Promise.all([
         api<Transaction[]>("/api/transactions?limit=100", { silent: true }),
         api<Category[]>("/api/categories", { silent: true }),

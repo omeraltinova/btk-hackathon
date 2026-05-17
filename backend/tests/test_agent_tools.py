@@ -599,6 +599,61 @@ def test_build_memory_upsert_blocks_sensitive_values() -> None:
     assert db.memories == []
 
 
+def test_build_memory_upsert_blocks_card_number_with_context() -> None:
+    """Mask 16-digit sequences only when the surrounding text names a card."""
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(
+        db,
+        user,
+        text="Kart numaram 4111 1111 1111 1111",
+    )
+
+    assert result["saved"] is False
+    assert result["blocked"] is True
+    assert db.memories == []
+
+
+def test_build_memory_upsert_allows_long_number_without_card_context() -> None:
+    """A long amount or order id without card/kart context must not false-positive."""
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(
+        db,
+        user,
+        text="Bu ay aile bütçemiz 12345678901234 TL olsun",
+    )
+
+    assert result["saved"] is True
+    assert len(db.memories) == 1
+
+
+def test_build_memory_upsert_blocks_tckn_with_context() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(db, user, text="TCKN 12345678901 olarak kaydet")
+
+    assert result["saved"] is False
+    assert result["blocked"] is True
+
+
+def test_build_memory_upsert_allows_11_digit_number_without_identity_context() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(
+        db,
+        user,
+        text="Hedefim 12345678901 lira biriktirmek",
+    )
+
+    assert result["saved"] is True
+    assert len(db.memories) == 1
+
+
 def test_build_concept_illustration_rejects_investment_visuals() -> None:
     user = make_user()
     db = FakeSession()

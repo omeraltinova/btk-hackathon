@@ -79,6 +79,7 @@ export type Transaction = {
   amount: string;
   type: TransactionType;
   category_id: string | null;
+  subscription_id: string | null;
   description: string | null;
   merchant: string | null;
   occurred_at: string;

@@ -1716,6 +1716,20 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const loadDashboardData = useCallback(async () => {
     setError(null);
     try {
+      // Run the recurring materializer once per dashboard load so freshly due
+      // subscriptions show up in the summary/transactions below. Read endpoints
+      // no longer trigger this side effect (P1.5 in docs/decisions.md). Errors
+      // here are non-fatal — we still want the dashboard to render with stale
+      // data rather than block on materialization.
+      try {
+        await api<{ created: number }>("/api/recurring/materialize", {
+          method: "POST",
+          silent: true,
+        });
+      } catch {
+        // Swallow: dashboard data still loads even if materialize fails.
+      }
+
       const [transactionData, categoryData, summaryData, subscriptionData, goalData, insightData] =
         await Promise.all([
           api<Transaction[]>("/api/transactions", { silent: true }),

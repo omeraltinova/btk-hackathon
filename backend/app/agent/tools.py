@@ -96,6 +96,26 @@ IBAN_PATTERN = re.compile(r"\bTR\d{2}[\s-]?(?:\d[\s-]?){20}\d\b", re.IGNORECASE)
 CARD_NUMBER_PATTERN = re.compile(r"\b(?:\d[ -]?){13,19}\b")
 TCKN_PATTERN = re.compile(r"\b\d{11}\b")
 BASE64ISH_PATTERN = re.compile(r"\b[A-Za-z0-9+/]{80,}={0,2}\b")
+# WHY: bare digit-length regex (CARD_NUMBER_PATTERN/TCKN_PATTERN) false-positive
+# on ordinary numbers like long Turkish amounts ("12.345.678.901 ₺") or order
+# IDs. We only mask when the surrounding text actually names the sensitive
+# concept. IBAN/base64 patterns stay context-free because their shapes are
+# already specific enough (TR-prefix + length / 80+ chars).
+CARD_CONTEXT_HINTS = (
+    "kart numara",
+    "kart no",
+    "kredi kart",
+    "banka kart",
+    "kartim",
+    "kartimin",
+)
+TCKN_CONTEXT_HINTS = (
+    "tckn",
+    "tc kimlik",
+    "kimlik no",
+    "kimlik numara",
+    "vatandaslik no",
+)
 CUSTOM_LESSON_LEVELS = {"child", "beginner", "intermediate", "advanced"}
 CUSTOM_LESSON_BLOCKED_ADVICE_PATTERNS = (
     r"\bhangi\b.*\b(hisse|fon|kripto|coin|alt[ıi]n|d[öo]viz)\b",
@@ -205,12 +225,14 @@ def _memory_key_from_text(text: str) -> str:
 
 def _memory_text_is_safe(text: str) -> bool:
     normalized = _normalized_text(text)
+    folded = _fold_control_text(text)
     if any(keyword in normalized for keyword in BLOCKED_MEMORY_KEYWORDS):
         return False
-    return not any(
-        pattern.search(text)
-        for pattern in (IBAN_PATTERN, CARD_NUMBER_PATTERN, TCKN_PATTERN, BASE64ISH_PATTERN)
-    )
+    if IBAN_PATTERN.search(text) or BASE64ISH_PATTERN.search(text):
+        return False
+    if CARD_NUMBER_PATTERN.search(text) and any(hint in folded for hint in CARD_CONTEXT_HINTS):
+        return False
+    return not (TCKN_PATTERN.search(text) and any(hint in folded for hint in TCKN_CONTEXT_HINTS))
 
 
 def _matches_text(known_label: str | None, candidates: Iterable[str]) -> bool:
