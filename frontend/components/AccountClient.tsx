@@ -180,115 +180,121 @@ export function AccountClient() {
 
       {error ? <ErrorNote>{error}</ErrorNote> : null}
 
-      <form className="ledger-sheet max-w-4xl p-5 sm:p-8" onSubmit={handleSubmit}>
-        <div className="relative z-10 space-y-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="account-name" className="text-sm font-medium">
-                Ad soyad
-              </label>
-              <Input
-                id="account-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-              />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(22rem,0.82fr)] xl:items-start">
+        <form className="ledger-sheet p-5 sm:p-8" onSubmit={handleSubmit}>
+          <div className="relative z-10 space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="account-name" className="text-sm font-medium">
+                  Ad soyad
+                </label>
+                <Input
+                  id="account-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="account-email" className="text-sm font-medium">
+                  E-posta
+                </label>
+                <Input
+                  id="account-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="account-email" className="text-sm font-medium">
-                E-posta
-              </label>
-              <Input
-                id="account-email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
-            </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="account-birth-date" className="text-sm font-medium">
-                Doğum tarihi
-              </label>
-              <Input
-                id="account-birth-date"
-                type="date"
-                value={birthDate}
-                onChange={(event) => setBirthDate(event.target.value)}
-                placeholder="İsteğe bağlı"
-              />
-              <p className="text-xs font-medium text-muted-foreground">
-                {user?.age !== null && user?.age !== undefined
-                  ? `${user.age} yaş / ${
-                      user.ageStatus ? ageStatusLabels[user.ageStatus] : "Statü hesaplanıyor"
-                    }`
-                  : "Yaş otomatik hesaplanır."}
-              </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="account-birth-date" className="text-sm font-medium">
+                  Doğum tarihi
+                </label>
+                <Input
+                  id="account-birth-date"
+                  type="date"
+                  value={birthDate}
+                  onChange={(event) => setBirthDate(event.target.value)}
+                  placeholder="İsteğe bağlı"
+                />
+                <p className="text-xs font-medium text-muted-foreground">
+                  {user?.age !== null && user?.age !== undefined
+                    ? `${user.age} yaş / ${
+                        user.ageStatus ? ageStatusLabels[user.ageStatus] : "Statü hesaplanıyor"
+                      }`
+                    : "Yaş otomatik hesaplanır."}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="account-finance-level" className="text-sm font-medium">
+                  Finans seviyesi
+                </label>
+                <select
+                  id="account-finance-level"
+                  className={selectClassName}
+                  value={financeLevel}
+                  onChange={(event) =>
+                    setFinanceLevel(event.target.value as Exclude<FinanceLevel, "child">)
+                  }
+                >
+                  {Object.entries(financeLevelLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="account-finance-level" className="text-sm font-medium">
-                Finans seviyesi
-              </label>
-              <select
-                id="account-finance-level"
-                className={selectClassName}
-                value={financeLevel}
-                onChange={(event) =>
-                  setFinanceLevel(event.target.value as Exclude<FinanceLevel, "child">)
-                }
-              >
-                {Object.entries(financeLevelLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
 
-          <div className="bg-background/72 grid gap-4 rounded-[1.5rem] border border-dashed border-primary/30 p-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="account-current-password" className="text-sm font-medium">
-                Mevcut şifre
-              </label>
-              <Input
-                id="account-current-password"
-                type="password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                placeholder="Şifre değişecekse"
-              />
+            <div className="bg-background/72 grid gap-4 rounded-[1.5rem] border border-dashed border-primary/30 p-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="account-current-password" className="text-sm font-medium">
+                  Mevcut şifre
+                </label>
+                <Input
+                  id="account-current-password"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  placeholder="Şifre değişecekse"
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="account-new-password" className="text-sm font-medium">
+                  Yeni şifre
+                </label>
+                <Input
+                  id="account-new-password"
+                  type="password"
+                  minLength={8}
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="En az 8 karakter"
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="account-new-password" className="text-sm font-medium">
-                Yeni şifre
-              </label>
-              <Input
-                id="account-new-password"
-                type="password"
-                minLength={8}
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                placeholder="En az 8 karakter"
-              />
-            </div>
-          </div>
 
-          <Button type="submit" className="w-full md:w-auto" disabled={isSaving}>
-            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {isSaving ? "Kaydediliyor..." : "Bilgileri kaydet"}
-          </Button>
+            <Button type="submit" className="w-full md:w-auto" disabled={isSaving}>
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {isSaving ? "Kaydediliyor..." : "Bilgileri kaydet"}
+            </Button>
+          </div>
+        </form>
+
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-1">
+          <DataExportSection />
+          <EmailSummarySection email={user?.email} />
+          <DangerZoneSection user={user} />
         </div>
-      </form>
-
-      <DataExportSection />
-
-      <EmailSummarySection email={user?.email} />
-
-      <DangerZoneSection user={user} />
+      </div>
     </div>
   );
 }
@@ -338,7 +344,7 @@ function EmailSummarySection({ email }: { email: string | null | undefined }) {
   }
 
   return (
-    <section className="ledger-sheet max-w-4xl p-5 sm:p-8">
+    <section className="ledger-sheet h-full p-5 sm:p-8">
       <div className="relative z-10 grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
         <div>
           <span className="stamp-label bg-background/70">Haftalık özet</span>
@@ -406,7 +412,7 @@ function DataExportSection() {
   }
 
   return (
-    <section className="ledger-sheet max-w-4xl p-5 sm:p-8">
+    <section className="ledger-sheet h-full p-5 sm:p-8">
       <div className="relative z-10 grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
         <div>
           <span className="stamp-label bg-background/70">Verim benim</span>
@@ -440,7 +446,7 @@ function DangerZoneSection({ user }: { user: SessionUser | undefined }) {
 
   return (
     <>
-      <section className="bg-destructive/8 max-w-4xl rounded-[1.5rem] border border-destructive/35 p-5 sm:p-8">
+      <section className="bg-destructive/8 h-full rounded-[1.5rem] border border-destructive/35 p-5 sm:p-8 md:col-span-2 xl:col-span-1">
         <div className="space-y-4">
           <div className="flex items-start gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-destructive/15 text-destructive">
