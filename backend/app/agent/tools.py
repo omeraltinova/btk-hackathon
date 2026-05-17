@@ -6,6 +6,7 @@ import base64
 import binascii
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated
@@ -1604,95 +1605,1050 @@ def _custom_lesson_forbidden(topic: str) -> bool:
     return any(re.search(pattern, normalized) for pattern in CUSTOM_LESSON_BLOCKED_ADVICE_PATTERNS)
 
 
+@dataclass(frozen=True)
+class _LessonContent:
+    """Topic-specific lesson body. Sections are (heading, body) pairs."""
+
+    goals: tuple[str, ...]
+    sections: tuple[tuple[str, str], ...]
+    examples: tuple[str, ...]
+    quiz: tuple[tuple[str, str], ...]
+
+
+# Rich profiles for the most-asked Turkish family finance topics.
+# Adult profiles serve beginner/intermediate/advanced; child profiles override
+# when the user is in the child finance level. Numeric examples use realistic
+# Turkish lira figures and never recommend specific products (P7, A-4).
+
+_LP_EMERGENCY_FUND_ADULT = _LessonContent(
+    goals=(
+        "Acil durum fonunun ne olduğunu ve aile bütçesinde hangi riskleri "
+        "karşıladığını ayırt edebilmek.",
+        "Hedef tutarı kendi geliri ve zorunlu giderleriyle hesaplayabilmek.",
+        "Fonu nereye koyacağını, nasıl koruyacağını ve hangi durumlarda "
+        "kullanacağını netleştirmek.",
+    ),
+    sections=(
+        (
+            "Acil durum fonu nedir?",
+            "Aniden gelen iş kaybı, ciddi sağlık masrafı, kritik ev veya araç "
+            "onarımı gibi planlı bütçenin dışındaki giderler için ayrılan, "
+            "kolay çekilebilen tampon paradır. Yatırım değildir; nakit "
+            "ihtiyacında ilk başvurulacak rezerv olarak durur.",
+        ),
+        (
+            "Hedef tutar nasıl hesaplanır?",
+            "Aylık zorunlu giderlerin (kira/aidat, fatura, market, kredi "
+            "taksiti) toplamı × 3 ila 6 ay. Örnek: aylık zorunlu gider "
+            "12.000 ₺ ise 36.000–72.000 ₺ makul aralıktır. Tek gelirli "
+            "aileler üst banda, çift gelirli aileler alt banda yakın "
+            "hedef seçer.",
+        ),
+        (
+            "Nereye konur, ne zaman kullanılır?",
+            "Anında erişilebilen, ayrı izlenebilen ve değer dalgalanması "
+            "düşük bir yerde tutulur. Buradaki amaç getiri aramak değil, "
+            "ihtiyaç anında paraya hızla ulaşmaktır. Sadece gerçekten "
+            "beklenmeyen zorunlu giderlerde kullanılır; bayram, tatil veya "
+            "doğum günü gibi planlanabilir kalemler farklı zarfta planlanır, "
+            "bu fona dokunulmaz.",
+        ),
+        (
+            "Bugünden atılacak ilk adım",
+            "Aylık otomatik talimatla ücretin %5–10'unu ayrı bir hesaba "
+            "aktar. İlk eşik olarak 1 aylık zorunlu gideri biriktir; "
+            "sonra kademeli olarak 3 aya, sonra 6 aya çıkar.",
+        ),
+    ),
+    examples=(
+        "Mehmet ailesinin aylık zorunlu gideri 15.000 ₺. Hedef tutar "
+        "3 ay × 15.000 = 45.000 ₺. Ayda 1.500 ₺ otomatik talimatla "
+        "yaklaşık 30 ayda hedefe ulaşılır; mevduat faizi süreyi biraz "
+        "daha kısaltır.",
+        "Ayşe ailesi 8.000 ₺'lik beklenmedik diş tedavisini acil fondan "
+        "öder. Aynı tutarı kredi kartı asgarisiyle ödeselerdi yaklaşık "
+        "18 ay sonunda 4.000 ₺'nin üzerinde ek faiz birikecekti.",
+    ),
+    quiz=(
+        (
+            "Acil durum fonu hedef tutarı genelde nasıl hesaplanır?",
+            "Aylık zorunlu giderlerin 3 ila 6 katı olarak; gelir kaynak "
+            "sayısına göre alt veya üst banda yaklaşılır.",
+        ),
+        (
+            "Bu fon yatırım amaçlı tutulur mu, planlı tatil için kullanılır mı?",
+            "Hayır. Birinci özelliği anında erişilebilir olmak. Sadece "
+            "beklenmedik zorunlu giderlerde kullanılır; tatil gibi "
+            "planlanabilir kalemler ayrı zarfta planlanır.",
+        ),
+    ),
+)
+
+_LP_EMERGENCY_FUND_CHILD = _LessonContent(
+    goals=(
+        "Acil durum nedir ve ailede neden ekstra para tutulduğunu anlamak.",
+        "Sürpriz harcama için ayrı bir kumbara veya kavanoz fikrini "
+        "günlük örneklerle düşünebilmek.",
+        "Bu paranın oyuncak için değil, gerçek acil ihtiyaç için ayrıldığını hatırlamak.",
+    ),
+    sections=(
+        (
+            "Acil durum nedir?",
+            "Beklemediğin bir şey olduğunda — bisikletin bozulduğunda, "
+            "sevdiğin biri için ilaç gerektiğinde — ailenin elindeki "
+            "yedek para. Buna 'sürpriz parası' diyebilirsin.",
+        ),
+        (
+            "Neden biriktiriyoruz?",
+            "Çünkü ihtiyaç anında borç almak veya başka hayalleri ertelemek "
+            "istemiyoruz. Sürpriz harcama için ayrı bir kumbara tutmak "
+            "işleri kolaylaştırır.",
+        ),
+        (
+            "Sen ne yapabilirsin?",
+            "Harçlığının küçük bir parçasını (örneğin haftada 5 ₺) ayrı "
+            "bir 'sürpriz parası' kumbarasına atabilirsin. Sıradan "
+            "istekler için değil; sadece beklenmedik bir şey olduğunda "
+            "kullanırsın.",
+        ),
+    ),
+    examples=(
+        "Diyelim ki bisikletinin tekerleği patladı, tamir 150 ₺. "
+        "Önceden sürpriz kumbarana 200 ₺ koymuşsan hemen çözebilirsin.",
+        "Doğum gününde 300 ₺ hediye aldın. 100 ₺'sini sürpriz kumbarasına, "
+        "100 ₺'sini hayalindeki oyuncağa, 100 ₺'sini küçük günlük "
+        "isteklere ayırabilirsin.",
+    ),
+    quiz=(
+        (
+            "Sürpriz parası ne için ayrılır?",
+            "Beklemediğin bir şey olduğunda — bozulan bir eşya, küçük "
+            "bir tamir veya başka acil ihtiyaç için.",
+        ),
+        (
+            "Bu parayı oyuncak almak için kullanır mıyız?",
+            "Hayır, çünkü oyuncak planlanabilir bir istek. Sürpriz "
+            "parası gerçekten beklemediğin durumlar içindir.",
+        ),
+    ),
+)
+
+_LP_INTEREST_ADULT = _LessonContent(
+    goals=(
+        "Faizin para üzerinde zamanla nasıl çalıştığını ve mevduat ile "
+        "kredi taraflarındaki yönünü ayırt edebilmek.",
+        "Yıllık ve aylık faiz arasındaki dönüşümü kabaca yapabilmek.",
+        "Faizin aile bütçesinde hangi karalara dokunduğunu görmek "
+        "(birikim hızı, borç maliyeti, hedef süresi).",
+    ),
+    sections=(
+        (
+            "Faiz nedir?",
+            "Para zamanla bir maliyet veya getiri taşır. Bankaya para "
+            "yatırdığında banka sana, krediyi kullandığında sen bankaya "
+            "faiz ödersin. Türkiye'de faiz oranları genelde yıllık "
+            "ifade edilir; aylık etkisi kabaca yıllık oranın 12'ye "
+            "bölümüdür.",
+        ),
+        (
+            "Mevduat vs kredi faizi",
+            "Mevduat faizi senin yararına çalışır: 10.000 ₺'yi yıllık "
+            "%40 brüt faizle 1 yıl tutarsan, vergi düşmeden önce yaklaşık "
+            "4.000 ₺ getiri görürsün. Kredi faizi tersine çalışır: aynı "
+            "10.000 ₺ borçluyken yıllık %60 faiz oranıyla 1 yıl sonunda "
+            "yaklaşık 16.000 ₺ ödeme yapman gerekebilir.",
+        ),
+        (
+            "Bütçeye nasıl dokunur?",
+            "Faiz birikim hedeflerini hızlandırır, borç yükünü ağırlaştırır. "
+            "Yüksek kredi kartı faizi ödüyorsan, aynı parayı birikime "
+            "yönlendirmek genelde daha hızlı kazandırır — çünkü kredi "
+            "kartı faizi mevduat faizinden çok daha yüksek olur.",
+        ),
+    ),
+    examples=(
+        "Bir aile aylık 1.000 ₺'yi yıllık %35 net mevduat faiziyle 24 ay "
+        "biriktirir. Toplam yatırım 24.000 ₺ olur, biriken bakiye yaklaşık "
+        "33.000 ₺ civarında çıkar (basit hesapla).",
+        "Aynı aile 24.000 ₺ kredi kartı borcunu yıllık %85 faizle ödese, "
+        "asgari ödemeyle borç çok daha yavaş azalır ve ek faiz toplamı "
+        "12 ay içinde rahatlıkla 10.000 ₺'nin üzerine çıkabilir.",
+    ),
+    quiz=(
+        (
+            "Yıllık %48 faiz oranı kabaca aylık ne kadar eder?",
+            "Yaklaşık aylık %4 (48 ÷ 12). Bileşik etki dahil edilince biraz daha yüksek çıkar.",
+        ),
+        (
+            "Faiz öderken mi yoksa kazanırken mi para senin yararına çalışır?",
+            "Kazanırken (mevduat). Öderken (kredi/kredi kartı) faiz aile bütçesinden çıkar.",
+        ),
+    ),
+)
+
+_LP_INTEREST_CHILD = _LessonContent(
+    goals=(
+        "Faizin 'paranın zamanla büyümesi' olduğunu somut bir hikâyeyle anlamak.",
+        "Kumbara ve mevduat hesabı arasındaki farkı dondurma veya oyuncak örneğiyle düşünmek.",
+        "Küçük tutarların zamanla nasıl büyüdüğünü görmek.",
+    ),
+    sections=(
+        (
+            "Faiz nedir?",
+            "Diyelim ki bankaya 100 ₺ koydun. Banka 'bana bir yıl bıraktığın "
+            "için sağ ol' deyip sana 30 ₺ daha ekledi. İşte bu eklenen "
+            "para, faiz. Para zamanla seninle birlikte çalışmış oldu.",
+        ),
+        (
+            "Kumbara ile fark",
+            "Kumbarada 100 ₺ koyduğunda yıl sonunda hâlâ 100 ₺ olur. "
+            "Bankada faizle birlikte 130 ₺ olur. Ama kumbara da iyidir: "
+            "her hafta düzenli koymaya alıştırır.",
+        ),
+        (
+            "Sabırlı olmak işe yarıyor",
+            "Faiz küçükken büyük değildir; ama sabırla beklersen küçük "
+            "tutarlar bile zamanla büyüyebilir. İki yıl beklediğinde 100 ₺ "
+            "yaklaşık 170 ₺'ye yakın olabilir.",
+        ),
+    ),
+    examples=(
+        "Doğum gününde 200 ₺ aldın. 100 ₺'sini bankaya koysan, bir yıl "
+        "sonra yaklaşık 130 ₺ olabilir. Yani 30 ₺ kazanmış olursun.",
+        "Eğer her ay harçlığından 50 ₺ ayırıp banka hesabına koyarsan, "
+        "yıl sonunda hem biriktirdiğin 600 ₺ hem de faizden gelen "
+        "ekstra para birikir.",
+    ),
+    quiz=(
+        (
+            "Bankaya 100 ₺ koyduğun zaman ne olur?",
+            "Bir süre sonra banka teşekkür olarak ekstra para ekler. Bu ekstra paraya faiz denir.",
+        ),
+        (
+            "Kumbarada para faizle büyür mü?",
+            "Hayır, kumbara faiz vermez. Ama düzenli para atma alışkanlığı kazandırır.",
+        ),
+    ),
+)
+
+_LP_COMPOUND_INTEREST_ADULT = _LessonContent(
+    goals=(
+        "Bileşik faizin 'faizin faizi' olduğunu ve süre ile çarpıldığında "
+        "nasıl hızlandığını görmek.",
+        "Basit faiz ile bileşik faizi sayısal bir örnekle ayırt edebilmek.",
+        "Bileşik etkiyi birikim hedefinde ve borç yönetiminde değerlendirebilmek.",
+    ),
+    sections=(
+        (
+            "Bileşik faiz nedir?",
+            "Anaparan ürettiği faiz tekrar anaparaya eklenir; bir sonraki "
+            "dönem faiz, bu yeni ve büyümüş anapara üzerinden işler. "
+            "Formül: Son tutar = Anapara × (1 + faiz oranı) ^ dönem sayısı.",
+        ),
+        (
+            "Basit faiz ile farkı",
+            "Basit faiz her dönem sadece ilk anapara üzerinden hesaplanır. "
+            "Bileşik faiz, kazanılan faizi de dahil eder. Süre uzadıkça "
+            "fark büyür: kısa vadede ufak, uzun vadede çok belirgin olur.",
+        ),
+        (
+            "Bütçe ve hedef açısından önemi",
+            "Birikim tarafında bileşik faiz hedefe daha çabuk götürür. "
+            "Borç tarafında ise (özellikle kredi kartı, ihtiyaç kredisi) "
+            "bileşik etki ödenecek toplam tutarı sessizce büyütür. Bu "
+            "yüzden yüksek faizli borçları erken kapatmak önemli olur.",
+        ),
+    ),
+    examples=(
+        "10.000 ₺ anaparayı yıllık %40 bileşik faizle 5 yıl tutarsan: "
+        "10.000 × 1,40 ^ 5 ≈ 53.782 ₺. Aynı dönemde basit faizle "
+        "yaklaşık 30.000 ₺ olurdu — bileşik etki yaklaşık 23.000 ₺ "
+        "fazladan kazandırır (vergi etkisi hariç, eğitsel hesap).",
+        "Bir aile 24.000 ₺ kredi kartı borcunu sadece asgariyle ödediğinde, "
+        "aylık bileşik faiz etkisiyle 18 ay sonunda toplam ödenecek tutar "
+        "kolayca 33.000 ₺'yi geçebilir.",
+    ),
+    quiz=(
+        (
+            "Bileşik faiz formülü nedir?",
+            "Son tutar = Anapara × (1 + faiz oranı) ^ dönem sayısı.",
+        ),
+        (
+            "Süre uzadıkça bileşik etki nasıl davranır?",
+            "Üstel olarak büyür; ilk yıllarda küçük görünür, sonraki "
+            "yıllarda kazanç (veya borç) hızı belirgin artar.",
+        ),
+    ),
+)
+
+_LP_INFLATION_ADULT = _LessonContent(
+    goals=(
+        "Enflasyonun fiyatlar genel seviyesindeki artış olduğunu ve alım "
+        "gücünü nasıl aşındırdığını anlamak.",
+        "TÜFE (Tüketici Fiyat Endeksi) kavramının ne ölçtüğünü görmek.",
+        "Aile bütçesinde enflasyon karşısında hangi kararların önem kazandığını ayırt etmek.",
+    ),
+    sections=(
+        (
+            "Enflasyon nedir?",
+            "Mal ve hizmetlerin ortalama fiyatlarının zamanla yükselmesidir. "
+            "Aynı 100 ₺ ile geçen yıl daha fazla ürün alabiliyorduysan ve "
+            "bu yıl daha az alabiliyorsan, paranın alım gücü düşmüş "
+            "demektir.",
+        ),
+        (
+            "TÜFE neyi ölçer?",
+            "TÜİK her ay bir 'sepet' (market, kira, ulaşım, eğitim, "
+            "sağlık vb. kalemler) belirleyip fiyat değişimini izler. Yıllık "
+            "TÜFE %40 dediğimizde, ortalama sepetin geçen yıla göre %40 "
+            "pahalandığını söylüyoruz.",
+        ),
+        (
+            "Bütçeye etkisi ve karar noktaları",
+            "Sabit gelirli bir aile, gelir artışı enflasyonun gerisinde "
+            "kalırsa reel olarak fakirleşir. Bu yüzden gider zarflarını "
+            "düzenli güncellemek, tekrarlayan ödemeleri yıllık olarak "
+            "gözden geçirmek ve birikim hedefini enflasyonu göz önünde "
+            "bulundurarak ayarlamak önemli olur.",
+        ),
+    ),
+    examples=(
+        "Bir ekmek geçen yıl 5 ₺, bu yıl 8 ₺ olduysa o kalemde fiyat "
+        "artışı %60. Aile bütçesindeki market zarfında bunu görmezden "
+        "gelmek, ay sonu açığını gizler.",
+        "Aylık 18.000 ₺ giderle yaşayan bir aile, yıllık %50 TÜFE "
+        "ortamında bir sonraki yıl aynı yaşam standardı için yaklaşık "
+        "27.000 ₺'ye ihtiyaç duyacak.",
+    ),
+    quiz=(
+        (
+            "Alım gücü ne demek?",
+            "Aynı parayla satın alınabilecek mal ve hizmet miktarı. "
+            "Enflasyon yüksek olduğunda aynı para daha az şey alır.",
+        ),
+        (
+            "Enflasyon karşısında bütçede hangi pratik adım atılır?",
+            "Zarf bütçesini düzenli güncellemek, tekrarlayan ödemeleri "
+            "yılda en az bir kez gözden geçirmek ve birikim katkısını "
+            "fiyat artışına göre ayarlamak.",
+        ),
+    ),
+)
+
+_LP_BUDGET_ADULT = _LessonContent(
+    goals=(
+        "Aile bütçesinin gelir-gider tablosundan daha fazlası olduğunu, "
+        "zarf metoduyla nasıl yönetildiğini görmek.",
+        "50/30/20 gibi pratik bir paylaştırma kuralını kavramak.",
+        "Ay başı plan ve ay sonu denge tablosu döngüsünü kurmak.",
+    ),
+    sections=(
+        (
+            "Bütçenin amacı",
+            "Bütçe, paranın nereye gittiğini takip etmek değil; nereye "
+            "gideceğine önceden karar vermektir. Aile bütçesinde temel "
+            "bölmeler 'zorunlu giderler', 'planlı istekler' ve 'birikim' "
+            "şeklinde düşünülebilir.",
+        ),
+        (
+            "Zarf metodu",
+            "Net gelir aylık olarak zarflara bölünür: Market, Fatura, Okul, "
+            "Ulaşım, Harçlık, Birikim. Her zarfın kendi limiti vardır. "
+            "Bir zarf bitince diğerine 'borç verilebilir' ama bunun "
+            "kayıtla, planla yapılması gerekir; yoksa kontrol kaybolur.",
+        ),
+        (
+            "50/30/20 kuralı",
+            "Net gelirin %50'si zorunlu giderler, %30'u istek/yaşam "
+            "kalitesi, %20'si birikim ve borç kapatma olarak ayrılır. "
+            "Türkiye gibi yüksek enflasyon olan ülkelerde bu oranları "
+            "aileye göre uyarlamak gerekir; ama temel fikir 'birikim "
+            "kendine pay ayırır' olmasıdır.",
+        ),
+        (
+            "Aylık döngü",
+            "Ay başı: zarflara para ayır, otomatik talimatları kontrol et. "
+            "Hafta sonları: zarf bakiyelerine bak, gerekirse küçük "
+            "düzeltme yap. Ay sonu: gerçekleşen tablo ile plan arasındaki "
+            "farkı yaz, ne öğrendiğine bir cümleyle karar ver.",
+        ),
+    ),
+    examples=(
+        "Net gelir 30.000 ₺ olan bir ailede %50/30/20 yaklaşımı: "
+        "15.000 ₺ zorunlu, 9.000 ₺ planlı istek, 6.000 ₺ birikim ve borç. "
+        "Aile yüksek kirayla yaşıyorsa zorunlu oran %60'a çıkabilir; "
+        "birikim oranı düşse bile sıfırlanmaması önerilir.",
+        "Market zarfı 4.000 ₺ ayrılan bir ailede 25. gün 3.700 ₺ "
+        "harcanmışsa, kalan 5 gün için günlük yaklaşık 60 ₺ güvenli "
+        "harcama hedeflenebilir.",
+    ),
+    quiz=(
+        (
+            "Zarf bütçesinin temel fikri nedir?",
+            "Her gider kategorisine ay başından önceden bir limit ayırıp "
+            "ay içinde o limit içinde kalmaya çalışmak.",
+        ),
+        (
+            "50/30/20 kuralında %20 nereye gider?",
+            "Birikim ve borç kapatmaya. Bu pay aile dışında kalan tüm "
+            "harcama baskısına rağmen korunmaya çalışılır.",
+        ),
+    ),
+)
+
+_LP_SAVINGS_HABIT_ADULT = _LessonContent(
+    goals=(
+        "Tasarrufun bir tutar değil, alışkanlık olduğunu görmek.",
+        "Ay başı / ay sonu arasındaki farkı anlamak ve otomatik talimatın "
+        "neden işe yaradığını kavramak.",
+        "Küçük ama düzenli adımların yıllık etkisini somut hesapla değerlendirmek.",
+    ),
+    sections=(
+        (
+            "Tasarruf neden zor?",
+            "Ay sonunda 'kalanı biriktiririm' yaklaşımı genelde başarısız "
+            "olur, çünkü harcamalar gelirin tamamını doldurma eğilimindedir. "
+            "Bu yüzden tasarruf önce, harcama sonra yaklaşımı daha "
+            "sürdürülebilirdir.",
+        ),
+        (
+            "Otomatik talimatın gücü",
+            "Maaş gününün ertesi günü, belirli bir tutarı (örneğin gelirin "
+            "%10'u) ayrı bir hesaba otomatik aktaran bir talimat tanımla. "
+            "Bu yöntemde tasarruf bir karar değil, varsayılan davranıştır.",
+        ),
+        (
+            "Küçük tutarların etkisi",
+            "Ayda 500 ₺ otomatik birikim yıllık 6.000 ₺ eder. Yıllık ortalama "
+            "%30 net faizle 5 yıl sonunda yaklaşık 56.000 ₺'ye yaklaşır. "
+            "Tutar küçükken bile süre etkisi hissedilir.",
+        ),
+    ),
+    examples=(
+        "Aylık 600 ₺ otomatik tasarruf yapan bir aile, 12 ay sonunda "
+        "7.200 ₺ + faiz eder; bu tutar 1 aylık zorunlu giderini bile "
+        "karşılayan bir başlangıç tamponuna dönüşebilir.",
+        "Aynı aile, abonelik gözden geçirmesiyle aylık 250 ₺ tasarruf "
+        "ekler. Yeni toplam ayda 850 ₺ olur; yıllık etkisi yaklaşık "
+        "3.000 ₺ artar.",
+    ),
+    quiz=(
+        (
+            "Tasarruf neden 'önce ayır, sonra harca' biçiminde kurulur?",
+            "Çünkü harcama, gelirin tamamını dolduracak şekilde "
+            "şekillenir. Önceden ayırmadığında ay sonunda biriken "
+            "tutar genelde sıfıra yakın çıkar.",
+        ),
+        (
+            "Otomatik talimat ne işe yarar?",
+            "Tasarrufu kararla değil, varsayılan davranışla yapar; irade testini ortadan kaldırır.",
+        ),
+    ),
+)
+
+_LP_MIN_PAYMENT_ADULT = _LessonContent(
+    goals=(
+        "Kredi kartı asgari ödemenin ne anlama geldiğini ve neden tuzak olabileceğini anlamak.",
+        "Asgari ödemeyle borcun zaman içinde nasıl şişebildiğini sayısal olarak görmek.",
+        "Borç kapatmada hangi yaklaşımların daha hızlı ilerlettiğini ayırt etmek.",
+    ),
+    sections=(
+        (
+            "Asgari ödeme nedir?",
+            "Kredi kartı ekstresinde belirtilen ve gecikme/yasal işleme "
+            "düşmemek için yapman gereken en düşük ödeme. Türkiye'de "
+            "bankalar tarafından genellikle ekstre tutarının belirli "
+            "yüzdesi olarak hesaplanır.",
+        ),
+        (
+            "Faiz nasıl çalışır?",
+            "Sadece asgariyi ödediğinde kalan borç bakiyesi bir sonraki "
+            "ay tekrar faizlenir. Türkiye'de kredi kartı faizleri "
+            "yüksek seyrettiği için ay ay birikip bileşik etkiyle "
+            "büyür.",
+        ),
+        (
+            "Pratik çıkış stratejisi",
+            "Mümkünse asgarinin üzerinde ödeme yap — sabit aylık ek "
+            "tutar belirle (örneğin asgari + 1.000 ₺) ve düzenli "
+            "öde. Birden fazla borcu olan bir aile için 'çığ' "
+            "(en yüksek faizli önce) veya 'kartopu' (en küçük "
+            "borç önce) yaklaşımları yaygındır.",
+        ),
+    ),
+    examples=(
+        "8.400 ₺ kredi kartı borcu yıllık yaklaşık %85 faiz (aylık ~%5,3) "
+        "ile sadece asgari (~%20) ödenirse, 18 ay sonunda ödenen toplam "
+        "faiz 4.700 ₺'yi rahatlıkla geçer.",
+        "Aynı 8.400 ₺ borçta aylık 1.000 ₺ ek ödeme yapılırsa, borç "
+        "yaklaşık 10–12 ay içinde tamamen kapanır ve ödenen toplam "
+        "faiz birkaç bin lira azalır.",
+    ),
+    quiz=(
+        (
+            "Asgari ödeme yapmak borcu kapatır mı?",
+            "Hayır; sadece gecikmeyi önler. Kalan bakiye faizlenmeye "
+            "devam eder ve borç bileşik etkiyle uzayabilir.",
+        ),
+        (
+            "Birden fazla borçta hangi yaklaşımlar var?",
+            "Çığ yöntemi (en yüksek faizli borca odaklan) ve kartopu "
+            "yöntemi (en küçük bakiyeli borca odaklan). Hangisinin "
+            "daha sürdürülebilir olduğu ailenin motivasyonuna göre "
+            "değişir.",
+        ),
+    ),
+)
+
+_LP_SUBSCRIPTION_ADULT = _LessonContent(
+    goals=(
+        "Abonelik (Netflix, Spotify, dergi, dijital servisler) gibi "
+        "tekrarlayan ödemelerin aylık ve yıllık etkisini görmek.",
+        "Kullanım skoru kavramını anlamak: ödediğin tutara karşılık "
+        "gerçekten ne kadar faydalanıyorsun?",
+        "Ay sonu yerine yılda bir 'abonelik temizliği' alışkanlığını kurmak.",
+    ),
+    sections=(
+        (
+            "Aboneliklerin gizli etkisi",
+            "Küçük tutarlar (örneğin 50–150 ₺) tek başına büyük "
+            "görünmez ama bir araya geldiğinde aylık birkaç yüz ₺ "
+            "etkiye ulaşır. Yıllığa çevrildiğinde tutar net "
+            "şekilde fark edilir.",
+        ),
+        (
+            "Kullanım skoru",
+            "Bir aboneliği son 90 günde kaç kez kullandığını düşün. "
+            "Hiç kullanmıyorsan skor düşüktür ve maliyet boşa "
+            "gidiyor demektir. 'Belki ileride lazım olur' "
+            "yaklaşımı yıllık 1.000 ₺'lik kayıplara yol açabilir.",
+        ),
+        (
+            "Yıllık temizlik alışkanlığı",
+            "Yılda bir kez (örneğin yıl başında) tüm aktif aboneliklerini "
+            "listele. Üç soruyu sor: son 90 günde kaç kez kullandım, "
+            "alternatif daha ucuz mu, gerçekten gerekli mi? Bu kontrolle "
+            "ailenin yıllık birkaç bin ₺ tasarruf etmesi sıradandır.",
+        ),
+    ),
+    examples=(
+        "Aylık 230 ₺ olan bir dijital servis yıllık 2.760 ₺ eder. Eğer "
+        "ayda 1–2 kez kullanılıyorsa, kullanım başına maliyet 100–230 ₺ "
+        "civarına çıkar.",
+        "Bir ailenin 4 farklı dijital servisi var: aylık toplam 720 ₺, "
+        "yıllık 8.640 ₺. İki tanesi 90 gündür kullanılmıyor; iptal "
+        "edilirse aylık 380 ₺ tasarruf, yıllık ~4.500 ₺.",
+    ),
+    quiz=(
+        (
+            "Kullanım skoru ne işe yarar?",
+            "Bir aboneliğin ödediğin paraya kıyasla gerçek faydasını "
+            "ölçer. Düşük skorlu abonelikler iptal adayıdır.",
+        ),
+        (
+            "Aboneliği aylık değil yıllık tutarla düşünmek neden faydalı?",
+            "Çünkü küçük tutarlar yıllığa çevrildiğinde gerçek "
+            "büyüklüğü daha net görünür ve karar vermek kolaylaşır.",
+        ),
+    ),
+)
+
+_LP_DIVERSIFICATION_ADULT = _LessonContent(
+    goals=(
+        "Çeşitlendirmenin neden 'tüm yumurtaları aynı sepete koyma' kuralı olduğunu kavramak.",
+        "Risk dağıtmanın aile bütçesinde — yatırım değil bütçe yapısında — "
+        "nasıl uygulanabileceğini görmek.",
+        "Çeşitlendirmenin neden ürün seçimi değil, plan çeşidi olduğunu anlamak (eğitim amaçlı).",
+    ),
+    sections=(
+        (
+            "Çeşitlendirme nedir?",
+            "Bir riskin tek bir kaynağa bağımlı olmamasıdır. Aile "
+            "bütçesinde örneğin tek gelirden çift gelire geçmek, tek "
+            "para birimine değil farklı zarflara hedef koymak, ya da "
+            "acil durum fonunu farklı vade/erişim seviyelerinde "
+            "tutmak çeşitlendirmeye örnektir.",
+        ),
+        (
+            "Neden işe yarar?",
+            "Tek kaynaklı planlar tek bir olumsuzlukta tüm dengeyi bozar. "
+            "Çeşitlendirilmiş planda bir koldaki dalgalanma diğeriyle "
+            "dengelenir; ailenin nakit akışı daha öngörülebilir olur.",
+        ),
+        (
+            "Önemli sınır: tavsiye değil",
+            "Bu ders belirli bir ürün, fon, hisse, kripto, altın veya "
+            "döviz alımını/satımını önermez. Çeşitlendirmenin nasıl bir "
+            "düşünce yapısı olduğunu açıklar; somut yatırım kararları "
+            "için lisanslı uzman görüşü gerekir.",
+        ),
+    ),
+    examples=(
+        "Aylık geliri yalnızca tek bir kaynaktan gelen bir aile, ikinci "
+        "küçük bir gelir akışı (freelance iş, kira geliri, ek "
+        "ücretli ders) kurarak risklerini dağıtabilir.",
+        "Birikim hedefi olan bir aile, hedefin tamamını tek bir araçta "
+        "değil; bir kısmını acil durum fonu için likit hesapta, bir "
+        "kısmını uzun vadeli birikim için ayrı bir hesapta tutarak "
+        "zaman ve erişim çeşitliliği sağlar.",
+    ),
+    quiz=(
+        (
+            "Çeşitlendirme tek başına garantili kazanç verir mi?",
+            "Hayır. Risk dağıtmak, kayıp olasılığını kontrollü tutmak "
+            "için kullanılır; getiri vaadi içermez.",
+        ),
+        (
+            "Bu ders hangi ürünü almanı söyler?",
+            "Hiçbirini. Eğitim amaçlıdır; belirli ürün, fon, hisse veya kripto tavsiyesi yapılmaz.",
+        ),
+    ),
+)
+
+_LP_INCOME_EXPENSE_ADULT = _LessonContent(
+    goals=(
+        "Gelir ve giderin sadece bir tablo değil, ay başı/ay sonu döngüsü olduğunu görmek.",
+        "Sabit vs değişken kalemleri ayırmak.",
+        "Aylık denge tablosunu hızlıca okuyabilmek.",
+    ),
+    sections=(
+        (
+            "Gelir tarafı",
+            "Net maaş, ek iş, kira geliri, harçlık, freelance, hediye "
+            "gibi kaynakların ay içinde ne zaman geldiğini bilmek "
+            "ödeme planını netleştirir. Sabit gelir (maaş) ve "
+            "değişken gelir (freelance, prim) ayrı düşünülmelidir.",
+        ),
+        (
+            "Gider tarafı",
+            "Sabit giderler: kira, fatura, kredi taksiti, abonelikler. "
+            "Değişken giderler: market, ulaşım, eğlence, yemek. "
+            "Sabit giderler genelde gelir gününe yakın planlanırken "
+            "değişken giderler ay içine yayılır.",
+        ),
+        (
+            "Aylık denge tablosu",
+            "Net gelir – sabit giderler – değişken giderler – birikim = "
+            "ay sonu kalan. Bu kalan sıfıra yakınsa bütçe gergin "
+            "demektir; eksiye düşüyorsa zarf metodu veya gider "
+            "gözden geçirme adımı atılmalıdır.",
+        ),
+    ),
+    examples=(
+        "Net gelir 28.000 ₺ olan bir ailede: sabit giderler 14.000 ₺, "
+        "değişken giderler 9.000 ₺, birikim 3.000 ₺. Ay sonu kalan "
+        "2.000 ₺; bu rezerv ay içi sürprizleri karşılar.",
+        "Aynı ailede bir abonelik yenilemesi sabit giderleri 14.500 ₺'ye "
+        "çıkarsa, birikim payını azaltmadan değişken giderlerden "
+        "500 ₺ tasarruf hedefi gerekir.",
+    ),
+    quiz=(
+        (
+            "Sabit ve değişken gider farkı nedir?",
+            "Sabit gider tutarı aydan aya neredeyse aynı kalan kalemlerdir "
+            "(kira, abonelik). Değişken gider tutarı her ay farklı olabilen "
+            "kalemlerdir (market, ulaşım, eğlence).",
+        ),
+        (
+            "Ay sonu kalan eksiye düşüyorsa ilk hangi adım atılır?",
+            "Zarf bütçesini güncelleyip sabit giderlerden veya "
+            "tekrarlayan ödemelerden başlayarak gözden geçirmek.",
+        ),
+    ),
+)
+
+_LP_STATEMENT_READING_ADULT = _LessonContent(
+    goals=(
+        "Kredi kartı ekstresinin temel alanlarını tanımak.",
+        "Asgari, son ödeme tarihi, ekstre tarihi, dönem borcu gibi kavramları ayırt etmek.",
+        "Ekstrede gizli kalan tekrarlayan ödemeleri fark etmek.",
+    ),
+    sections=(
+        (
+            "Ekstre nedir?",
+            "Kredi kartı işlemlerinin bir aylık döneme sıkıştırılmış "
+            "raporu. Ekstre tarihi (kesim günü), son ödeme tarihi, "
+            "dönem borcu ve asgari ödeme tutarı en kritik bilgilerdir.",
+        ),
+        (
+            "Temel alanlar",
+            "Ekstre tarihi: işlemlerin kesildiği gün. Son ödeme tarihi: "
+            "geç kalmadan ödeme yapılması gereken son gün (genelde "
+            "ekstre tarihinden 10 gün sonra). Dönem borcu: bu ekstrede "
+            "ödenecek toplam. Asgari: gecikmeden kurtulmak için en az "
+            "ödenmesi gereken tutar.",
+        ),
+        (
+            "Tekrarlayan ödemeleri yakalamak",
+            "Ekstrede her ay benzer satıcıdan benzer tutarda görülen "
+            "satırlar genelde abonelik veya otomatik ödemedir. Bunları "
+            "ayrı bir kontrol listesinde tut; yılda bir kez gerçekten "
+            "kullanılıp kullanılmadığını sor.",
+        ),
+    ),
+    examples=(
+        "Ekstre tarihi her ayın 5'i olan bir kartta son ödeme tarihi "
+        "genelde 15'i civarındadır. Bu tarihten önce yapılan ödeme "
+        "faiz veya gecikme cezası yaratmaz.",
+        "Bir aile ekstrede üç ay üst üste 230 ₺ olarak görünen bir "
+        "satırı fark ediyor: aslında 2 yıldır kullanılmayan bir "
+        "dijital servis. İptal ile yıllık 2.760 ₺ tasarruf doğar.",
+    ),
+    quiz=(
+        (
+            "Son ödeme tarihi ne anlama gelir?",
+            "Gecikme faizi veya cezası doğmadan ödeme yapılması gereken "
+            "son gün. Bu tarihten sonra ödeme yapılırsa ek maliyet "
+            "doğar.",
+        ),
+        (
+            "Aynı satıcıdan her ay aynı tutarda işlem görülürse ne ihtimal?",
+            "Büyük olasılıkla bir abonelik veya otomatik ödeme; gerçekten "
+            "kullanılıyor mu diye yıllık kontrol önerilir.",
+        ),
+    ),
+)
+
+_LP_ALLOWANCE_CHILD = _LessonContent(
+    goals=(
+        "Harçlığın 'serbest para' değil, planlanabilir bir kaynak olduğunu görmek.",
+        "Harçlığı 'şimdi harca', 'biriktir' ve 'paylaş' gibi üç küçük "
+        "bölmeye ayırma fikrini denemek.",
+        "Bir hafta sonunda kendi cebine bakıp ne öğrendiğini söylemek.",
+    ),
+    sections=(
+        (
+            "Harçlık nedir?",
+            "Ailenin sana belirli bir süre için verdiği para. Bu para "
+            "senin küçük kararlarını öğrenmen için. Geldiği anda hemen "
+            "bitirmek zorunda değilsin; bir kısmını saklayabilirsin.",
+        ),
+        (
+            "Üç bölmeli kumbara",
+            "Aldığın 100 ₺ harçlığı üç parçaya böl: 50 ₺ şu hafta için "
+            "(istediğin küçük şeyler), 30 ₺ biriktirmek için (büyük bir "
+            "hayal), 20 ₺ paylaşmak veya beklenmedik durum için. Tutar "
+            "küçükse oranı koru.",
+        ),
+        (
+            "Hafta sonu küçük kontrol",
+            "Hafta sonunda kumbarana bak: planına ne kadar uydun? "
+            "Bir sonraki hafta için bir şey değiştirmek ister misin? "
+            "Bu konuşma anne baban ile yapılırsa daha eğlenceli olur.",
+        ),
+    ),
+    examples=(
+        "Hayalindeki oyuncak 600 ₺. Haftalık 30 ₺ biriktirirsen "
+        "yaklaşık 20 haftada (5 ayda) hedefe ulaşırsın. Eğer doğum "
+        "günü hediyesinden bir miktar eklersen süre kısalır.",
+        "Bu hafta harçlığının 50 ₺'sini hemen harcadın, 30 ₺'sini "
+        "kumbaraya attın, 20 ₺'sini doğum günü hediyesi için "
+        "ayırdın. Önümüzdeki hafta planını biraz değiştirebilirsin.",
+    ),
+    quiz=(
+        (
+            "Harçlığın tamamını hemen harcamak zorunda mısın?",
+            "Hayır. Bir kısmını biriktirip daha büyük bir hayal için kullanabilirsin.",
+        ),
+        (
+            "Üç bölmeli kumbarada üç bölme genelde ne için?",
+            "Şimdi harcamak için, biriktirmek için ve paylaşmak veya sürpriz harcama için.",
+        ),
+    ),
+)
+
+_LP_NEED_WANT_CHILD = _LessonContent(
+    goals=(
+        "İhtiyaç ile istek arasındaki farkı somut bir örnekle ayırmak.",
+        "Kantin alışverişinde veya çevrimiçi alışverişte küçük bir kontrol soru ezberlemek.",
+        "Karar verirken kumbara hedefini de düşünmeye alışmak.",
+    ),
+    sections=(
+        (
+            "İhtiyaç nedir?",
+            "Olmadan zorlanacağın şey. Mesela okul için kalem ya da defter "
+            "ihtiyaçtır. İhtiyaçlar genelde 'bu olmazsa ne olur?' sorusunun "
+            "cevabıyla 'işim çok zorlaşır' olur.",
+        ),
+        (
+            "İstek nedir?",
+            "Olmasını çok istediğin ama olmadan idare edebileceğin şey. "
+            "Şekerleme, çıkartma, ekstra bir oyuncak — bunlar istek "
+            "kategorisindedir.",
+        ),
+        (
+            "Karar verirken ezberlik soru",
+            "Bir şey almadan önce 'bu ihtiyaç mı, istek mi?' ve "
+            "'kumbara hedefimi etkiler mi?' diye sor. Eğer istek "
+            "ve hedefini geciktirecekse bir hafta beklemek genelde "
+            "iyi karardır.",
+        ),
+    ),
+    examples=(
+        "Kantin önünde durdun. Suluk gerekli (ihtiyaç). Yanına çikolata "
+        "almak istek. Çikolata 20 ₺, hayalindeki oyuncak 500 ₺. Bir "
+        "hafta çikolataya 'hayır' dersen hedefe 5 ₺ daha yaklaşırsın.",
+        "Yeni bir kalem kutusu istiyorsun. Eskisi hâlâ çalışıyor mu? "
+        "Çalışıyorsa istek; bozulduysa ihtiyaç.",
+    ),
+    quiz=(
+        (
+            "Suluk ihtiyaç mı istek mi?",
+            "Genelde ihtiyaç, çünkü su içmek zorundayız.",
+        ),
+        (
+            "Bir şey almadan önce hangi iki soruyu sorabilirsin?",
+            "1) Bu ihtiyaç mı yoksa istek mi? 2) Kumbara hedefimi geciktirir mi?",
+        ),
+    ),
+)
+
+_LP_PIGGY_BANK_CHILD = _LessonContent(
+    goals=(
+        "Kumbaranın 'küçük miktarların büyüdüğü yer' olduğunu hissetmek.",
+        "Tek seferlik büyük tutar yerine sürekli küçük katkının nasıl işe yaradığını görmek.",
+        "Kendine küçük bir kumbara kuralı koymak.",
+    ),
+    sections=(
+        (
+            "Kumbara neden işe yarar?",
+            "Çünkü küçük tutarları tek bir yerde toplar. Tek tek 5 ₺ "
+            "küçük görünür, ama bir araya gelince 'bak ne kadar olmuş' "
+            "deyip şaşırırsın.",
+        ),
+        (
+            "Bir kural seç",
+            "Mesela: 'her cuma kumbaraya 10 ₺' veya 'bana gelen her "
+            "hediyenin yarısı kumbaraya'. Kural küçük olsun ama "
+            "düzenli olsun.",
+        ),
+        (
+            "Hayalini görselleştir",
+            "Kumbaranı görebileceğin bir yere koy. Üzerine hedefini "
+            "yazabilirsin: 'Yaz tatili için' veya 'kitap için'. Her "
+            "para attığında hedefe biraz daha yaklaştığını hissedersin.",
+        ),
+    ),
+    examples=(
+        "Her hafta 20 ₺ kumbaraya. 10 hafta sonunda 200 ₺ olur. "
+        "Yıl sonunda 1.000 ₺'nin üzerinde birikim doğar.",
+        "Doğum gününde aldığın 500 ₺'nin 250 ₺'sini kumbaraya, "
+        "250 ₺'sini istediğin küçük şeylere ayırırsan iki tarafı "
+        "birden mutlu edersin.",
+    ),
+    quiz=(
+        (
+            "Tek seferlik büyük para mı, her hafta küçük para mı daha tutarlı bir birikim yapar?",
+            "Her hafta küçük para. Düzen alışkanlık yaratır ve hedefe "
+            "yavaş ama emin adımlarla yaklaştırır.",
+        ),
+        (
+            "Kumbaraya ne kadar atmalısın?",
+            "Kendine seçtiğin küçük bir kural kadar — örneğin haftada "
+            "10 ₺. Önemli olan tutar değil, tekrardır.",
+        ),
+    ),
+)
+
+
+_LESSON_PROFILES_ADULT: dict[str, _LessonContent] = {
+    "emergency_fund": _LP_EMERGENCY_FUND_ADULT,
+    "interest": _LP_INTEREST_ADULT,
+    "compound_interest": _LP_COMPOUND_INTEREST_ADULT,
+    "inflation": _LP_INFLATION_ADULT,
+    "budget": _LP_BUDGET_ADULT,
+    "savings_habit": _LP_SAVINGS_HABIT_ADULT,
+    "min_payment": _LP_MIN_PAYMENT_ADULT,
+    "subscription": _LP_SUBSCRIPTION_ADULT,
+    "diversification": _LP_DIVERSIFICATION_ADULT,
+    "income_expense": _LP_INCOME_EXPENSE_ADULT,
+    "statement_reading": _LP_STATEMENT_READING_ADULT,
+}
+
+_LESSON_PROFILES_CHILD: dict[str, _LessonContent] = {
+    "emergency_fund": _LP_EMERGENCY_FUND_CHILD,
+    "interest": _LP_INTEREST_CHILD,
+    "allowance": _LP_ALLOWANCE_CHILD,
+    "need_want": _LP_NEED_WANT_CHILD,
+    "piggy_bank": _LP_PIGGY_BANK_CHILD,
+}
+
+
+def _match_lesson_kind(topic: str) -> str | None:
+    """Map a free-form Turkish topic to a canonical lesson profile kind."""
+    normalized = topic.casefold()
+    # Order matters: more specific patterns first.
+    if "asgari" in normalized and ("kredi" in normalized or "kart" in normalized):
+        return "min_payment"
+    if re.search(r"\b(bile[şs]ik|compound)\b", normalized) and "faiz" in normalized:
+        return "compound_interest"
+    if "acil" in normalized and ("fon" in normalized or "durum" in normalized):
+        return "emergency_fund"
+    if "enflasyon" in normalized:
+        return "inflation"
+    if "bütçe" in normalized or "butce" in normalized:
+        return "budget"
+    if "abonelik" in normalized or "tekrarlayan" in normalized:
+        return "subscription"
+    if re.search(r"çe[şs]itlendirme|çe[şs]itlendir", normalized):
+        return "diversification"
+    if "ekstre" in normalized:
+        return "statement_reading"
+    if "tasarruf" in normalized or "biriktir" in normalized:
+        return "savings_habit"
+    if "ihtiyaç" in normalized and "istek" in normalized:
+        return "need_want"
+    if "kumbara" in normalized:
+        return "piggy_bank"
+    if "harçlık" in normalized or "harclik" in normalized or "haftalik" in normalized:
+        return "allowance"
+    if "faiz" in normalized:
+        return "interest"
+    if "gelir" in normalized and "gider" in normalized:
+        return "income_expense"
+    return None
+
+
+def _resolve_lesson_content(topic: str, level: str) -> _LessonContent | None:
+    kind = _match_lesson_kind(topic)
+    if kind is None:
+        return None
+    if level == "child":
+        return _LESSON_PROFILES_CHILD.get(kind) or _LESSON_PROFILES_ADULT.get(kind)
+    return _LESSON_PROFILES_ADULT.get(kind)
+
+
+def _distribute_lesson_minutes(total: int, count: int) -> list[int]:
+    """Split `total` minutes across `count` sections as evenly as possible."""
+    if count <= 0:
+        return []
+    base = max(1, total // count)
+    remainder = max(0, total - base * count)
+    return [base + (1 if index < remainder else 0) for index in range(count)]
+
+
 def _custom_lesson_goals(topic: str, level: str) -> list[str]:
+    content = _resolve_lesson_content(topic, level)
+    if content is not None:
+        return list(content.goals)
     if level == "child":
         return [
-            f"{topic} konusunu günlük hayattan bir örnekle tanımak.",
-            "Harçlık, kumbara veya okul alışverişi üzerinden küçük bir karar vermek.",
-            "Ders sonunda kendi cümlesiyle bir güvenli para alışkanlığı söylemek.",
+            f"{topic} konusunu günlük hayattan somut bir örnekle anlamak.",
+            "Bu konunun harçlık, kumbara veya doğum günü hediyesi gibi "
+            "küçük kararlara nasıl dokunduğunu görmek.",
+            "Ders sonunda kendi cümlesiyle bir küçük para alışkanlığı seçmek.",
         ]
     return [
-        f"{topic} kavramının aile bütçesine etkisini anlamak.",
-        "Gelir, gider, risk ve zaman etkisini birbirinden ayırmak.",
-        "Kendi bütçesinde uygulanabilir küçük bir takip adımı seçmek.",
+        f"{topic} kavramını gelir, gider, risk ve zaman penceresinden "
+        "ayrı ayrı değerlendirebilmek.",
+        "Bu konunun aile bütçesinin hangi zarfına veya satırına dokunduğunu "
+        "somut bir kalemle örneklemek.",
+        "Önümüzdeki 30 gün içinde izlenebilir tek bir takip adımı seçmek.",
     ]
 
 
 def _custom_lesson_sections(
     topic: str, level: str, duration_minutes: int
 ) -> list[dict[str, object]]:
-    intro_minutes = 1
-    practice_minutes = max(1, duration_minutes - 3)
-    wrap_minutes = max(1, duration_minutes - intro_minutes - practice_minutes)
-    if level == "child":
+    content = _resolve_lesson_content(topic, level)
+    if content is not None:
+        minutes_per_section = _distribute_lesson_minutes(duration_minutes, len(content.sections))
         return [
-            {
-                "title": "Kısa hikaye",
-                "minutes": intro_minutes,
-                "content": f"{topic} konusunu harçlık ve kumbara üzerinden tek cümleyle tanıt.",
-            },
-            {
-                "title": "Birlikte düşün",
-                "minutes": practice_minutes,
-                "content": "Bir oyuncak, kantin veya doğum günü hediyesi seçimiyle küçük karar oyunu yap.",
-            },
-            {
-                "title": "Mini söz",
-                "minutes": wrap_minutes,
-                "content": "Çocuğun bugün deneyebileceği tek para alışkanlığını seçtir.",
-            },
+            {"title": title, "minutes": minutes_per_section[index], "content": body}
+            for index, (title, body) in enumerate(content.sections)
         ]
+    if level == "child":
+        sections = (
+            (
+                "Konu nedir?",
+                f"{topic} konusunu bildiğin bir örnekle (harçlık, kumbara, "
+                "kantin) tek cümleyle anlat.",
+            ),
+            (
+                "Birlikte düşün",
+                "Bu konunun bir karara nasıl dokunduğunu küçük bir hikayeyle "
+                "canlandır: oyuncak, dondurma veya doğum günü hediyesi.",
+            ),
+            (
+                "Mini söz",
+                "Önümüzdeki hafta deneyebileceği tek bir küçük alışkanlığı "
+                "kendi cümlesiyle yazsın.",
+            ),
+        )
+    else:
+        sections = (
+            (
+                "Konu hangi karara hizmet ediyor?",
+                f"{topic} aile bütçesinin gelir, gider, risk veya zaman "
+                "tarafından hangi sorusuna cevap veriyor? Bir cümleyle yaz.",
+            ),
+            (
+                "Sayısal bir örnekle bağla",
+                "Aylık 15.000–25.000 ₺ gider bandındaki bir aileyi düşün. "
+                f"{topic} bir karara dönüştüğünde hangi kalem değişir, "
+                "tahmini etki kaç ₺ olur?",
+            ),
+            (
+                "Bugünden atılacak adım",
+                "Önümüzdeki 30 günde izlenebilir tek bir takip adımı seç: "
+                "ilgili zarfta bir limit güncelle, tekrarlayan bir ödemeyi "
+                "gözden geçir veya birikim katkısını ayarla.",
+            ),
+        )
+    minutes_per_section = _distribute_lesson_minutes(duration_minutes, len(sections))
     return [
-        {
-            "title": "Temel kavram",
-            "minutes": intro_minutes,
-            "content": f"{topic} nedir, aile bütçesinde hangi satıra dokunur?",
-        },
-        {
-            "title": "Bütçe üzerinde oku",
-            "minutes": practice_minutes,
-            "content": "Gelir, gider, tekrar eden ödeme veya hedef zarfı üzerinden somut bir örnek kur.",
-        },
-        {
-            "title": "Uygulanabilir adım",
-            "minutes": wrap_minutes,
-            "content": "Bugün yapılabilecek tek takip veya karşılaştırma adımını yaz.",
-        },
+        {"title": title, "minutes": minutes_per_section[index], "content": body}
+        for index, (title, body) in enumerate(sections)
     ]
 
 
 def _custom_lesson_examples(topic: str, level: str) -> list[str]:
+    content = _resolve_lesson_content(topic, level)
+    if content is not None:
+        return list(content.examples)
     if level == "child":
         return [
-            f"Kumbaranda 100 ₺ varsa {topic} kararını nasıl etkiler?",
-            "Kantin alışverişinden önce ihtiyaç ve istek ayrımı yap.",
+            f"Diyelim ki harçlığın 100 ₺. {topic} konusu bir karar gerektirse "
+            "(örneğin oyuncak almak), kumbara hedefini nasıl etkiler?",
+            "Kantin alışverişinden önce 'bu ihtiyaç mı, istek mi?' diye sor. "
+            "Cevaba göre küçük bir karar al.",
         ]
     return [
-        f"Aylık bütçede {topic} için küçük bir kontrol satırı aç.",
-        "Tekrarlayan bir ödemeyi veya hedef katkısını ay sonunda gerçekleşen tutarla karşılaştır.",
+        f"Aylık 18.000 ₺ giderli bir aile {topic} kalemini %5 ayarlasa, "
+        "aylık etki yaklaşık 900 ₺, yıllık etki yaklaşık 10.800 ₺ olur.",
+        f"Geçen ay kayıtlarına bak: {topic} ile ilişkilendirebileceğin bir "
+        "kalem var mı? Bu kalem aylık bütçenin yaklaşık yüzde kaçını "
+        "oluşturuyor?",
     ]
 
 
 def _custom_lesson_quiz(topic: str, level: str) -> list[dict[str, object]]:
+    content = _resolve_lesson_content(topic, level)
+    if content is not None:
+        return [{"question": question, "answer": answer} for question, answer in content.quiz]
     if level == "child":
         return [
             {
-                "question": f"{topic} kararında ilk neye bakarsın?",
-                "answer": "Gerçekten gerekli mi ve kumbaramdaki hedefi etkiler mi diye bakarım.",
+                "question": f"{topic} ile ilgili karar verirken ilk neye bakarsın?",
+                "answer": "Gerçekten gerekli mi, kumbaramdaki hedefe ne yapar "
+                "ve bir hafta bekleyebilir miyim diye düşünürüm.",
             },
             {
                 "question": "Küçük birikim neden işe yarar?",
-                "answer": "Çünkü küçük tutarlar zamanla büyür ve hedefe yaklaşmayı gösterir.",
+                "answer": "Çünkü küçük tutarlar düzenli olunca zamanla büyür "
+                "ve hayalindeki şeye yaklaştırır.",
             },
         ]
     return [
         {
-            "question": f"{topic} bütçede hangi soruyla kontrol edilir?",
-            "answer": "Gelirimi, giderimi, riskimi veya hedef süremi nasıl etkiliyor?",
+            "question": f"{topic} aile bütçesinde hangi dört pencereden değerlendirilir?",
+            "answer": "Gelir, gider, risk ve zaman. Her karar bu dört "
+            "pencereden en az birine dokunur.",
         },
         {
-            "question": "Bu ders yatırım tavsiyesi verir mi?",
-            "answer": "Hayır; sadece finansal okuryazarlık ve bütçe alışkanlığı anlatır.",
+            "question": "Bu ders belirli bir ürün veya yatırım tavsiyesi verebilir mi?",
+            "answer": "Hayır. Eğitim amaçlıdır; belirli ürün, fon, hisse, "
+            "kripto veya getiri tavsiyesi yapılmaz.",
         },
     ]
 
@@ -1716,8 +2672,10 @@ def build_custom_lesson(
             "topic": normalized_topic,
             "error": "Özel ders oluşturabilirim ama belirli ürün, al-sat veya getiri tavsiyesi veremem.",
         }
-    safe_duration = max(3, min(duration_minutes, 12))
     safe_level = _normalize_lesson_level(level, current_user)
+    matched_content = _resolve_lesson_content(normalized_topic, safe_level)
+    minimum_duration = len(matched_content.sections) if matched_content is not None else 3
+    safe_duration = max(minimum_duration, min(duration_minutes, 12))
     lesson: dict[str, object] = {
         "title": f"{normalized_topic}: {_lesson_level_label(safe_level)} dersi",
         "topic": normalized_topic,

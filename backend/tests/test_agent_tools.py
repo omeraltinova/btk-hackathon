@@ -608,6 +608,59 @@ def test_build_custom_lesson_returns_transient_structured_plan() -> None:
     assert "kalıcı" not in result
 
 
+def test_build_custom_lesson_uses_rich_emergency_fund_profile() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(
+        user,
+        topic="acil durum fonu",
+        level="beginner",
+        duration_minutes=5,
+        include_examples=True,
+        include_quiz=True,
+    )
+
+    sections = result["sections"]
+    examples = result["examples"]
+    quiz = result["mini_quiz"]
+
+    assert isinstance(sections, list)
+    assert isinstance(examples, list)
+    assert isinstance(quiz, list)
+    assert "3 ila 6 ay" in str(result)
+    assert "36.000–72.000 ₺" in str(result)
+    assert "getiri aramak değil" in str(result)
+    assert len(sections) >= 4
+    assert len(examples) >= 2
+    assert len(quiz) >= 2
+
+
+def test_build_custom_lesson_duration_covers_all_sections() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(
+        user,
+        topic="acil durum fonu",
+        level="beginner",
+        duration_minutes=3,
+    )
+
+    sections = result["sections"]
+    assert isinstance(sections, list)
+    assert result["duration_minutes"] == sum(
+        int(section["minutes"]) for section in sections if isinstance(section, dict)
+    )
+
+
+def test_build_custom_lesson_matches_turkish_diversification_topic() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(user, topic="Çeşitlendirme nedir?", level="advanced")
+
+    assert "tüm yumurtaları aynı sepete koyma" in str(result)
+    assert "belirli ürün" in str(result)
+
+
 def test_build_custom_lesson_rejects_product_advice_topics() -> None:
     user = make_user()
 

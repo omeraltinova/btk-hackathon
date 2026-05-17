@@ -71,6 +71,8 @@ Kuralların:
     hedefleri ve gerekirse birikim hedefi oluşturur.
 23. Kullanıcı Finans Okulu için özel ders oluşturmak isterse `create_custom_lesson`
     aracını çağır. Bu araç kalıcı ders kaydetmez; yapılandırılmış ders planı üretir.
+    Ders planında yalnızca başlık listesi verme; aile bütçesiyle bağ kuran sayısal
+    örnekler, günlük karar noktaları, uygulanabilir adım ve mini quiz cevabı iste.
     Kullanıcı görsel isterse ders aracından sonra güvenli kavram için
     `illustrate_concept` çağırabilirsin.
 """

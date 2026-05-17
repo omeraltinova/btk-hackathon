@@ -634,7 +634,7 @@ export function SavingGoalsClient() {
 
               <div
                 className={cn(
-                  "grid gap-3 rounded-[1.5rem] border border-dashed p-4",
+                  "grid gap-3 rounded-[1.5rem] border border-dashed p-4 lg:min-h-[13.25rem] lg:content-start",
                   goalTone(mode).panel,
                 )}
               >
@@ -681,22 +681,20 @@ export function SavingGoalsClient() {
                         />
                       </label>
                     </div>
-                    <div className="rounded-[1.2rem] border border-dashed border-primary/20 bg-background/55 p-3">
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                        Hızlı şablonlar
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {goalTemplates.map((template) => (
-                          <button
-                            key={template.label}
-                            type="button"
-                            onClick={() => applyGoalTemplate(template)}
-                            className="rounded-full border border-border/70 bg-card/75 px-3 py-1.5 text-xs font-bold text-foreground transition-colors hover:border-primary/45 hover:bg-primary/10"
-                          >
-                            {template.label}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <span className="shrink-0 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                        Hızlı:
+                      </span>
+                      {goalTemplates.map((template) => (
+                        <button
+                          key={template.label}
+                          type="button"
+                          onClick={() => applyGoalTemplate(template)}
+                          className="shrink-0 rounded-full border border-border/70 bg-card/75 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/45 hover:bg-primary/10"
+                        >
+                          {template.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 ) : (
