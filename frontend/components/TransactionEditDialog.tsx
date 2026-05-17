@@ -97,12 +97,17 @@ export function TransactionEditDialog({
       setError("İşlem için tarih ve saat seç.");
       return;
     }
+    const merchant = draft.merchant.trim();
+    if (!merchant) {
+      setError("Satıcı veya kaynak zorunlu.");
+      return;
+    }
 
     const payload: TransactionUpdateInput = {
       amount: normalizedAmount,
       type: draft.type,
       category_id: draft.categoryId || null,
-      merchant: draft.merchant || null,
+      merchant,
       description: draft.description || null,
       occurred_at: toIsoDateTime(draft.occurredAt),
     };
@@ -223,7 +228,8 @@ export function TransactionEditDialog({
                   current ? { ...current, merchant: event.target.value } : current,
                 )
               }
-              placeholder="İsteğe bağlı"
+              placeholder="Örn. Migros, maaş, kira"
+              required
             />
           </div>
 

@@ -911,10 +911,15 @@ function RecurringManagerDialog({
       setLocalError("Gelecek kayıtlar için tekrar aralığı 1 veya daha büyük olmalı.");
       return;
     }
+    const futureMerchant = futureDraft.merchant.trim();
+    if (!futureMerchant) {
+      setLocalError("Kurum veya satıcı zorunlu.");
+      return;
+    }
 
     const payload: SubscriptionUpdateInput = {
       name: futureDraft.name,
-      merchant: futureDraft.merchant || null,
+      merchant: futureMerchant,
       amount: normalizedAmount,
       type: futureDraft.type,
       billing_cycle: futureDraft.billingCycle,
@@ -952,12 +957,17 @@ function RecurringManagerDialog({
       setLocalError("Geçmiş kayıt için tarih ve saat seç.");
       return;
     }
+    const paymentMerchant = paymentDraft.merchant.trim();
+    if (!paymentMerchant) {
+      setLocalError("Satıcı veya kaynak zorunlu.");
+      return;
+    }
 
     const payload: TransactionUpdateInput = {
       amount: normalizedAmount,
       type: paymentDraft.type,
       category_id: paymentDraft.categoryId || null,
-      merchant: paymentDraft.merchant || null,
+      merchant: paymentMerchant,
       description: paymentDraft.description || null,
       occurred_at: toIsoDateTime(paymentDraft.occurredAt),
     };
@@ -1251,7 +1261,8 @@ function RecurringManagerDialog({
                         current ? { ...current, merchant: event.target.value } : current,
                       )
                     }
-                    placeholder="İsteğe bağlı"
+                    placeholder="Örn. Netflix, maaş kurumu"
+                    required
                   />
                 </div>
 
@@ -1429,7 +1440,8 @@ function RecurringManagerDialog({
                             current ? { ...current, merchant: event.target.value } : current,
                           )
                         }
-                        placeholder="İsteğe bağlı"
+                        placeholder="Örn. Migros, maaş, kira"
+                        required
                       />
                     </div>
 
@@ -2045,6 +2057,12 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setIsSubmitting(false);
       return;
     }
+    const merchantValue = merchant.trim();
+    if (!merchantValue) {
+      setError("Satıcı veya kaynak zorunlu.");
+      setIsSubmitting(false);
+      return;
+    }
     try {
       const resolvedCategoryId = await resolveCategoryId({
         input: categoryInput,
@@ -2056,7 +2074,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
         amount: normalizedAmount,
         type,
         category_id: resolvedCategoryId || null,
-        merchant: merchant || null,
+        merchant: merchantValue,
         description: description || null,
         occurred_at: toIsoDateTime(occurredAt),
       };
@@ -2186,6 +2204,12 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setIsAddingSubscription(false);
       return;
     }
+    const subscriptionMerchantValue = subscriptionMerchant.trim();
+    if (!subscriptionMerchantValue) {
+      setError("Kurum veya satıcı zorunlu.");
+      setIsAddingSubscription(false);
+      return;
+    }
     try {
       const resolvedCategoryId = await resolveCategoryId({
         input: subscriptionCategoryInput,
@@ -2195,7 +2219,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       });
       const payload: SubscriptionCreateInput = {
         name: subscriptionName,
-        merchant: subscriptionMerchant || null,
+        merchant: subscriptionMerchantValue,
         amount: normalizedAmount,
         type: subscriptionType,
         billing_cycle: subscriptionCycle,
@@ -2784,7 +2808,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         list="merchant-source-options"
                         value={merchant}
                         onChange={(event) => setMerchant(event.target.value)}
-                        placeholder="İsteğe bağlı"
+                        placeholder="Örn. Migros, maaş, kira"
+                        required
                       />
                       <datalist id="merchant-source-options">
                         {merchantSuggestions.map((suggestion) => (
@@ -2956,7 +2981,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                           list="subscription-merchant-source-options"
                           value={subscriptionMerchant}
                           onChange={(event) => setSubscriptionMerchant(event.target.value)}
-                          placeholder="İsteğe bağlı"
+                          placeholder="Örn. Netflix, maaş kurumu"
+                          required
                         />
                         <datalist id="subscription-merchant-source-options">
                           {merchantSuggestions.map((suggestion) => (
