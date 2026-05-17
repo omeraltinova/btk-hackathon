@@ -1393,23 +1393,28 @@ def _custom_lesson_answer(result: dict[str, object]) -> str:
         lines.append("")
     if isinstance(sections, list) and sections:
         lines.append("**Ders akışı:**")
-        for section in sections[:4]:
+        for index, section in enumerate(sections[:4], start=1):
             if not isinstance(section, dict):
                 continue
             section_title = str(section.get("title") or "Bölüm")
             minutes = section.get("minutes")
             content = str(section.get("content") or "")
-            lines.append(f"- {section_title} ({minutes} dk): {content}")
-        lines.append("")
+            lines.append(f"{index}. **{section_title}** ({minutes} dk)")
+            if content:
+                lines.append(content)
+            lines.append("")
     if isinstance(examples, list) and examples:
         lines.append("**Örnekler:**")
         lines.extend(f"- {example}" for example in examples[:3])
         lines.append("")
     if isinstance(quiz, list) and quiz:
         lines.append("**Mini quiz:**")
-        for item in quiz[:2]:
+        for index, item in enumerate(quiz[:2], start=1):
             if isinstance(item, dict):
-                lines.append(f"- Soru: {item.get('question')} Cevap: {item.get('answer')}")
+                question = str(item.get("question") or "").strip()
+                if question:
+                    lines.append(f"{index}. {question}")
+        lines.append("Cevaplarını yazarsan birlikte kontrol edip doğrulayabilirim.")
         lines.append("")
     safety_note = result.get("safety_note")
     if isinstance(safety_note, str):

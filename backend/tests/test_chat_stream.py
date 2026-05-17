@@ -1301,6 +1301,13 @@ def test_chat_stream_can_create_custom_finance_school_lesson() -> None:
     assert '"duration_minutes": 7' in response.text
     assert '"examples": []' in response.text
     assert "Bütçe planlama: Başlangıç dersi" in response.text
+    assistant_answer = fake_session.messages[-1].content
+    assert "**Ders akışı:**" in assistant_answer
+    assert "1. **Bütçenin amacı**" in assistant_answer
+    assert "Bütçe, paranın nereye gittiğini takip etmek değil" in assistant_answer
+    assert "**Mini quiz:**" in assistant_answer
+    assert "Cevap:" not in assistant_answer
+    assert "Cevaplarını yazarsan birlikte kontrol edip doğrulayabilirim." in assistant_answer
     assert [message.role for message in fake_session.messages] == ["user", "tool", "assistant"]
 
 

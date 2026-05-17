@@ -2218,6 +2218,86 @@ _LP_DIVERSIFICATION_ADULT = _LessonContent(
     ),
 )
 
+
+_LP_MONEY_MARKET_FUND_ADULT = _LessonContent(
+    goals=(
+        "Para piyasası fonunun ne olduğunu, neden mevduat veya hisse gibi "
+        "düşünülmemesi gerektiğini ayırt etmek.",
+        "Günlük nakit yönetimi, acil durum fonu ve kısa vadeli hedefler "
+        "arasında nasıl bir karar çerçevesi kurulduğunu görmek.",
+        "Getiri, erişim süresi, vergi, masraf ve risk başlıklarını ürün "
+        "seçmeden önce hangi sorularla kontrol edeceğini öğrenmek.",
+    ),
+    sections=(
+        (
+            "Para piyasası fonu nedir?",
+            "Para piyasası fonu, çok kısa vadeli ve görece düşük dalgalı para "
+            "piyasası araçlarından oluşan bir yatırım fonu türüdür. İçinde "
+            "genellikle repo, ters repo, kısa vadeli borçlanma araçları veya "
+            "mevduata benzer nakit yönetimi araçları bulunabilir. Kullanıcının "
+            "gözünde çoğu zaman 'boşta duran parayı günlük değerlendirme' fikriyle "
+            "anılır; ama bu, paranın tamamen risksiz veya bankadaki vadesiz hesapla "
+            "aynı olduğu anlamına gelmez. Fonun fiyatı günlük değişebilir, getirisi "
+            "garanti değildir ve fonun içeriği fon yöneticisinin stratejisine göre "
+            "değişebilir.",
+        ),
+        (
+            "Aile bütçesinde hangi ihtiyaca dokunur?",
+            "Bu konu en çok 'kısa süre sonra kullanacağım parayı nerede takip "
+            "etmeliyim?' sorusuna dokunur. Örneğin kira, okul taksiti, kredi kartı "
+            "son ödeme tarihi veya birkaç ay sonra yapılacak tatil harcaması gibi "
+            "yakın vadeli paralar için asıl mesele yüksek getiri aramak değil, paraya "
+            "zamanında ulaşabilmek ve bütçe planını bozmamaktır. Bu yüzden para "
+            "piyasası fonu konuşurken önce 'bu para ne zaman lazım, kayıp yaşasam "
+            "planım bozulur mu, aynı gün nakde dönmem gerekir mi?' soruları sorulur.",
+        ),
+        (
+            "Mevduat, vadesiz hesap ve risk farkı",
+            "Vadesiz hesap erişim açısından rahattır ama genelde getiri üretmez. "
+            "Vadeli mevduat belirli bir süre kilitlenebilir ve bankanın sunduğu "
+            "oranla çalışır. Para piyasası fonunda ise fon payı alırsın; getiriyi "
+            "önceden kesin bilmezsin, fon fiyatı günlük oluşur ve emir saatine göre "
+            "nakde dönüş süresi değişebilir. Kısa vadeli ve düşük dalgalı araçlar "
+            "kullanıldığı için risk profili birçok yatırım aracına göre daha sakin "
+            "olabilir; yine de 'ana para kesin korunur' diye düşünmek doğru değildir.",
+        ),
+        (
+            "Karar verirken kontrol listesi",
+            "Belirli bir fon adı seçmeden önce şu kontrol listesiyle düşün: Paraya "
+            "hangi tarihte ihtiyacım var? Fonun alım-satım saatleri ve nakde dönüş "
+            "süresi bütçeme uyuyor mu? Yönetim ücreti, stopaj/vergi ve geçmiş "
+            "dalgalanma benim için anlaşılır mı? Bu para acil durum fonunun tamamı mı, "
+            "yoksa kısa vadeli hedefin küçük bir parçası mı? Cevaplar net değilse konu "
+            "ürün seçimine değil, önce nakit akışı planını sadeleştirmeye dönmelidir.",
+        ),
+    ),
+    examples=(
+        "Bir aile 2 ay sonra 20.000 ₺ okul taksiti ödeyecek. Bu para için ana "
+        "soru 'en yüksek getiriyi nerede bulurum?' değil; 'ödeme gününde paraya "
+        "sorunsuz ulaşabilir miyim ve dalgalanma olursa bütçem bozulur mu?' "
+        "sorusudur. Bu çerçeve, para piyasası fonunu bir getiri vaadi değil, "
+        "nakit yönetimi aracı olarak değerlendirmeye yardım eder.",
+        "Acil durum fonu 60.000 ₺ olan bir aile, bu tutarın tamamını tek yerde "
+        "tutmak yerine erişim ihtiyacını düşünür: bir kısmı aynı gün erişilebilir "
+        "hesapta, bir kısmı kısa vadeli nakit yönetimi aracında izlenebilir. Bu "
+        "örnek bir ürün önerisi değil; erişim süresi ve risk ayrımını gösteren "
+        "eğitsel bir çerçevedir.",
+    ),
+    quiz=(
+        (
+            "Para piyasası fonu vadesiz hesapla aynı şey midir?",
+            "Hayır. Fon payının fiyatı günlük oluşur; getiri garanti değildir "
+            "ve nakde dönüş süresi fon/işlem saatlerine bağlı olabilir.",
+        ),
+        (
+            "Kısa vadeli para için ilk sorulacak soru nedir?",
+            "Bu paraya ne zaman ihtiyacım var ve o tarihte nakde ulaşamazsam "
+            "bütçe planım bozulur mu?",
+        ),
+    ),
+)
+
+
 _LP_INCOME_EXPENSE_ADULT = _LessonContent(
     goals=(
         "Gelir ve giderin sadece bir tablo değil, ay başı/ay sonu döngüsü olduğunu görmek.",
@@ -2474,6 +2554,7 @@ _LESSON_PROFILES_ADULT: dict[str, _LessonContent] = {
     "min_payment": _LP_MIN_PAYMENT_ADULT,
     "subscription": _LP_SUBSCRIPTION_ADULT,
     "diversification": _LP_DIVERSIFICATION_ADULT,
+    "money_market_fund": _LP_MONEY_MARKET_FUND_ADULT,
     "income_expense": _LP_INCOME_EXPENSE_ADULT,
     "statement_reading": _LP_STATEMENT_READING_ADULT,
 }
@@ -2505,6 +2586,10 @@ def _match_lesson_kind(topic: str) -> str | None:
         return "subscription"
     if re.search(r"çe[şs]itlendirme|çe[şs]itlendir", normalized):
         return "diversification"
+    if "para piyasası" in normalized or "para piyasasi" in normalized:
+        return "money_market_fund"
+    if re.search(r"\bppf\b", normalized):
+        return "money_market_fund"
     if "ekstre" in normalized:
         return "statement_reading"
     if "tasarruf" in normalized or "biriktir" in normalized:
@@ -2574,38 +2659,61 @@ def _custom_lesson_sections(
         sections = (
             (
                 "Konu nedir?",
-                f"{topic} konusunu bildiğin bir örnekle (harçlık, kumbara, "
-                "kantin) tek cümleyle anlat.",
+                f"{topic}, para ile ilgili bir kararı daha anlaşılır hale "
+                "getiren bir fikir gibi anlatılır. Çocuk için bu konu harçlık, "
+                "kumbara ve kantin alışverişi üzerinden somutlaşır: elindeki "
+                "paranın bir kısmı bugünkü istekler için, bir kısmı daha sonra "
+                "almak istediğin şeyler için ayrılır. Böylece konu ezberlenen "
+                "bir kelime olmaktan çıkar, günlük seçimlere yardım eden küçük "
+                "bir pusula olur.",
             ),
             (
                 "Birlikte düşün",
-                "Bu konunun bir karara nasıl dokunduğunu küçük bir hikayeyle "
-                "canlandır: oyuncak, dondurma veya doğum günü hediyesi.",
+                "Küçük bir hikaye kur: oyuncak, dondurma veya doğum günü "
+                "hediyesi almak istiyorsun. Bu derste konu, karar vermeden önce "
+                "'hemen mi harcasam, biraz beklesem mi, kumbaramı etkiler mi?' "
+                "sorularını sordurur. Eğer cevap 'beklersem daha büyük hedefime "
+                "yaklaşırım' ise harcamayı ertelemek anlamlı olabilir; cevap "
+                "'bu okul için gerekli' ise ihtiyaç olarak öne geçebilir.",
             ),
             (
                 "Mini söz",
-                "Önümüzdeki hafta deneyebileceği tek bir küçük alışkanlığı "
-                "kendi cümlesiyle yazsın.",
+                "Dersin sonunda bir haftalık küçük bir söz seçilir. Örneğin "
+                "harçlık gelince önce 10 ₺ ayırmak, kantinde istediğin bir şeyi "
+                "almadan önce bir gün beklemek veya kumbaraya hedef etiketi "
+                "yapıştırmak. Amaç büyük ve zor bir söz vermek değil; kolay "
+                "tekrarlanabilen küçük bir davranışı para alışkanlığına çevirmektir.",
             ),
         )
     else:
         sections = (
             (
-                "Konu hangi karara hizmet ediyor?",
-                f"{topic} aile bütçesinin gelir, gider, risk veya zaman "
-                "tarafından hangi sorusuna cevap veriyor? Bir cümleyle yaz.",
+                "Kavramı sadeleştir",
+                f"{topic}, aile bütçesinde tek başına ezberlenecek bir başlık "
+                "gibi değil, para kararlarını netleştiren bir araç gibi ele "
+                "alınır. Önce bu kavramın gelir, gider, risk veya zaman "
+                "başlıklarından hangisine dokunduğu anlatılır. Böylece kullanıcı "
+                "'bu bilgi benim bütçemde hangi kararı kolaylaştırıyor?' sorusuna "
+                "somut cevap bulur.",
             ),
             (
-                "Sayısal bir örnekle bağla",
+                "Bütçeye çevir",
                 "Aylık 15.000–25.000 ₺ gider bandındaki bir aileyi düşün. "
-                f"{topic} bir karara dönüştüğünde hangi kalem değişir, "
-                "tahmini etki kaç ₺ olur?",
+                f"{topic} bir karara dönüştüğünde hangi kalem değişir, hangi "
+                "zarf etkilenir ve tahmini aylık etki kaç ₺ olur? Bu bölümde "
+                "kavram gerçek hane bütçesine indirilir: market, fatura, ulaşım, "
+                "abonelik veya birikim gibi tanıdık satırlardan biriyle bağ kurulur. "
+                "Amaç soyut bilgiyi 'bu ay neyi takip edeceğim?' sorusuna çevirmektir.",
             ),
             (
-                "Bugünden atılacak adım",
-                "Önümüzdeki 30 günde izlenebilir tek bir takip adımı seç: "
-                "ilgili zarfta bir limit güncelle, tekrarlayan bir ödemeyi "
-                "gözden geçir veya birikim katkısını ayarla.",
+                "Bugünden uygulanacak adım",
+                "Dersin sonunda önümüzdeki 30 günde izlenebilir tek bir takip "
+                "adımı belirlenir: "
+                "ilgili zarfta bir limit güncellemek, tekrarlayan bir ödemeyi "
+                "gözden geçirmek veya birikim katkısını ayarlamak. Böylece "
+                "ders yalnızca bilgi olarak kalmaz; kullanıcının takvimine, "
+                "bütçe ekranına veya aile içi para konuşmasına girebilecek küçük "
+                "bir davranışa dönüşür.",
             ),
         )
     minutes_per_section = _distribute_lesson_minutes(duration_minutes, len(sections))

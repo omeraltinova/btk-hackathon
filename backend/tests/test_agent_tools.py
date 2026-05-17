@@ -686,6 +686,25 @@ def test_build_custom_lesson_matches_turkish_diversification_topic() -> None:
     assert "belirli ürün" in str(result)
 
 
+def test_build_custom_lesson_uses_rich_money_market_fund_profile() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(
+        user,
+        topic="para piyasası fonu",
+        level="beginner",
+        duration_minutes=10,
+    )
+
+    sections = result["sections"]
+    assert isinstance(sections, list)
+    assert len(sections) >= 4
+    assert "çok kısa vadeli" in str(result)
+    assert "getirisi garanti değildir" in str(result)
+    assert "Belirli bir fon adı seçmeden önce" in str(result)
+    assert "ürün önerisi değil" in str(result)
+
+
 def test_build_custom_lesson_rejects_product_advice_topics() -> None:
     user = make_user()
 
