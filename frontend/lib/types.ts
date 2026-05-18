@@ -264,6 +264,15 @@ export type ChatStreamRequest = {
   approval_decision?: "approved" | "rejected" | null;
 };
 
+export type VoiceSessionResponse = {
+  provider: "gemini" | "openrouter";
+  mode: "realtime" | "cascade";
+  model: string | null;
+  voice_name: string | null;
+  ephemeral_token: string | null;
+  expires_at: string | null;
+};
+
 export type ChatToolPayload = Record<string, unknown>;
 
 export type ChatChartType = "bar" | "pie" | "monthly";

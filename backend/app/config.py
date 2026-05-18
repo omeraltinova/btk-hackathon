@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
     gemini_image_model: str = "gemini-3.1-flash-image-preview"
+    gemini_live_model: str = "gemini-3.1-flash-live-preview"
+    gemini_live_voice: str = "Kore"
     gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
     gemini_tts_voice: str = "Kore"
     openrouter_api_key: str | None = None

@@ -106,28 +106,76 @@ def _category_name(db: Session, category_id: UUID | None) -> str:
     return category.name if category is not None else "Kategorisiz"
 
 
+def _normalize_category_name(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+def _category_priority(category: Category, current_user: User) -> tuple[int, str]:
+    if category.user_id == current_user.id:
+        owner_priority = 0
+    elif category.user_id is None:
+        owner_priority = 1
+    else:
+        owner_priority = 2
+    return owner_priority, category.name.casefold()
+
+
 def resolve_goal_category(
     db: Session,
     current_user: User,
     *,
     category_id: UUID | None = None,
     category_name: str | None = None,
+    spending_start: datetime | None = None,
+    spending_end: datetime | None = None,
 ) -> Category | None:
     user_ids = visible_user_ids(current_user)
     query = select(Category).where(or_(Category.user_id.in_(user_ids), Category.user_id.is_(None)))
     if category_id is not None:
         query = query.where(Category.id == category_id)
+        return db.execute(query).scalar_one_or_none()
     elif category_name is not None:
-        query = query.where(Category.name.ilike(category_name))
+        searched_name = " ".join(category_name.split())
+        normalized_name = searched_name.casefold()
+        if not normalized_name:
+            return None
+        query = query.where(Category.name.ilike(searched_name))
     else:
         return None
-    return db.execute(query).scalar_one_or_none()
+    categories = [
+        category
+        for category in db.execute(query).scalars().all()
+        if _normalize_category_name(category.name) == normalized_name
+    ]
+    if not categories:
+        return None
+    if spending_start is not None and spending_end is not None:
+        categories_with_spending = [
+            (
+                category,
+                _spending_total(
+                    db,
+                    user_ids=user_ids,
+                    category_id=category.id,
+                    start_date=spending_start,
+                    end_date=spending_end,
+                ),
+            )
+            for category in categories
+        ]
+        spent_categories = [item for item in categories_with_spending if item[1] > 0]
+        if spent_categories:
+            return sorted(
+                spent_categories,
+                key=lambda item: (-item[1], _category_priority(item[0], current_user)),
+            )[0][0]
+    return sorted(categories, key=lambda category: _category_priority(category, current_user))[0]
 
 
 def _spending_total(
     db: Session,
     *,
-    user_id: UUID,
+    user_ids: list[UUID],
     category_id: UUID | None,
     start_date: datetime,
     end_date: datetime,
@@ -135,7 +183,7 @@ def _spending_total(
     rows = (
         db.execute(
             select(Transaction).where(
-                Transaction.user_id == user_id,
+                Transaction.user_id.in_(user_ids),
                 Transaction.category_id == category_id,
                 Transaction.type == "expense",
                 Transaction.occurred_at >= start_date,
@@ -146,6 +194,13 @@ def _spending_total(
         .all()
     )
     return _money(sum((Decimal(row.amount) for row in rows), Decimal("0")))
+
+
+def _goal_spending_user_ids(db: Session, goal: SavingGoal) -> list[UUID]:
+    owner = db.execute(select(User).where(User.id == goal.user_id)).scalar_one_or_none()
+    if owner is None:
+        return [goal.user_id]
+    return visible_user_ids(owner)
 
 
 def _tactics(category_name: str, weekly_limit: Decimal) -> list[str]:
@@ -190,23 +245,25 @@ def build_saving_goal_draft(
     baseline_amount: Decimal | None = None,
     now: datetime | None = None,
 ) -> SavingGoalDraft:
+    period_end = _aware_utc(now or datetime.now(UTC))
+    period_start = period_end - timedelta(days=30)
     category = resolve_goal_category(
         db,
         current_user,
         category_id=category_id,
         category_name=category_name,
+        spending_start=period_start,
+        spending_end=period_end,
     )
     if category is None:
         raise ValueError("Kategori bulunamadı.")
 
-    period_end = _aware_utc(now or datetime.now(UTC))
-    period_start = period_end - timedelta(days=30)
     baseline = _money(
         Decimal(baseline_amount)
         if baseline_amount is not None
         else _spending_total(
             db,
-            user_id=current_user.id,
+            user_ids=visible_user_ids(current_user),
             category_id=category.id,
             start_date=period_start,
             end_date=period_end,
@@ -518,7 +575,7 @@ def calculate_saving_goal_progress(
 
     actual = _spending_total(
         db,
-        user_id=goal.user_id,
+        user_ids=_goal_spending_user_ids(db, goal),
         category_id=goal.category_id,
         start_date=_aware_utc(goal.start_date),
         end_date=min(period_now, _aware_utc(goal.end_date)),

@@ -10,7 +10,13 @@ from typing import Any, TypedDict
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -1761,15 +1767,31 @@ def _stream_live_graph(
     )
     final_answer = ""
     latest_report_result: dict[str, object] | None = None
-    for update in graph.stream(
+    for stream_mode, update in graph.stream(
         {
             "messages": graph_messages,
             "user_id": str(current_user.id),
             "user_role": current_user.role,
             "finance_level": current_user.finance_level,
         },
-        stream_mode="updates",
+        stream_mode=["messages", "updates"],
     ):
+        if stream_mode == "messages":
+            if not isinstance(update, tuple) or len(update) < 1:
+                continue
+            message = update[0]
+            if isinstance(message, AIMessageChunk):
+                chunk = _message_text(message.content)
+                if chunk:
+                    final_answer += chunk
+                    yield {
+                        "type": "delta",
+                        "conversation_id": str(conversation.id),
+                        "content": chunk,
+                    }
+            continue
+        if stream_mode != "updates":
+            continue
         if not isinstance(update, dict):
             continue
         messages: list[BaseMessage] = []
@@ -1806,13 +1828,14 @@ def _stream_live_graph(
                     content = _message_text(message.content)
                     if latest_report_result is not None:
                         content = _report_answer(latest_report_result)
-                    final_answer = content
-                    for chunk in _chunks(content):
-                        yield {
-                            "type": "delta",
-                            "conversation_id": str(conversation.id),
-                            "content": chunk,
-                        }
+                    if not final_answer or latest_report_result is not None:
+                        final_answer = content
+                        for chunk in _chunks(content):
+                            yield {
+                                "type": "delta",
+                                "conversation_id": str(conversation.id),
+                                "content": chunk,
+                            }
             elif isinstance(message, ToolMessage):
                 result = _tool_result_payload(message)
                 tool_name = message.name or "tool"

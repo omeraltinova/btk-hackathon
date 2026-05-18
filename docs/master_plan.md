@@ -464,21 +464,33 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     `illustrate_concept` ile görsel anlatımı ekler. Özel dersler ilk MVP'de kalıcı
     kaydedilmez; chat geçmişinde normal mesaj/tool sonucu olarak kalır. Fon/ürün
     başlıkları yalnızca eğitim amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
-24. **Sesli koç (provider-backed STT/TTS + browser fallback):** `/chat` ekranında
-    kullanıcı mikrofona basıp konuşur, durdurunca auth'lu `/api/stt` endpoint'i
-    kayıtlı sesi metne çevirip sohbet mesajı olarak yollar. Doğrudan Gemini modunda
-    mevcut multimodal `GEMINI_MODEL` audio understanding ile transkripsiyon yapar;
-    tarayıcı kaydı Gemini'nin desteklediği audio formatlarından biri değilse yalnızca
-    bu direct Gemini yolunda backend kayıtlı sesi desteklenen WAV biçimine normalize eder;
-    OpenRouter modunda `google/chirp-3` kullanılır. Provider STT başarısız olursa
-    tarayıcı `SpeechRecognition` yedek transkripti devreye girer. Asistan yanıtları
-    kullanıcı isterse auth'lu `/api/tts` endpoint'i üzerinden okutulur; doğrudan
-    Gemini modunda `gemini-3.1-flash-tts-preview`, OpenRouter modunda
-    `google/gemini-3.1-flash-tts-preview` kullanılır. Provider TTS başarısız olursa
-    tarayıcı `speechSynthesis` yedeği devreye girer; aynı mesaj daha önce seslendiyse
-    yeniden provider çağrısı yapılmadan mevcut ses tekrar oynatılır. Çocuk modunda
-    yanıtları sesli okuma tercihi varsayılan olarak açılır. Gerçek zamanlı sesli
-    görüşme yoktur.
+24. **Sesli koç (provider-backed STT/TTS + gerçek zamanlı sesli sohbet):** `/chat`
+    ekranında kullanıcı mikrofona basıp konuşur, durdurunca auth'lu `/api/stt`
+    endpoint'i kayıtlı sesi metne çevirip sohbet mesajı olarak yollar. Doğrudan Gemini
+    modunda mevcut multimodal `GEMINI_MODEL` audio understanding ile transkripsiyon
+    yapar; tarayıcı kaydı Gemini'nin desteklediği audio formatlarından biri değilse
+    yalnızca bu direct Gemini yolunda backend kayıtlı sesi desteklenen WAV biçimine
+    normalize eder; OpenRouter modunda `google/chirp-3` kullanılır. Provider STT
+    başarısız olursa tarayıcı `SpeechRecognition` yedek transkripti devreye girer.
+    Asistan yanıtları kullanıcı isterse auth'lu `/api/tts` endpoint'i üzerinden
+    okutulur; doğrudan Gemini modunda `gemini-3.1-flash-tts-preview`, OpenRouter
+    modunda `google/gemini-3.1-flash-tts-preview` kullanılır. Provider TTS başarısız
+    olursa tarayıcı `speechSynthesis` yedeği devreye girer; aynı mesaj daha önce
+    seslendiyse yeniden provider çağrısı yapılmadan mevcut ses tekrar oynatılır.
+    Çocuk modunda yanıtları sesli okuma tercihi varsayılan olarak açılır.
+
+    Mikrofonun yanında ayrı bir sesli sohbet düğmesi bulunur. `LLM_PROVIDER=gemini`
+    iken auth'lu backend `/api/voice/session` yüzeyi kısa ömürlü ephemeral token
+    üretir ve frontend `gemini-3.1-flash-live-preview` Live API oturumuna bağlanır;
+    ses katmanı gerçek zamanlı çalışır ama her anlamlı kullanıcı turu mevcut scoped
+    koç akışına delege edilir, bu yüzden normal agent tool'ları, onay kartları ve
+    konuşma geçmişi korunur. `LLM_PROVIDER=openrouter` iken gerçek zamanlı API
+    olmadığı için aynı düğme kalıcı bir sesli oturum paneli açar; frontend sessizliği
+    algılayarak her kullanıcı turunu otomatik `STT → mevcut chat/LLM agent akışı →
+    TTS` zincirine gönderir, yanıtı sesli okur ve oturum kapatılana kadar yeniden
+    dinlemeye döner. Gemini Live başlatılamazsa kullanıcı hata görmeden aynı
+    provider-backed kayıt/transkripsiyon/yanıt zincirine düşer; alt katmandaki
+    STT/TTS provider hatalarında mevcut browser fallback'leri yine devrededir.
 25. **Bildirim merkezi (mevcut insight yüzeyi + idempotent yenileme):** Sidebar
     üzerinde zil ikonu, mevcut scoped `/api/insights` sonuçlarını sayar ve son
     bildirimleri açılır panelde gösterir. Kullanıcı bildirimi kapatırsa mevcut
@@ -1174,8 +1186,18 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.37
+**Doküman versiyonu:** 0.39
 **Son güncelleme:** 18 Mayıs 2026
+**v0.39 değişiklikleri:** OpenRouter sesli sohbet yolu tek turluk buton davranışından
+kalıcı oturum paneline genişletildi. Panel açıkken frontend konuşma/sessizlik
+algısıyla kullanıcı turunu otomatik kaydeder, bırakınca gönderir, yanıtı TTS ile
+okutur ve oturum kapanana kadar yeniden dinlemeye döner.
+**v0.38 değişiklikleri:** `/chat` için ayrı sesli sohbet modu eklendi. Doğrudan
+Gemini yolunda `gemini-3.1-flash-live-preview` Live API oturumu kısa ömürlü
+ephemeral token ile açılır ve cevap üretimini mevcut scoped agent/tool akışına
+delege eder; OpenRouter yolunda aynı deneyim STT → chat/LLM → TTS zinciriyle
+kurulur. Sesli turlar normal konuşma geçmişine yazılır; Gemini Live başlatılamazsa
+provider-backed non-realtime yoluna geri düşer.
 **v0.37 değişiklikleri:** Direct Gemini STT yolu tarayıcıdan gelen desteklenmeyen ses
 kapsayıcılarını backend'de WAV'a normalize eder; OpenRouter `google/chirp-3` yolu
 desteklediği tarayıcı formatlarını doğrudan almaya devam eder.

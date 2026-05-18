@@ -4,12 +4,22 @@ import { apiBlob } from "@/lib/api";
 
 let activeAudio: HTMLAudioElement | null = null;
 let activeObjectUrl: string | null = null;
+let activeFinish: (() => void) | null = null;
 let requestSequence = 0;
 const audioCache = new Map<string, Promise<Blob>>();
 
+type PlayTtsOptions = {
+  onPlaybackStart?: () => void;
+};
+
 function cleanupAudio(audio: HTMLAudioElement | null = activeAudio) {
+  const shouldFinishActive = !audio || audio === activeAudio;
   if (audio && audio === activeAudio) {
     activeAudio = null;
+  }
+  if (shouldFinishActive) {
+    activeFinish?.();
+    activeFinish = null;
   }
   if (activeObjectUrl) {
     URL.revokeObjectURL(activeObjectUrl);
@@ -19,6 +29,9 @@ function cleanupAudio(audio: HTMLAudioElement | null = activeAudio) {
 
 export function stopActiveSpeech() {
   requestSequence += 1;
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
   if (activeAudio) {
     activeAudio.pause();
     activeAudio.currentTime = 0;
@@ -37,15 +50,27 @@ function speechTextFromMarkdown(content: string): string {
     .trim();
 }
 
-function browserSpeechFallback(content: string): boolean {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
+function browserSpeechFallback(content: string, options: PlayTtsOptions = {}): Promise<boolean> {
+  if (typeof window === "undefined" || !("speechSynthesis" in window))
+    return Promise.resolve(false);
   const speechText = speechTextFromMarkdown(content);
-  if (!speechText) return false;
+  if (!speechText) return Promise.resolve(false);
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(speechText);
   utterance.lang = "tr-TR";
-  window.speechSynthesis.speak(utterance);
-  return true;
+  return new Promise((resolve) => {
+    const finish = () => {
+      if (activeFinish === finish) activeFinish = null;
+      resolve(true);
+    };
+    activeFinish = finish;
+    const previousSequence = requestSequence;
+    utterance.onstart = () => options.onPlaybackStart?.();
+    utterance.onend = finish;
+    utterance.onerror = finish;
+    window.speechSynthesis.speak(utterance);
+    if (requestSequence !== previousSequence) finish();
+  });
 }
 
 function getCachedTtsBlob(content: string): Promise<Blob> {
@@ -63,7 +88,7 @@ function getCachedTtsBlob(content: string): Promise<Blob> {
   return request;
 }
 
-export async function playTts(text: string): Promise<void> {
+export async function playTts(text: string, options: PlayTtsOptions = {}): Promise<void> {
   const content = text.trim();
   if (!content) return;
 
@@ -78,7 +103,7 @@ export async function playTts(text: string): Promise<void> {
   try {
     blob = await getCachedTtsBlob(content);
   } catch (error) {
-    if (browserSpeechFallback(content)) return;
+    if (await browserSpeechFallback(content, options)) return;
     throw error;
   }
   if (requestId !== requestSequence) return;
@@ -87,7 +112,26 @@ export async function playTts(text: string): Promise<void> {
   const audio = new Audio(objectUrl);
   activeObjectUrl = objectUrl;
   activeAudio = audio;
-  audio.addEventListener("ended", () => cleanupAudio(audio), { once: true });
-  audio.addEventListener("error", () => cleanupAudio(audio), { once: true });
+  const finished = new Promise<void>((resolve) => {
+    activeFinish = resolve;
+    audio.addEventListener(
+      "ended",
+      () => {
+        cleanupAudio(audio);
+        resolve();
+      },
+      { once: true },
+    );
+    audio.addEventListener(
+      "error",
+      () => {
+        cleanupAudio(audio);
+        resolve();
+      },
+      { once: true },
+    );
+  });
   await audio.play();
+  options.onPlaybackStart?.();
+  await finished;
 }

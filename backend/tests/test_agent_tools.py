@@ -184,6 +184,15 @@ def make_user(*, role: str = "individual", parent_id: UUID | None = None) -> Use
     return user
 
 
+def make_parent_with_child() -> tuple[User, User]:
+    parent = make_user(role="parent")
+    parent.family_id = parent.id
+    child = make_user(role="child", parent_id=parent.id)
+    child.family_id = parent.family_id
+    parent.children = [child]
+    return parent, child
+
+
 def make_category(name: str, *, budget: str | None = None) -> Category:
     return Category(
         id=uuid4(),
@@ -974,6 +983,92 @@ def test_build_saving_goal_creation_uses_decimal_category_spending() -> None:
     assert result["target_saving_amount_formatted"] == "90,00 ₺"
     assert len(db.saving_goals) == 1
     assert db.saving_goals[0].created_by == "agent"
+
+
+def test_build_saving_goal_creation_prefers_user_category_when_name_duplicates() -> None:
+    user = make_user()
+    system_market = make_category("Market")
+    user_market = make_user_category(user.id, "Market")
+    db = FakeSession(
+        categories=[system_market, user_market],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=user_market.id,
+                amount="600.00",
+                occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_creation(
+        db,
+        user,
+        category="Market",
+        target_reduction_percent=15,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert db.saving_goals[0].category_id == user_market.id
+
+
+def test_build_saving_goal_creation_uses_spent_duplicate_category() -> None:
+    user = make_user()
+    system_market = make_category("Market")
+    user_market = make_user_category(user.id, "Market")
+    db = FakeSession(
+        categories=[user_market, system_market],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=system_market.id,
+                amount="600.00",
+                occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_creation(
+        db,
+        user,
+        category="market",
+        target_reduction_percent=10,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert result["baseline_amount"] == "600.00"
+    assert db.saving_goals[0].category_id == system_market.id
+
+
+def test_build_saving_goal_creation_uses_visible_family_spending() -> None:
+    parent, child = make_parent_with_child()
+    market = make_category("Market")
+    shadow_market = make_user_category(parent.id, "Market")
+    db = FakeSession(
+        categories=[shadow_market, market],
+        transactions=[
+            make_transaction(
+                user_id=child.id,
+                category_id=market.id,
+                amount="600.00",
+                occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_creation(
+        db,
+        parent,
+        category="Market",
+        target_reduction_percent=10,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert result["baseline_amount"] == "600.00"
+    assert db.saving_goals[0].category_id == market.id
 
 
 def test_build_saving_goal_creation_accepts_localized_reduction_percent() -> None:

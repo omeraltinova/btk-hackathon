@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 from docx import Document
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from pytest import MonkeyPatch
 
 from app.agent.prompts import build_system_prompt
@@ -397,27 +397,30 @@ def test_live_graph_mutating_tool_call_is_intercepted_for_approval(
     fake_session.messages.append(current_user_message)
 
     class FakeGraph:
-        def stream(self, _state: object, *, stream_mode: str) -> Iterator[dict[str, object]]:
-            assert stream_mode == "updates"
-            yield {
-                "agent": {
-                    "messages": [
-                        AIMessage(
-                            content="",
-                            tool_calls=[
-                                {
-                                    "id": "call-1",
-                                    "name": "create_saving_goal",
-                                    "args": {
-                                        "category": "Eğlence",
-                                        "target_reduction_percent": 15,
+        def stream(self, _state: object, *, stream_mode: list[str]) -> Iterator[tuple[str, object]]:
+            assert stream_mode == ["messages", "updates"]
+            yield (
+                "updates",
+                {
+                    "agent": {
+                        "messages": [
+                            AIMessage(
+                                content="",
+                                tool_calls=[
+                                    {
+                                        "id": "call-1",
+                                        "name": "create_saving_goal",
+                                        "args": {
+                                            "category": "Eğlence",
+                                            "target_reduction_percent": 15,
+                                        },
                                     },
-                                },
-                            ],
-                        ),
-                    ],
+                                ],
+                            ),
+                        ],
+                    },
                 },
-            }
+            )
 
     monkeypatch.setattr(
         "app.services.agent_runner.build_agent_graph_from_settings",
@@ -463,40 +466,46 @@ def test_live_graph_report_answer_uses_card_copy(monkeypatch: MonkeyPatch) -> No
     report_id = uuid4()
 
     class FakeGraph:
-        def stream(self, _state: object, *, stream_mode: str) -> Iterator[dict[str, object]]:
-            assert stream_mode == "updates"
-            yield {
-                "tools": {
-                    "messages": [
-                        ToolMessage(
-                            content=json.dumps(
-                                {
-                                    "report_id": str(report_id),
-                                    "title": "Aylık Koç Raporu",
-                                    "filename": "cuzdan-kocu-raporu-2026-05.docx",
-                                    "download_url": f"/api/reports/{report_id}/download",
-                                    "chart_count": 1,
-                                    "ai_illustration_count": 0,
-                                },
+        def stream(self, _state: object, *, stream_mode: list[str]) -> Iterator[tuple[str, object]]:
+            assert stream_mode == ["messages", "updates"]
+            yield (
+                "updates",
+                {
+                    "tools": {
+                        "messages": [
+                            ToolMessage(
+                                content=json.dumps(
+                                    {
+                                        "report_id": str(report_id),
+                                        "title": "Aylık Koç Raporu",
+                                        "filename": "cuzdan-kocu-raporu-2026-05.docx",
+                                        "download_url": f"/api/reports/{report_id}/download",
+                                        "chart_count": 1,
+                                        "ai_illustration_count": 0,
+                                    },
+                                ),
+                                name="generate_monthly_report",
+                                tool_call_id="call-report",
                             ),
-                            name="generate_monthly_report",
-                            tool_call_id="call-report",
-                        ),
-                    ],
+                        ],
+                    },
                 },
-            }
-            yield {
-                "agent": {
-                    "messages": [
-                        AIMessage(
-                            content=(
-                                "[Aylık Koç Raporunu İndir (DOCX)]"
-                                f"(/api/reports/{report_id}/download)"
+            )
+            yield (
+                "updates",
+                {
+                    "agent": {
+                        "messages": [
+                            AIMessage(
+                                content=(
+                                    "[Aylık Koç Raporunu İndir (DOCX)]"
+                                    f"(/api/reports/{report_id}/download)"
+                                ),
                             ),
-                        ),
-                    ],
+                        ],
+                    },
                 },
-            }
+            )
 
     monkeypatch.setattr(
         "app.services.agent_runner.build_agent_graph_from_settings",
@@ -520,6 +529,52 @@ def test_live_graph_report_answer_uses_card_copy(monkeypatch: MonkeyPatch) -> No
     assert "aşağıdaki karttan indirebilirsin" in assistant_text
     assert "](/api/reports/" not in assistant_text
     assert fake_session.messages[-1].content == assistant_text
+
+
+def test_live_graph_streams_message_chunks_without_duplicate_final_delta(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    user = make_user()
+    conversation = Conversation(id=uuid4(), user_id=user.id)
+    current_user_message = Message(
+        id=uuid4(),
+        conversation_id=conversation.id,
+        role="user",
+        content="Bu ay nasılım?",
+    )
+    fake_session = FakeSession(user, [], [])
+    fake_session.conversations.append(conversation)
+    fake_session.messages.append(current_user_message)
+
+    class FakeGraph:
+        def stream(self, _state: object, *, stream_mode: list[str]) -> Iterator[tuple[str, object]]:
+            assert stream_mode == ["messages", "updates"]
+            yield ("messages", (AIMessageChunk(content="İyi "), {}))
+            yield ("messages", (AIMessageChunk(content="gidiyorsun."), {}))
+            yield (
+                "updates",
+                {"agent": {"messages": [AIMessage(content="İyi gidiyorsun.")]}},
+            )
+
+    monkeypatch.setattr(
+        "app.services.agent_runner.build_agent_graph_from_settings",
+        lambda _settings=None: FakeGraph(),
+    )
+
+    events = list(
+        _stream_live_graph(
+            fake_session,
+            user,
+            ChatStreamRequest(message="Bu ay nasılım?", conversation_id=conversation.id),
+            conversation,
+            current_user_message=current_user_message,
+            settings=None,
+        ),
+    )
+
+    deltas = [str(event.get("content", "")) for event in events if event.get("type") == "delta"]
+    assert deltas == ["İyi ", "gidiyorsun."]
+    assert fake_session.messages[-1].content == "İyi gidiyorsun."
 
 
 def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:
