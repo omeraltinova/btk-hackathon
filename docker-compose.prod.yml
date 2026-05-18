@@ -33,6 +33,7 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_IMAGE_MODEL: ${OPENROUTER_IMAGE_MODEL:-google/gemini-3.1-flash-image-preview}
       MINIO_BUCKET_ILLUSTRATIONS: ${MINIO_BUCKET_ILLUSTRATIONS:-illustrations}
+      MINIO_BUCKET_REPORTS: ${MINIO_BUCKET_REPORTS:-reports}
       ILLUSTRATION_DAILY_LIMIT: ${ILLUSTRATION_DAILY_LIMIT:-10}
     command: ["alembic", "upgrade", "head"]
 

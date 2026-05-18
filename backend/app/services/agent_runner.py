@@ -24,6 +24,7 @@ from app.agent.tools import (
     build_envelope_budget_overview,
     build_envelope_budget_update,
     build_memory_upsert,
+    build_monthly_report_generation,
     build_receipt_candidate,
     build_saving_goal_creation,
     build_saving_goal_delete,
@@ -111,6 +112,17 @@ CUSTOM_LESSON_HINTS = (
     "ders olustur",
     "kendi ders",
 )
+REPORT_HINTS = (
+    "rapor",
+    "docx",
+    "word",
+    "aylık özet",
+    "aylik ozet",
+    "aylık özet dosyası",
+    "aylik ozet dosyasi",
+)
+REPORT_FAMILY_HINTS = ("aile", "çocuk", "cocuk", "çocukları", "cocuklari")
+REPORT_NO_AI_HINTS = ("görselsiz", "gorselsiz", "resimsiz", "illüstrasyonsuz")
 SAVING_GOAL_CREATE_HINTS = (
     "azalt",
     "düşür",
@@ -503,6 +515,25 @@ def _memory_write_text(message: str) -> str | None:
 def _wants_custom_lesson(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in CUSTOM_LESSON_HINTS)
+
+
+def _wants_monthly_report(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in REPORT_HINTS) and any(
+        hint in normalized for hint in ("ay", "aylık", "aylik", "bu ay", "monthly")
+    )
+
+
+def _report_input_from_message(current_user: User, message: str) -> dict[str, object]:
+    normalized = message.casefold()
+    family_requested = current_user.role == "parent" and any(
+        hint in normalized for hint in REPORT_FAMILY_HINTS
+    )
+    return {
+        "scope": "family" if family_requested else "self",
+        "include_children": family_requested,
+        "include_ai_illustrations": not any(hint in normalized for hint in REPORT_NO_AI_HINTS),
+    }
 
 
 def _wants_saving_goal_creation(message: str) -> bool:
@@ -1525,6 +1556,19 @@ def _image_event_from_result(
     }
 
 
+def _report_answer(result: dict[str, object]) -> str:
+    if "error" in result:
+        return str(result["error"])
+    title = str(result.get("title") or "Aylık Koç Raporu")
+    filename = str(result.get("filename") or "cuzdan-kocu-raporu.docx")
+    chart_count = result.get("chart_count")
+    ai_count = result.get("ai_illustration_count")
+    visual_text = ""
+    if isinstance(chart_count, int) and isinstance(ai_count, int):
+        visual_text = f" İçinde {chart_count} grafik ve {ai_count} AI illüstrasyon var."
+    return f"{title} hazır. {filename} dosyasını aşağıdaki karttan indirebilirsin.{visual_text}"
+
+
 def _receipt_context(result: dict[str, object]) -> str:
     if "error" in result:
         return f"Fiş OCR hatası: {result['error']}"
@@ -1716,6 +1760,7 @@ def _stream_live_graph(
         current_user_content=user_content,
     )
     final_answer = ""
+    latest_report_result: dict[str, object] | None = None
     for update in graph.stream(
         {
             "messages": graph_messages,
@@ -1759,6 +1804,8 @@ def _stream_live_graph(
                         }
                 else:
                     content = _message_text(message.content)
+                    if latest_report_result is not None:
+                        content = _report_answer(latest_report_result)
                     final_answer = content
                     for chunk in _chunks(content):
                         yield {
@@ -1768,18 +1815,21 @@ def _stream_live_graph(
                         }
             elif isinstance(message, ToolMessage):
                 result = _tool_result_payload(message)
+                tool_name = message.name or "tool"
+                if tool_name == "generate_monthly_report":
+                    latest_report_result = result
                 _persist_message(
                     db,
                     conversation,
                     role="tool",
                     content="Araç sonucu alındı.",
-                    tool_name=message.name or "tool",
+                    tool_name=tool_name,
                     tool_calls={"result": result},
                 )
                 yield {
                     "type": "tool_result",
                     "conversation_id": str(conversation.id),
-                    "tool_name": message.name or "tool",
+                    "tool_name": tool_name,
                     "result": result,
                 }
                 image_event = _image_event_from_result(
@@ -2053,6 +2103,44 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _memory_write_answer(result)
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
+    if _wants_monthly_report(payload.message):
+        report_input = _report_input_from_message(current_user, payload.message)
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "generate_monthly_report",
+            "input": report_input,
+        }
+        result = build_monthly_report_generation(
+            db,
+            current_user,
+            scope=str(report_input["scope"]),
+            include_children=bool(report_input["include_children"]),
+            include_ai_illustrations=bool(report_input["include_ai_illustrations"]),
+        )
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Aylık Koç Raporu oluşturuldu."
+            if "error" not in result
+            else "Aylık Koç Raporu oluşturulamadı.",
+            tool_name="generate_monthly_report",
+            tool_calls={"input": report_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "generate_monthly_report",
+            "result": result,
+        }
+        answer = _report_answer(result)
         for chunk in _chunks(answer):
             yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
         _persist_message(db, conversation, role="assistant", content=answer)

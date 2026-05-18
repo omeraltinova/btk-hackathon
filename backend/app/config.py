@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     minio_root_password: str = "minioadmin"
     minio_bucket_receipts: str = "receipts"
     minio_bucket_illustrations: str = "illustrations"
+    minio_bucket_reports: str = "reports"
     minio_region: str = "us-east-1"
     minio_use_ssl: bool = False
 

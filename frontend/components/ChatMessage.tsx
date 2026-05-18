@@ -14,7 +14,8 @@ type ChatMessageProps = {
 
 function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const inlinePattern = /!\[[^\]]*]\([^)]+\)|\*\*([^*]+?)\*\*|\*([^*]+?)\*/g;
+  const inlinePattern =
+    /!\[[^\]]*]\([^)]+\)|\[([^\]]+)]\((\/api\/reports\/[^)]+)\)|\*\*([^*]+?)\*\*|\*([^*]+?)\*/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -24,16 +25,18 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
     }
     if (match[0].startsWith("![")) {
       nodes.push("");
-    } else if (match[1]) {
+    } else if (match[1] && match[2]) {
+      nodes.push(match[1]);
+    } else if (match[3]) {
       nodes.push(
         <strong key={`${keyPrefix}-${match.index}`} className="font-black">
-          {match[1]}
+          {match[3]}
         </strong>,
       );
-    } else if (match[2]) {
+    } else if (match[4]) {
       nodes.push(
         <em key={`${keyPrefix}-${match.index}`} className="font-semibold italic">
-          {match[2]}
+          {match[4]}
         </em>,
       );
     }

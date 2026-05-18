@@ -46,6 +46,7 @@ class Illustration:
     public_url: str
     prompt: str
     concept: str
+    content: bytes
 
 
 class IllustrationService:
@@ -85,6 +86,7 @@ class IllustrationService:
             public_url=self._public_url(stored),
             prompt=prompt,
             concept=concept,
+            content=image_bytes,
         )
 
     def _ascii_header(self, raw: str | None) -> str | None:

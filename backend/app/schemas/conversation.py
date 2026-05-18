@@ -18,10 +18,15 @@ class ConversationListItem(BaseModel):
 
 
 class ConversationAttachment(BaseModel):
-    type: Literal["chart", "image"]
+    type: Literal["chart", "image", "report"]
     chart: dict[str, Any] | None = None
     image_url: str | None = None
     alt_text: str | None = None
+    report_id: str | None = None
+    download_url: str | None = None
+    filename: str | None = None
+    title: str | None = None
+    format: str | None = None
 
 
 class ConversationMessage(BaseModel):

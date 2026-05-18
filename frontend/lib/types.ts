@@ -415,6 +415,17 @@ export type ConversationAttachment =
       chart?: null;
       image_url: string;
       alt_text: string | null;
+    }
+  | {
+      type: "report";
+      chart?: null;
+      image_url?: null;
+      alt_text?: null;
+      report_id: string;
+      download_url: string;
+      filename: string;
+      title: string | null;
+      format: string | null;
     };
 
 export type ConversationMessage = {

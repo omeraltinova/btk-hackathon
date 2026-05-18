@@ -3,6 +3,8 @@
 import {
   Bot,
   Check,
+  Download,
+  FileText,
   ImagePlus,
   Loader2,
   MessageSquareText,
@@ -24,7 +26,7 @@ import { ChatMessage } from "@/components/ChatMessage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
-import { api, ApiError } from "@/lib/api";
+import { api, apiDownload, ApiError } from "@/lib/api";
 import {
   chatAttachmentsFromHistory,
   extractChart,
@@ -206,6 +208,9 @@ function describeToolResult(event: Extract<ChatStreamEvent, { type: "tool_result
   if (event.tool_name === "illustrate_concept") {
     return typeof result.image_url === "string" ? "Görsel hazır" : "Görsel hazırlanamadı";
   }
+  if (event.tool_name === "generate_monthly_report") {
+    return typeof result.download_url === "string" ? "Rapor hazır" : "Rapor oluşturulamadı";
+  }
   return "Sonuç alındı";
 }
 
@@ -242,6 +247,9 @@ function renderAttachment(attachment: ChatAttachmentItem) {
   if (attachment.type === "chart") {
     return <ChatChart key={attachment.id} spec={attachment.spec} />;
   }
+  if (attachment.type === "report") {
+    return <ReportAttachment key={attachment.id} attachment={attachment} />;
+  }
   return (
     <figure
       key={attachment.id}
@@ -253,6 +261,79 @@ function renderAttachment(attachment: ChatAttachmentItem) {
         {attachment.altText}
       </figcaption>
     </figure>
+  );
+}
+
+function reportFromToolResult(result: ChatToolPayload): ChatAttachmentItem | null {
+  if (
+    typeof result.report_id !== "string" ||
+    typeof result.download_url !== "string" ||
+    typeof result.filename !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: crypto.randomUUID(),
+    type: "report",
+    reportId: result.report_id,
+    downloadUrl: result.download_url,
+    filename: result.filename,
+    title: typeof result.title === "string" ? result.title : "Aylık Koç Raporu",
+    format: typeof result.format === "string" ? result.format : "docx",
+  };
+}
+
+function ReportAttachment({
+  attachment,
+}: {
+  attachment: Extract<ChatAttachmentItem, { type: "report" }>;
+}) {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  async function handleDownload() {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      await apiDownload(attachment.downloadUrl, attachment.filename);
+    } catch (err) {
+      toast.error(friendlyError(err, "Rapor indirilemedi."));
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  return (
+    <section className="cash-envelope overflow-hidden px-4 py-4 shadow-sm sm:px-5">
+      <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <span className="bg-primary/12 grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-primary">
+            <FileText className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="eyebrow">DOCX rapor</p>
+            <h4 className="mt-1 font-display text-xl font-black tracking-tight">
+              {attachment.title}
+            </h4>
+            <p className="mt-1 text-sm font-semibold text-muted-foreground">
+              {attachment.filename}
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          onClick={handleDownload}
+          disabled={isDownloading}
+          className="min-h-10"
+        >
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          İndir
+        </Button>
+      </div>
+    </section>
   );
 }
 
@@ -573,6 +654,7 @@ export function ChatStream() {
     }
     if (event.type === "tool_result") {
       const chart = extractChart(event.result);
+      const report = reportFromToolResult(event.result);
       if (chart) {
         setMessages((current) =>
           current.map((message) =>
@@ -584,6 +666,15 @@ export function ChatStream() {
                     { id: crypto.randomUUID(), type: "chart", spec: chart },
                   ],
                 }
+              : message,
+          ),
+        );
+      }
+      if (report) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? { ...message, attachments: [...(message.attachments ?? []), report] }
               : message,
           ),
         );

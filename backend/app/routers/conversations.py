@@ -73,6 +73,20 @@ def _message_attachments(message: Message) -> list[ConversationAttachment]:
                 alt_text=alt_text if isinstance(alt_text, str) else "Finansal kavram görseli",
             ),
         )
+    report_id = result.get("report_id")
+    download_url = result.get("download_url")
+    filename = result.get("filename")
+    if isinstance(report_id, str) and isinstance(download_url, str) and isinstance(filename, str):
+        attachments.append(
+            ConversationAttachment(
+                type="report",
+                report_id=report_id,
+                download_url=download_url,
+                filename=filename,
+                title=str(result.get("title") or "Aylık Koç Raporu"),
+                format=str(result.get("format") or "docx"),
+            ),
+        )
     return attachments
 
 

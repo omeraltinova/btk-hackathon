@@ -496,12 +496,29 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     durumu ve geri almalı kapatma kullanır. Hesap sayfasındaki haftalık e-posta
     özeti toggle'ı demo/mock tercihtir; gerçek e-posta göndermez ve yalnızca
     tarayıcı localStorage'ına kaydedilir.
+28. **Aylık Koç Raporu (DOCX + grafik + güvenli AI illüstrasyon):** Kullanıcı
+    sohbetten kişisel veya parent ise aile kapsamlı aylık rapor isteyebilir.
+    Agent `generate_monthly_report` aracıyla aktif profil state'inden gelen
+    `user_id` kapsamını kullanır; prompt'tan kullanıcı/kapsam değiştirme kabul
+    edilmez. Çıktı MVP'de yalnızca DOCX'tir ve private MinIO `reports` bucket'ına
+    yazılır; indirme `GET /api/reports/{id}/download` ile auth + rapor sahibi
+    kontrolünden geçer. Rapor gelir/gider, kategori kırılımı, geçen ay
+    karşılaştırması, zarf/hedef/tasarruf durumu, abonelik etkisi, parent-only aile
+    üye kırılımı, grafik PNG'leri ve genel koç değerlendirmesi içerir. Güvenli AI
+    illüstrasyonları anlatımı güçlendirmek için eklenebilir; görsel prompt'una
+    kullanıcı adı, çocuk adı, satıcı listesi, tutar, fiş detayı, ham OCR, IBAN,
+    kart veya kimlik bilgisi gönderilmez. Kişisel raporda en fazla 2, aile
+    raporunda en fazla 3 AI illüstrasyon denenir; görsel servis hazır değilse
+    rapor görselsiz değil, AI illüstrasyon bölümü atlanarak üretilir. Child ve
+    individual kullanıcılar sadece kendi raporunu alır; parent açıkça aile/çocuk
+    dahil raporu isterse aile üyeleri rapora katılır.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-28. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
-29. Tam quiz modu ve kalıcı öğrenme ilerlemesi
-30. Magic link auth (email-only login, parola yok)
+29. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
+30. Tam quiz modu ve kalıcı öğrenme ilerlemesi
+31. Magic link auth (email-only login, parola yok)
+32. Aylık Koç Raporu PDF renderer'ı (DOCX ile aynı rapor spec'inden üretilir)
 
 ---
 
@@ -1148,8 +1165,11 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.33
-**Son güncelleme:** 17 Mayıs 2026
+**Doküman versiyonu:** 0.34
+**Son güncelleme:** 18 Mayıs 2026
+**v0.34 değişiklikleri:** Aylık Koç Raporu core demo kapsamına eklendi: sohbetten
+DOCX rapor üretimi, grafik PNG'leri, güvenli AI illüstrasyonları, parent-only aile
+kapsamı ve private auth kontrollü indirme. PDF üretimi stretch kapsamına alındı.
 **v0.33 değişiklikleri:** Zarf silme davranışı kullanıcı beklentisiyle hizalandı:
 silme artık zarfı `0,00 ₺` kapalı limit olarak listede bırakmaz; aktif profil için
 kategori-backed zarf kaydı kaldırılır. Mevcut gelir/gider kayıtları silinmez;

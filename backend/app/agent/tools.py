@@ -44,6 +44,7 @@ from app.services.envelopes import (
 )
 from app.services.image_gen import IllustrationService, IllustrationUnavailableError
 from app.services.ocr import ReceiptOcrError, ReceiptOcrService, ReceiptOcrUnavailableError
+from app.services.reports import generate_monthly_report_file
 from app.services.saving_goals import (
     calculate_saving_goal_progress,
     create_accumulation_goal,
@@ -186,6 +187,15 @@ def parse_bool_text(value: object, *, default: bool = True) -> bool:
     if normalized in {"true", "1", "evet", "yes", "active"} or "aktif" in normalized:
         return True
     return default
+
+
+def parse_report_scope_text(value: object, current_user: User) -> str:
+    normalized = _fold_control_text(value)
+    if current_user.role == "parent" and any(
+        hint in normalized for hint in ("aile", "family", "cocuk", "cocuklar")
+    ):
+        return "family"
+    return "self"
 
 
 def parse_goal_status_text(value: object | None) -> str | None:
@@ -1588,6 +1598,31 @@ def build_concept_illustration(
         "image_url": illustration.public_url,
         "alt_text": f"{normalized} kavramını anlatan eğitim amaçlı illüstrasyon",
     }
+
+
+def build_monthly_report_generation(
+    db: Session,
+    current_user: User,
+    *,
+    scope: str = "self",
+    include_children: bool = False,
+    include_ai_illustrations: bool = True,
+) -> dict[str, object]:
+    """Generate a private DOCX monthly report for the current scoped user."""
+    resolved_scope = parse_report_scope_text(scope, current_user)
+    resolved_include_children = include_children and current_user.role == "parent"
+    if resolved_include_children:
+        resolved_scope = "family"
+    try:
+        return generate_monthly_report_file(
+            db,
+            current_user,
+            scope=resolved_scope,
+            include_children=resolved_include_children,
+            include_ai_illustrations=include_ai_illustrations,
+        )
+    except Exception:
+        return {"error": "Rapor şu an oluşturulamadı; biraz sonra tekrar dener misin?"}
 
 
 def explain_finance_concept(current_user: User, *, concept: str) -> dict[str, object]:
@@ -3257,6 +3292,25 @@ def illustrate_concept_tool(
         return build_concept_illustration(db, _load_current_user(db, user_id), concept=concept)
 
 
+@tool("generate_monthly_report")
+def generate_monthly_report_tool(
+    scope: str = "self",
+    include_children: bool | str = False,
+    include_ai_illustrations: bool | str = True,
+    user_id: Annotated[str, InjectedState("user_id")] = "",
+) -> dict[str, object]:
+    """Aylık DOCX Koç Raporu üretir ve private indirme bağlantısı döner."""
+    with SessionLocal() as db:
+        current_user = _load_current_user(db, user_id)
+        return build_monthly_report_generation(
+            db,
+            current_user,
+            scope=scope,
+            include_children=parse_bool_text(include_children, default=False),
+            include_ai_illustrations=parse_bool_text(include_ai_illustrations, default=True),
+        )
+
+
 TOOLS = [
     get_spending_tool,
     get_subscriptions_tool,
@@ -3280,4 +3334,5 @@ TOOLS = [
     visualize_spending_tool,
     visualize_saving_goals_tool,
     illustrate_concept_tool,
+    generate_monthly_report_tool,
 ]
