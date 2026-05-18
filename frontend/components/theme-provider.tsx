@@ -6,8 +6,7 @@ import * as React from "react";
 /**
  * Wraps `next-themes` with project-wide defaults.
  * - `attribute="class"` → toggles `.dark` on <html>, matches Tailwind config.
- * - `defaultTheme="system"` → respects OS preference per master_plan §5 P9 (user choice first).
- * - `enableSystem` → system change is reflected when no explicit choice is set.
+ * - `defaultTheme="light"` → first visit opens with the intended warm ledger palette.
  */
 export function ThemeProvider({
   children,
@@ -16,8 +15,8 @@ export function ThemeProvider({
   return (
     <NextThemesProvider
       attribute="class"
-      defaultTheme="system"
-      enableSystem
+      defaultTheme="light"
+      enableSystem={false}
       disableTransitionOnChange
       {...props}
     >
