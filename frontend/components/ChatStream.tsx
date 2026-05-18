@@ -42,6 +42,7 @@ import {
 import { amountToKurus, formatKurus } from "@/lib/format";
 import { useKidMode } from "@/lib/kid-mode";
 import { streamChat } from "@/lib/sse";
+import { playTts, stopActiveSpeech } from "@/lib/tts";
 import type {
   ChatStreamEvent,
   ChatToolPayload,
@@ -113,6 +114,7 @@ type SpeechRecognitionLike = {
 };
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type VoiceInputMode = "provider" | "browser";
 
 declare global {
   interface Window {
@@ -439,23 +441,23 @@ function friendlyError(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
 
-function textForSpeech(value: string): string {
-  return value
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`#>~-]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+function preferredRecordingMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  const candidates = ["audio/ogg;codecs=opus", "audio/ogg", "audio/webm;codecs=opus", "audio/webm"];
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
 }
 
-function speakAssistantAnswer(text: string) {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-  const content = textForSpeech(text);
-  if (!content) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(content);
-  utterance.lang = "tr-TR";
-  window.speechSynthesis.speak(utterance);
+function filenameForAudioType(contentType: string): string {
+  const normalized = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  if (normalized === "audio/ogg") return "ses-kaydi.ogg";
+  if (normalized === "audio/webm") return "ses-kaydi.webm";
+  if (normalized === "audio/wav" || normalized === "audio/x-wav") return "ses-kaydi.wav";
+  if (normalized === "audio/mpeg" || normalized === "audio/mp3") return "ses-kaydi.mp3";
+  return "ses-kaydi.bin";
+}
+
+function stopMediaStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
 }
 
 function messagesFromThread(thread: ConversationMessages): ChatMessageItem[] {
@@ -495,13 +497,22 @@ export function ChatStream() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [supportsSpeechInput, setSupportsSpeechInput] = useState(false);
+  const [supportsProviderRecording, setSupportsProviderRecording] = useState(false);
+  const [supportsBrowserSpeechInput, setSupportsBrowserSpeechInput] = useState(false);
   const [showVoiceHint, setShowVoiceHint] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceReplies, setVoiceReplies] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const fallbackTranscriptRef = useRef("");
+  const activeVoiceModeRef = useRef<VoiceInputMode | null>(null);
+  const voiceSessionRef = useRef(0);
   const pendingMessageRef = useRef<PendingChatMessage | null>(null);
   const pendingMessageStartedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -574,11 +585,18 @@ export function ChatStream() {
   }, []);
 
   useEffect(() => {
-    const isSupported =
+    const browserSpeechSupported =
       typeof window !== "undefined" &&
       ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
-    setSupportsSpeechInput(isSupported);
-    if (isSupported && typeof window !== "undefined") {
+    const providerRecordingSupported =
+      typeof window !== "undefined" &&
+      typeof navigator !== "undefined" &&
+      Boolean(navigator.mediaDevices?.getUserMedia) &&
+      typeof MediaRecorder !== "undefined";
+    setSupportsBrowserSpeechInput(browserSpeechSupported);
+    setSupportsProviderRecording(providerRecordingSupported);
+    setSupportsSpeechInput(browserSpeechSupported || providerRecordingSupported);
+    if ((browserSpeechSupported || providerRecordingSupported) && typeof window !== "undefined") {
       try {
         const seen = window.localStorage.getItem("cuzdan-kocu.voice-hint-shown");
         if (!seen) {
@@ -594,9 +612,9 @@ export function ChatStream() {
           return () => {
             window.clearTimeout(timer);
             recognitionRef.current?.abort();
-            if (typeof window !== "undefined" && "speechSynthesis" in window) {
-              window.speechSynthesis.cancel();
-            }
+            mediaRecorderRef.current?.stop();
+            stopMediaStream(mediaStreamRef.current);
+            stopActiveSpeech();
           };
         }
       } catch {
@@ -605,9 +623,9 @@ export function ChatStream() {
     }
     return () => {
       recognitionRef.current?.abort();
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      mediaRecorderRef.current?.stop();
+      stopMediaStream(mediaStreamRef.current);
+      stopActiveSpeech();
     };
   }, []);
 
@@ -816,7 +834,11 @@ export function ChatStream() {
           },
           { signal: controller.signal },
         );
-        if (voiceReplies) speakAssistantAnswer(assistantText);
+        if (voiceReplies) {
+          void playTts(assistantText).catch((err) => {
+            toast.error(err instanceof ApiError ? err.detail : "Sesli okuma başlatılamadı.");
+          });
+        }
         return true;
       } catch (err) {
         if ((err as Error).name === "AbortError") return false;
@@ -909,39 +931,151 @@ export function ChatStream() {
     }
   }
 
-  function handleVoiceInput() {
-    if (isStreaming || isHydrating) return;
+  const sendVoiceTranscript = useCallback(
+    async (transcript: string) => {
+      const trimmed = transcript.trim();
+      if (!trimmed) return;
+      await sendMessage(trimmed);
+    },
+    [sendMessage],
+  );
+
+  function createRecognition(mode: VoiceInputMode): SpeechRecognitionLike | null {
     const SpeechRecognitionConstructorRef =
       window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!SpeechRecognitionConstructorRef) {
-      toast.error("Bu tarayıcı sesli giriş desteklemiyor.");
-      return;
-    }
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-      return;
-    }
+    if (!SpeechRecognitionConstructorRef) return null;
     recognitionRef.current?.abort();
     const recognition = new SpeechRecognitionConstructorRef();
     recognitionRef.current = recognition;
     recognition.lang = "tr-TR";
-    recognition.interimResults = false;
-    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.continuous = true;
     recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript?.trim();
-      if (!transcript) return;
-      setDraft((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript?.trim() ?? "")
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      if (transcript) fallbackTranscriptRef.current = transcript;
     };
     recognition.onerror = (event) => {
       if (event.error === "aborted") return;
-      toast.error("Ses alınamadı, tekrar dener misin?");
-      setIsListening(false);
+      if (mode === "browser") {
+        toast.error("Ses alınamadı, tekrar dener misin?");
+        setIsListening(false);
+        setIsTranscribing(false);
+        activeVoiceModeRef.current = null;
+      }
     };
     recognition.onend = () => {
-      setIsListening(false);
       if (recognitionRef.current === recognition) recognitionRef.current = null;
+      if (mode !== "browser" || activeVoiceModeRef.current !== "browser") return;
+      setIsListening(false);
+      setIsTranscribing(false);
+      activeVoiceModeRef.current = null;
+      const fallbackTranscript = fallbackTranscriptRef.current.trim();
+      fallbackTranscriptRef.current = "";
+      if (fallbackTranscript) {
+        void sendVoiceTranscript(fallbackTranscript);
+        return;
+      }
+      toast.error("Ses alınamadı, tekrar dener misin?");
     };
+    return recognition;
+  }
+
+  async function handleRecordedAudio({
+    chunks,
+    contentType,
+    sessionId,
+  }: {
+    chunks: Blob[];
+    contentType: string;
+    sessionId: number;
+  }) {
+    try {
+      if (sessionId !== voiceSessionRef.current) return;
+      if (chunks.length === 0) throw new Error("Ses kaydı boş görünüyor.");
+      const audio = new Blob(chunks, { type: contentType });
+      const formData = new FormData();
+      formData.append("audio", audio, filenameForAudioType(contentType));
+      const response = await api<{ text: string }>("/api/stt", {
+        method: "POST",
+        body: formData,
+        silent: true,
+      });
+      await sendVoiceTranscript(response.text);
+    } catch (err) {
+      const fallbackTranscript = fallbackTranscriptRef.current.trim();
+      if (fallbackTranscript) {
+        await sendVoiceTranscript(fallbackTranscript);
+      } else {
+        toast.error(friendlyError(err, "Ses alınamadı, tekrar dener misin?"));
+      }
+    } finally {
+      if (sessionId !== voiceSessionRef.current) return;
+      setIsTranscribing(false);
+      fallbackTranscriptRef.current = "";
+      activeVoiceModeRef.current = null;
+      recognitionRef.current = null;
+    }
+  }
+
+  async function startProviderVoiceInput() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Mikrofon kaydı başlatılamadı.");
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStreamRef.current = stream;
+    const mimeType = preferredRecordingMimeType();
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const sessionId = voiceSessionRef.current + 1;
+    voiceSessionRef.current = sessionId;
+    activeVoiceModeRef.current = "provider";
+    recordedChunksRef.current = [];
+    fallbackTranscriptRef.current = "";
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) recordedChunksRef.current.push(event.data);
+    };
+    recorder.onstop = () => {
+      const chunks = recordedChunksRef.current;
+      const contentType = recorder.mimeType || chunks[0]?.type || "application/octet-stream";
+      mediaRecorderRef.current = null;
+      stopMediaStream(mediaStreamRef.current);
+      mediaStreamRef.current = null;
+      recordedChunksRef.current = [];
+      void handleRecordedAudio({ chunks, contentType, sessionId });
+    };
+    recorder.onerror = () => {
+      stopMediaStream(mediaStreamRef.current);
+      mediaStreamRef.current = null;
+      mediaRecorderRef.current = null;
+      recordedChunksRef.current = [];
+      fallbackTranscriptRef.current = "";
+      setIsListening(false);
+      setIsTranscribing(false);
+      activeVoiceModeRef.current = null;
+      toast.error("Mikrofon kaydı başlatılamadı.");
+    };
+    mediaRecorderRef.current = recorder;
+    const backupRecognition = createRecognition("provider");
+    try {
+      backupRecognition?.start();
+    } catch {
+      recognitionRef.current = null;
+    }
+    recorder.start();
+    setIsListening(true);
+  }
+
+  function startBrowserVoiceInput() {
+    const recognition = createRecognition("browser");
+    if (!recognition) {
+      toast.error("Bu tarayıcı sesli giriş desteklemiyor.");
+      return;
+    }
+    activeVoiceModeRef.current = "browser";
+    fallbackTranscriptRef.current = "";
     try {
       setIsListening(true);
       recognition.start();
@@ -949,6 +1083,38 @@ export function ChatStream() {
       setIsListening(false);
       toast.error("Mikrofon başlatılamadı.");
     }
+  }
+
+  function handleVoiceInput() {
+    if (isStreaming || isHydrating || isTranscribing) return;
+    if (isListening) {
+      if (activeVoiceModeRef.current === "provider") {
+        recognitionRef.current?.stop();
+        mediaRecorderRef.current?.stop();
+        setIsListening(false);
+        setIsTranscribing(true);
+        return;
+      }
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      setIsTranscribing(true);
+      return;
+    }
+    if (supportsProviderRecording) {
+      void startProviderVoiceInput().catch(() => {
+        stopMediaStream(mediaStreamRef.current);
+        mediaStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        recordedChunksRef.current = [];
+        if (supportsBrowserSpeechInput) {
+          startBrowserVoiceInput();
+          return;
+        }
+        toast.error("Mikrofon başlatılamadı.");
+      });
+      return;
+    }
+    startBrowserVoiceInput();
   }
 
   function handleNewConversation() {
@@ -962,9 +1128,18 @@ export function ChatStream() {
     setHistoryError(null);
     setDraft("");
     setActivePanel("chat");
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    voiceSessionRef.current += 1;
+    recognitionRef.current?.abort();
+    mediaRecorderRef.current?.stop();
+    stopMediaStream(mediaStreamRef.current);
+    mediaRecorderRef.current = null;
+    mediaStreamRef.current = null;
+    recordedChunksRef.current = [];
+    fallbackTranscriptRef.current = "";
+    activeVoiceModeRef.current = null;
+    setIsListening(false);
+    setIsTranscribing(false);
+    stopActiveSpeech();
     rememberActiveConversationId(null);
   }
 
@@ -1178,7 +1353,13 @@ export function ChatStream() {
             {voiceReplies ? "Sesli oku açık" : "Sesli oku kapalı"}
           </button>
           {supportsSpeechInput ? (
-            <span>{isListening ? "Dinliyorum..." : "Mikrofon hazır"}</span>
+            <span>
+              {isTranscribing
+                ? "Ses yazıya çevriliyor..."
+                : isListening
+                  ? "Dinliyorum..."
+                  : "Mikrofon hazır"}
+            </span>
           ) : null}
         </div>
         <div
@@ -1204,8 +1385,14 @@ export function ChatStream() {
             <div className="relative inline-flex items-center justify-center">
               <button
                 type="button"
-                aria-label={isListening ? "Ses kaydını durdur" : "Sesli yaz"}
-                disabled={isStreaming || isHydrating}
+                aria-label={
+                  isTranscribing
+                    ? "Ses yazıya çevriliyor"
+                    : isListening
+                      ? "Ses kaydını durdur"
+                      : "Sesli yaz"
+                }
+                disabled={isStreaming || isHydrating || isTranscribing}
                 onClick={() => {
                   dismissVoiceHint();
                   handleVoiceInput();

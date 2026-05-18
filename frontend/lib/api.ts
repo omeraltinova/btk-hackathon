@@ -178,3 +178,61 @@ export async function apiDownload(path: string, filename: string): Promise<void>
     URL.revokeObjectURL(objectUrl);
   }
 }
+
+/**
+ * Fetch a binary payload while preserving the same auth/profile behavior as `api()`.
+ *
+ * Used by provider-backed TTS where the browser should play the returned blob
+ * directly instead of downloading it to disk.
+ */
+export async function apiBlob(path: string, options: ApiOptions = {}): Promise<Blob> {
+  const {
+    method = "GET",
+    body,
+    headers = {},
+    signal,
+    silent = false,
+    useActiveProfile = true,
+  } = options;
+  const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  const finalHeaders: Record<string, string> = {
+    Accept: "application/octet-stream",
+    ...headers,
+  };
+  if (body !== undefined && !isFormData) finalHeaders["Content-Type"] = "application/json";
+
+  const token = await getBackendToken(useActiveProfile);
+  if (token) finalHeaders.Authorization = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: finalHeaders,
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
+      signal,
+      credentials: "include",
+    });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    const message = describeError(0, undefined);
+    if (!silent) toast.error(message);
+    throw new ApiError(0, message);
+  }
+
+  if (!response.ok) {
+    let detail: string | undefined;
+    try {
+      const errorBody = (await response.json()) as { detail?: unknown };
+      if (typeof errorBody.detail === "string") detail = errorBody.detail;
+    } catch {
+      // Non-JSON bodies use the generic fallback below.
+    }
+    const message = describeError(response.status, detail);
+    if (!silent) toast.error(message);
+    throw new ApiError(response.status, message);
+  }
+
+  return response.blob();
+}

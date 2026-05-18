@@ -28,6 +28,7 @@ Set production values in the platform secret manager:
 - `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_PUBLIC_ENDPOINT`, `MINIO_BUCKET_ILLUSTRATIONS`
 - `LLM_PROVIDER=gemini` with `GEMINI_API_KEY`, or `LLM_PROVIDER=openrouter` with `OPENROUTER_API_KEY`
 - `GEMINI_IMAGE_MODEL`, `OPENROUTER_IMAGE_MODEL`, and `ILLUSTRATION_DAILY_LIMIT` if chat concept illustrations are enabled
+- `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE`, `OPENROUTER_STT_MODEL`, `OPENROUTER_TTS_MODEL`, and `OPENROUTER_TTS_VOICE` if provider-backed voice input/output is enabled
 - `DEMO_PARENT_PASSWORD` for the one-off `demo-seed` command
 
 ## Post-Deploy Commands
@@ -67,5 +68,6 @@ After DNS/HTTPS is configured:
 3. Confirm `/dashboard` shows an API-backed koç notu.
 4. Confirm `/family` lists Ayşe and Elif with `is_demo=true` seed data; Mehmet has a separate demo parent login if needed.
 5. Switch into Elif and ask chat `Faiz nedir?`.
+6. Click the speaker icon on the reply and confirm Turkish audio plays through the configured provider.
 
 The actual live URL must be verified on the deployment platform before Task 9 can be marked fully done.

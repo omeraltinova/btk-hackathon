@@ -457,19 +457,28 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     listesiyle (`Faiz`, `Enflasyon`, `Bütçe`, `Tasarruf`, `Kredi kartı asgari
     ödeme`, `Para piyasası fonu nedir?`) kısa ders akışı sunar. Kullanıcı başlığa
     tıklayınca mevcut `/api/chat/stream` üzerinden `explain_concept` ve gerekirse
-    `illustrate_concept` kullanılır; sonuç sayfada okunur, tarayıcı
-    text-to-speech ile sesli okutulabilir. Kullanıcı ayrıca konu, seviye, süre,
+    `illustrate_concept` kullanılır; sonuç sayfada okunur ve aynı provider
+    seçimine bağlı `/api/tts` yüzeyiyle sesli okutulabilir. Kullanıcı ayrıca konu, seviye, süre,
     örnek/mini quiz ve görsel tercihleriyle anlık özel ders isteyebilir; agent
     `create_custom_lesson` aracıyla yapılandırılmış ders taslağı üretir ve gerekirse
     `illustrate_concept` ile görsel anlatımı ekler. Özel dersler ilk MVP'de kalıcı
     kaydedilmez; chat geçmişinde normal mesaj/tool sonucu olarak kalır. Fon/ürün
     başlıkları yalnızca eğitim amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
-24. **Sesli koç (Web Speech MVP):** `/chat` ekranında destekleyen tarayıcılarda
-    Web Speech API ile Türkçe sesli giriş yapılabilir; metin kutusuna yazılan
-    transkript kullanıcı onayıyla gönderilir. Asistan yanıtları kullanıcı isterse
-    tarayıcı `speechSynthesis` ile `tr-TR` okunur; çocuk modunda bu tercih
-    varsayılan olarak açılır. Harici ses servisi, gerçek zamanlı görüşme veya yeni
-    backend endpoint'i yoktur.
+24. **Sesli koç (provider-backed STT/TTS + browser fallback):** `/chat` ekranında
+    kullanıcı mikrofona basıp konuşur, durdurunca auth'lu `/api/stt` endpoint'i
+    kayıtlı sesi metne çevirip sohbet mesajı olarak yollar. Doğrudan Gemini modunda
+    mevcut multimodal `GEMINI_MODEL` audio understanding ile transkripsiyon yapar;
+    tarayıcı kaydı Gemini'nin desteklediği audio formatlarından biri değilse yalnızca
+    bu direct Gemini yolunda backend kayıtlı sesi desteklenen WAV biçimine normalize eder;
+    OpenRouter modunda `google/chirp-3` kullanılır. Provider STT başarısız olursa
+    tarayıcı `SpeechRecognition` yedek transkripti devreye girer. Asistan yanıtları
+    kullanıcı isterse auth'lu `/api/tts` endpoint'i üzerinden okutulur; doğrudan
+    Gemini modunda `gemini-3.1-flash-tts-preview`, OpenRouter modunda
+    `google/gemini-3.1-flash-tts-preview` kullanılır. Provider TTS başarısız olursa
+    tarayıcı `speechSynthesis` yedeği devreye girer; aynı mesaj daha önce seslendiyse
+    yeniden provider çağrısı yapılmadan mevcut ses tekrar oynatılır. Çocuk modunda
+    yanıtları sesli okuma tercihi varsayılan olarak açılır. Gerçek zamanlı sesli
+    görüşme yoktur.
 25. **Bildirim merkezi (mevcut insight yüzeyi + idempotent yenileme):** Sidebar
     üzerinde zil ikonu, mevcut scoped `/api/insights` sonuçlarını sayar ve son
     bildirimleri açılır panelde gösterir. Kullanıcı bildirimi kapatırsa mevcut
@@ -1165,8 +1174,22 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.34
+**Doküman versiyonu:** 0.37
 **Son güncelleme:** 18 Mayıs 2026
+**v0.37 değişiklikleri:** Direct Gemini STT yolu tarayıcıdan gelen desteklenmeyen ses
+kapsayıcılarını backend'de WAV'a normalize eder; OpenRouter `google/chirp-3` yolu
+desteklediği tarayıcı formatlarını doğrudan almaya devam eder.
+**v0.36 değişiklikleri:** Sesli koç kapsamı provider-backed speech-to-text ile
+genişletildi: `/api/stt` direct Gemini audio understanding veya OpenRouter
+`google/chirp-3` üzerinden kayıtlı sesi metne çevirir; provider hatalarında
+browser `SpeechRecognition` yedek akışı kullanılır. TTS provider hatalarında
+browser `speechSynthesis` yedeği devreye girer ve aynı mesajın ses blob'u tekrar
+kullanılır.
+**v0.35 değişiklikleri:** Sesli koç kapsamı tarayıcı TTS'den provider-backed TTS'ye
+çıkarıldı: `/api/tts` auth'lu backend yüzeyi eklendi; doğrudan Gemini yolunda
+`gemini-3.1-flash-tts-preview`, OpenRouter yolunda
+`google/gemini-3.1-flash-tts-preview` kullanılır. Web Speech mikrofon girişi korunur;
+gerçek zamanlı görüşme hâlâ kapsam dışıdır.
 **v0.34 değişiklikleri:** Aylık Koç Raporu core demo kapsamına eklendi: sohbetten
 DOCX rapor üretimi, grafik PNG'leri, güvenli AI illüstrasyonları, parent-only aile
 kapsamı ve private auth kontrollü indirme. PDF üretimi stretch kapsamına alındı.

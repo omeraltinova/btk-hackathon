@@ -50,9 +50,14 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
     gemini_image_model: str = "gemini-3.1-flash-image-preview"
+    gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
+    gemini_tts_voice: str = "Kore"
     openrouter_api_key: str | None = None
     openrouter_model: str = "google/gemini-3.1-flash-lite"
     openrouter_image_model: str = "google/gemini-3.1-flash-image-preview"
+    openrouter_stt_model: str = "google/chirp-3"
+    openrouter_tts_model: str = "google/gemini-3.1-flash-tts-preview"
+    openrouter_tts_voice: str = "Kore"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_http_referer: str | None = None
     openrouter_app_title: str = "Cüzdan Koçu"

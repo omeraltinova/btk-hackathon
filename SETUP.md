@@ -37,10 +37,11 @@ Open `.env` and:
 - Set `NEXTAUTH_SECRET` to a strong value too; it can use the same generation command as `JWT_SECRET` but should be a separate value outside local demos.
 - `LLM_PROVIDER` — keep `gemini` for direct Google AI Studio, or set `openrouter` to route chat models through OpenRouter.
 - `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Required for the live LangGraph LLM path when `LLM_PROVIDER=gemini`.
-- `GEMINI_IMAGE_MODEL` and `MINIO_BUCKET_ILLUSTRATIONS` — defaults work locally; concept illustration in chat requires either `GEMINI_API_KEY` for direct Gemini mode or `OPENROUTER_API_KEY` for OpenRouter mode.
-- `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required for the live LangGraph LLM path when `LLM_PROVIDER=openrouter`; default chat model is `google/gemini-3.1-flash-lite`, and default image model is `google/gemini-3.1-flash-image-preview`.
+- `GEMINI_IMAGE_MODEL`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE`, and `MINIO_BUCKET_ILLUSTRATIONS` — defaults work locally; concept illustration, direct Gemini audio understanding for microphone transcription, and provider-backed message read-aloud in chat use the same Gemini key.
+- `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required for the live LangGraph LLM path when `LLM_PROVIDER=openrouter`; default chat model is `google/gemini-3.1-flash-lite`, default image model is `google/gemini-3.1-flash-image-preview`, default STT model is `google/chirp-3`, and default TTS model is `google/gemini-3.1-flash-tts-preview`.
 - If the selected LLM key is missing, `/api/chat/stream` still works through the deterministic scoped fallback and streams a Turkish setup notice. Live LLM wording, child-coach natural language, and image OCR require a configured Gemini/OpenRouter key.
 - Real image OCR on `/receipts` and chat receipt attachments uses the same provider choice. Text receipt fixtures still parse locally; real image OCR returns a Turkish "service not ready" error without a configured provider key.
+- Direct Gemini microphone transcription can normalize unsupported browser recordings with `ffmpeg`. Docker images include it; if you run the backend directly on the host and use `LLM_PROVIDER=gemini`, install `ffmpeg` locally as well.
 - Leave the `POSTGRES_*`, `MINIO_*`, `ILLUSTRATION_DAILY_LIMIT`, and `NEXT_PUBLIC_*` defaults as-is for local dev.
 
 ## 3. The "everything in Docker" path (recommended for first run)
@@ -178,7 +179,7 @@ All three must pass. If `make lint` finds drift, run `make format` first.
 5. Open <http://localhost:3000> → redirects to `/dashboard`
 6. Click through `/chat`, `/receipts`, `/family`; `/receipts` shows the drag-drop uploader, OCR preview flow, and receipt history.
 7. Create a child profile on `/family`, switch into it, then open `/dashboard` and `/chat`. The active child banner should be visible and API calls should use the child context.
-8. With `GEMINI_API_KEY` or `OPENROUTER_API_KEY` configured, ask chat a finance question and confirm the stream uses the live LangGraph route. Without a key, confirm the deterministic fallback notice appears and tool traces still stream.
+8. With `GEMINI_API_KEY` or `OPENROUTER_API_KEY` configured, ask chat a finance question, confirm the stream uses the live LangGraph route, press the microphone button, stop after speaking, and confirm the transcript is sent as a chat message. Then click the speaker icon on the reply and confirm provider-backed Turkish audio plays. Without a working voice provider, confirm browser speech fallback keeps the flow usable.
 9. Attach a receipt image in `/chat`, then verify an `analyze_receipt` tool trace appears. Confirmed transaction saving still happens through `/receipts` edit-before-save flow.
 10. Open `/dashboard`; the insight banner should load from `/api/insights`. Click refresh to trigger `POST /api/insights/refresh`.
 11. Open <http://localhost:9001> → MinIO console (login: `minioadmin` / `minioadmin` unless you changed `.env`)
