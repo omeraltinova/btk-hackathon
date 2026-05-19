@@ -53,7 +53,13 @@ services:
       DEMO_PARENT_EMAIL: ${DEMO_PARENT_EMAIL:-ayse@demo.cuzdan-kocu.app}
       DEMO_PARENT_PASSWORD: ${DEMO_PARENT_PASSWORD:?DEMO_PARENT_PASSWORD is required}
       DEMO_MEHMET_EMAIL: ${DEMO_MEHMET_EMAIL:-mehmet@demo.cuzdan-kocu.app}
+      DEMO_MEHMET_PASSWORD: ${DEMO_MEHMET_PASSWORD:-demo123}
       DEMO_ELIF_EMAIL: ${DEMO_ELIF_EMAIL:-elif@demo.cuzdan-kocu.app}
+      DEMO_DENIZ_EMAIL: ${DEMO_DENIZ_EMAIL:-deniz@demo.cuzdan-kocu.app}
+      DEMO_ZEYNEP_EMAIL: ${DEMO_ZEYNEP_EMAIL:-zeynep@demo.cuzdan-kocu.app}
+      DEMO_CHILD_PASSWORD: ${DEMO_CHILD_PASSWORD:-demo123}
+      DEMO_KEREM_EMAIL: ${DEMO_KEREM_EMAIL:-kerem@demo.cuzdan-kocu.app}
+      DEMO_INDIVIDUAL_PASSWORD: ${DEMO_INDIVIDUAL_PASSWORD:-demo123}
     command: ["python", "-m", "app.workers.demo_seed"]
 
   proactive-worker:
