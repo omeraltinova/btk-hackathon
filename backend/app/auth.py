@@ -11,10 +11,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict
 from uuid import UUID
 
+import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -22,20 +22,21 @@ from app.config import get_settings
 from app.db import get_db
 from app.models.user import User
 
+
 # -----------------------------------------------------------------------------
 # Password hashing (bcrypt; argon2id is documented as alternative in §10).
 # -----------------------------------------------------------------------------
-_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
 def hash_password(plain: str) -> str:
     """Return a bcrypt hash for `plain`. Never store plain text (§10)."""
-    return _pwd_ctx.hash(plain)
+    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Return True if `plain` matches the previously stored bcrypt hash."""
-    return _pwd_ctx.verify(plain, hashed)
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 # -----------------------------------------------------------------------------

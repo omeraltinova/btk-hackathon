@@ -225,7 +225,7 @@ pnpm approve-builds --all
 Install Git Bash (which bundles `make`), or use the underlying commands directly:
 
 - Lint: `cd backend && uv run ruff check . && uv run ruff format --check . && cd ../frontend && pnpm lint`
-- Type-check: `cd backend && uv run mypy app && cd ../frontend && pnpm type-check`
+- Type-check: `cd backend && uv run python -m mypy app && cd ../frontend && pnpm type-check`
 
 ### Frontend build error: "Cannot find package '@eslint/eslintrc'"
 

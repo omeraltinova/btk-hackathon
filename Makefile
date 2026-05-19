@@ -44,7 +44,7 @@ format:
 	cd frontend && pnpm format
 
 type-check:
-	cd backend && uv run mypy app
+	cd backend && uv run python -m mypy app
 	cd frontend && pnpm type-check
 
 test:
