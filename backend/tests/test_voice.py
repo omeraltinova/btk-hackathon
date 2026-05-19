@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import HTTPException, Response
 from pytest import MonkeyPatch, raises
@@ -13,18 +14,27 @@ from app.services import voice
 from app.services.voice import VoiceSessionService, VoiceSessionUnavailableError
 
 
-class FakeResponse:
-    def __init__(
-        self,
-        *,
-        status_code: int = 200,
-        payload: dict[str, object] | None = None,
-    ) -> None:
-        self.status_code = status_code
-        self._payload = payload or {}
+class FakeAuthToken:
+    name = "ephemeral-token"
 
-    def json(self) -> dict[str, object]:
-        return self._payload
+
+class FakeAuthTokens:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, *, config: object) -> FakeAuthToken:
+        self.calls.append({"config": config})
+        return FakeAuthToken()
+
+
+class FakeGenaiClient:
+    instances: list[FakeGenaiClient] = []
+
+    def __init__(self, *, api_key: str, http_options: dict[str, str]) -> None:
+        self.api_key = api_key
+        self.http_options = http_options
+        self.auth_tokens = FakeAuthTokens()
+        self.instances.append(self)
 
 
 def test_openrouter_voice_session_uses_cascade_mode() -> None:
@@ -44,25 +54,8 @@ def test_openrouter_voice_session_uses_cascade_mode() -> None:
 
 
 def test_gemini_voice_session_requests_ephemeral_token(monkeypatch: MonkeyPatch) -> None:
-    calls: list[tuple[str, dict[str, str], dict[str, object]]] = []
-
-    def fake_post(
-        url: str,
-        *,
-        headers: dict[str, str],
-        json: dict[str, object],
-        timeout: float,
-    ) -> FakeResponse:
-        assert timeout == 30.0
-        calls.append((url, headers, json))
-        return FakeResponse(
-            payload={
-                "name": "ephemeral-token",
-                "expireTime": "2026-05-18T10:30:00Z",
-            },
-        )
-
-    monkeypatch.setattr(voice.httpx, "post", fake_post)
+    FakeGenaiClient.instances.clear()
+    monkeypatch.setattr(voice.genai, "Client", FakeGenaiClient)
     session = VoiceSessionService(
         Settings(
             app_env="test",
@@ -77,16 +70,17 @@ def test_gemini_voice_session_requests_ephemeral_token(monkeypatch: MonkeyPatch)
     assert session.model == "gemini-3.1-flash-live-preview"
     assert session.voice_name == "Kore"
     assert session.ephemeral_token == "ephemeral-token"
-    assert session.expires_at == datetime(2026, 5, 18, 10, 30, tzinfo=UTC)
+    assert session.expires_at is not None
+    assert session.expires_at > datetime.now(UTC)
 
-    url, headers, body = calls[0]
-    assert url.endswith("/v1alpha/authTokens")
-    assert headers["x-goog-api-key"] == "gemini-key"
-    auth_token = body["authToken"]
-    assert isinstance(auth_token, dict)
-    assert auth_token["uses"] == 1
-    assert str(auth_token["expireTime"]).endswith("Z")
-    assert str(auth_token["newSessionExpireTime"]).endswith("Z")
+    client = FakeGenaiClient.instances[0]
+    assert client.api_key == "gemini-key"
+    assert client.http_options == {"api_version": "v1alpha"}
+    assert len(client.auth_tokens.calls) == 1
+    config = client.auth_tokens.calls[0]["config"]
+    assert config.uses == 1
+    assert config.http_options.api_version == "v1alpha"
+    assert config.expire_time > config.new_session_expire_time
 
 
 def test_voice_router_surfaces_provider_failures(monkeypatch: MonkeyPatch) -> None:

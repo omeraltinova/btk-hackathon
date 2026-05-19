@@ -1,17 +1,10 @@
 "use client";
 
-import {
-  GoogleGenAI,
-  Modality,
-  type FunctionCall,
-  type FunctionDeclaration,
-  type LiveServerMessage,
-  type Session,
-  Type,
-} from "@google/genai";
-
 const COACH_TOOL_NAME = "continue_coach_turn";
+const INPUT_SAMPLE_RATE = 16_000;
 const OUTPUT_SAMPLE_RATE = 24_000;
+const GEMINI_LIVE_WEBSOCKET_URL =
+  "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained";
 
 const LIVE_SYSTEM_PROMPT = `
 Sen Cüzdan Koçu'nun gerçek zamanlı ses katmanısın.
@@ -23,20 +16,57 @@ Sen Cüzdan Koçu'nun gerçek zamanlı ses katmanısın.
 - Kısa selamlaşmalar dahil tüm turları araç üzerinden geçir ki sohbet geçmişi korunabilsin.
 `.trim();
 
-const coachTurnFunction: FunctionDeclaration = {
+const coachTurnFunction = {
   name: COACH_TOOL_NAME,
   description:
     "Current authenticated user's voice turn must be delegated to the existing scoped finance coach.",
   parameters: {
-    type: Type.OBJECT,
+    type: "OBJECT",
     properties: {
       message: {
-        type: Type.STRING,
+        type: "STRING",
         description: "The user's spoken Turkish message, preserving intent.",
       },
     },
     required: ["message"],
   },
+};
+
+type GeminiLiveInlineAudioPart = {
+  inlineData?: {
+    data?: string;
+  };
+};
+
+type GeminiLiveFunctionCall = {
+  id?: string;
+  name?: string;
+  args?: Record<string, unknown> | null;
+};
+
+type GeminiLiveServerMessage = {
+  serverContent?: {
+    interrupted?: boolean;
+    inputTranscription?: {
+      text?: string;
+      finished?: boolean;
+    };
+    modelTurn?: {
+      parts?: GeminiLiveInlineAudioPart[];
+    };
+  };
+  toolCall?: {
+    functionCalls?: GeminiLiveFunctionCall[];
+  };
+};
+
+type GeminiLiveFunctionResponse = {
+  id?: string;
+  name: string;
+  response: {
+    assistant_text?: string;
+    error?: string;
+  };
 };
 
 export type GeminiLiveVoiceOptions = {
@@ -87,7 +117,7 @@ function pcm16ToFloat(bytes: Uint8Array): Float32Array {
   return output;
 }
 
-function inlineAudioParts(message: LiveServerMessage): string[] {
+function inlineAudioParts(message: GeminiLiveServerMessage): string[] {
   const parts = message.serverContent?.modelTurn?.parts ?? [];
   return parts.flatMap((part) => {
     const data = part.inlineData?.data;
@@ -98,7 +128,7 @@ function inlineAudioParts(message: LiveServerMessage): string[] {
 export class GeminiLiveVoiceSession {
   private readonly options: GeminiLiveVoiceOptions;
   private readonly delegateCoachTurn: CoachTurnDelegate;
-  private session: Session | null = null;
+  private socket: WebSocket | null = null;
   private captureContext: AudioContext | null = null;
   private playbackContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
@@ -115,37 +145,7 @@ export class GeminiLiveVoiceSession {
 
   async start(): Promise<void> {
     this.options.onStatus?.("connecting");
-    const ai = new GoogleGenAI({ apiKey: this.options.token });
-    this.session = await ai.live.connect({
-      model: this.options.model,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-        systemInstruction: {
-          parts: [{ text: LIVE_SYSTEM_PROMPT }],
-        },
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: this.options.voiceName,
-            },
-          },
-        },
-        tools: [{ functionDeclarations: [coachTurnFunction] }],
-      },
-      callbacks: {
-        onmessage: (message) => {
-          void this.handleMessage(message);
-        },
-        onerror: () => {
-          this.options.onError?.("Canlı sesli sohbet bağlantısı kesildi.");
-        },
-        onclose: () => {
-          if (!this.closed) this.options.onStatus?.("closed");
-        },
-      },
-    });
+    await this.connectSocket();
     await this.startMicrophone();
     this.options.onStatus?.("listening");
   }
@@ -156,8 +156,8 @@ export class GeminiLiveVoiceSession {
     this.processor?.disconnect();
     this.source?.disconnect();
     this.stream?.getTracks().forEach((track) => track.stop());
-    this.session?.sendRealtimeInput({ audioStreamEnd: true });
-    this.session?.close();
+    this.sendMessage({ realtimeInput: { audioStreamEnd: true } });
+    this.socket?.close();
     await this.captureContext?.close();
     await this.playbackContext?.close();
     this.processor = null;
@@ -165,8 +165,86 @@ export class GeminiLiveVoiceSession {
     this.stream = null;
     this.captureContext = null;
     this.playbackContext = null;
-    this.session = null;
+    this.socket = null;
     this.options.onStatus?.("closed");
+  }
+
+  private connectSocket(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const url = `${GEMINI_LIVE_WEBSOCKET_URL}?access_token=${encodeURIComponent(this.options.token)}`;
+      const socket = new WebSocket(url);
+      let opened = false;
+      this.socket = socket;
+      const fail = (message: string) => {
+        if (this.socket === socket) this.socket = null;
+        reject(new Error(message));
+      };
+      socket.onopen = () => {
+        opened = true;
+        this.sendSetupMessage();
+        resolve();
+      };
+      socket.onerror = () => {
+        if (opened) {
+          if (!this.closed) this.options.onError?.("Canlı sesli sohbet bağlantısı kesildi.");
+          if (this.socket === socket) this.socket = null;
+          return;
+        }
+        fail("Canlı sesli sohbet bağlantısı kurulamadı.");
+      };
+      socket.onclose = () => {
+        if (!this.closed) this.options.onStatus?.("closed");
+      };
+      socket.onmessage = (event) => {
+        void this.handleSocketMessage(event);
+      };
+    });
+  }
+
+  private sendSetupMessage() {
+    this.sendMessage({
+      setup: {
+        model: `models/${this.options.model}`,
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: this.options.voiceName,
+              },
+            },
+          },
+        },
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        systemInstruction: {
+          parts: [{ text: LIVE_SYSTEM_PROMPT }],
+        },
+        tools: [{ functionDeclarations: [coachTurnFunction] }],
+      },
+    });
+  }
+
+  private sendMessage(message: unknown) {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(message));
+    }
+  }
+
+  private async handleSocketMessage(event: MessageEvent) {
+    const rawMessage =
+      event.data instanceof Blob
+        ? await event.data.text()
+        : event.data instanceof ArrayBuffer
+          ? new TextDecoder().decode(event.data)
+          : String(event.data);
+    let message: GeminiLiveServerMessage;
+    try {
+      message = JSON.parse(rawMessage) as GeminiLiveServerMessage;
+    } catch {
+      return;
+    }
+    await this.handleMessage(message);
   }
 
   private async startMicrophone(): Promise<void> {
@@ -180,16 +258,25 @@ export class GeminiLiveVoiceSession {
         autoGainControl: true,
       },
     });
-    this.captureContext = new AudioContext();
+    this.captureContext = new AudioContext({ sampleRate: INPUT_SAMPLE_RATE });
     this.source = this.captureContext.createMediaStreamSource(this.stream);
     this.processor = this.captureContext.createScriptProcessor(4096, 1, 1);
     this.processor.onaudioprocess = (event) => {
-      if (!this.session || this.closed || !this.captureContext) return;
+      if (
+        !this.socket ||
+        this.socket.readyState !== WebSocket.OPEN ||
+        this.closed ||
+        !this.captureContext
+      ) {
+        return;
+      }
       const pcm = floatToPcm16(event.inputBuffer.getChannelData(0));
-      this.session.sendRealtimeInput({
-        audio: {
-          data: bytesToBase64(pcm),
-          mimeType: `audio/pcm;rate=${this.captureContext.sampleRate}`,
+      this.sendMessage({
+        realtimeInput: {
+          audio: {
+            data: bytesToBase64(pcm),
+            mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+          },
         },
       });
     };
@@ -197,7 +284,7 @@ export class GeminiLiveVoiceSession {
     this.processor.connect(this.captureContext.destination);
   }
 
-  private async handleMessage(message: LiveServerMessage): Promise<void> {
+  private async handleMessage(message: GeminiLiveServerMessage): Promise<void> {
     const serverContent = message.serverContent;
     if (serverContent?.interrupted) this.stopPlayback();
 
@@ -216,14 +303,13 @@ export class GeminiLiveVoiceSession {
     }
   }
 
-  private async handleFunctionCalls(functionCalls: FunctionCall[]): Promise<void> {
-    if (!this.session) return;
-    const functionResponses = await Promise.all(
+  private async handleFunctionCalls(functionCalls: GeminiLiveFunctionCall[]): Promise<void> {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    const functionResponses: GeminiLiveFunctionResponse[] = await Promise.all(
       functionCalls.map(async (call) => {
+        const rawMessage = call.args?.message;
         const userMessage =
-          call.name === COACH_TOOL_NAME && typeof call.args?.message === "string"
-            ? call.args.message.trim()
-            : "";
+          call.name === COACH_TOOL_NAME && typeof rawMessage === "string" ? rawMessage.trim() : "";
         if (!userMessage) {
           return {
             id: call.id,
@@ -253,7 +339,11 @@ export class GeminiLiveVoiceSession {
         }
       }),
     );
-    this.session.sendToolResponse({ functionResponses });
+    this.sendMessage({
+      toolResponse: {
+        functionResponses,
+      },
+    });
   }
 
   private async playAudioChunk(data: string): Promise<void> {

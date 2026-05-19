@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import logging
+import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-import httpx
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 
 from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-GEMINI_AUTH_TOKENS_URL = "https://generativelanguage.googleapis.com/v1alpha/authTokens"
 DEFAULT_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
 DEFAULT_GEMINI_LIVE_VOICE = "Kore"
 
@@ -58,54 +59,43 @@ class VoiceSessionService:
         now = datetime.now(UTC)
         expire_time = now + timedelta(minutes=30)
         new_session_expire_time = now + timedelta(minutes=1)
-        body: dict[str, object] = {
-            "authToken": {
-                "uses": 1,
-                "expireTime": self._format_timestamp(expire_time),
-                "newSessionExpireTime": self._format_timestamp(new_session_expire_time),
-            },
-        }
-        headers = {
-            "Content-Type": "application/json",
-            "x-goog-api-key": self._settings.gemini_api_key,
-        }
+        client = genai.Client(
+            api_key=self._settings.gemini_api_key,
+            http_options={"api_version": "v1alpha"},
+        )
         try:
-            response = httpx.post(
-                GEMINI_AUTH_TOKENS_URL,
-                headers=headers,
-                json=body,
-                timeout=30.0,
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=genai_errors.ExperimentalWarning)
+                auth_token = client.auth_tokens.create(
+                    config=genai_types.CreateAuthTokenConfig(
+                        uses=1,
+                        expire_time=expire_time,
+                        new_session_expire_time=new_session_expire_time,
+                        http_options=genai_types.HttpOptions(api_version="v1alpha"),
+                    ),
+                )
+        except genai_errors.APIError as exc:
+            logger.warning(
+                "voice_gemini_token_api_error: code=%s status=%s",
+                exc.code,
+                exc.status,
             )
-        except httpx.HTTPError as exc:
+            raise VoiceSessionUnavailableError("Canlı sesli sohbet şu an açılamadı.") from exc
+        except Exception as exc:
             logger.warning("voice_gemini_token_error: %s", type(exc).__name__)
             raise VoiceSessionUnavailableError("Canlı sesli sohbet şu an açılamadı.") from exc
 
-        if response.status_code >= 400:
-            logger.warning("voice_gemini_token_http_error: status=%s", response.status_code)
-            raise VoiceSessionUnavailableError("Canlı sesli sohbet şu an açılamadı.")
-
-        try:
-            payload: dict[str, object] = response.json()
-        except json.JSONDecodeError as exc:
-            raise VoiceSessionUnavailableError("Canlı sesli sohbet yanıtı okunamadı.") from exc
-
-        token = payload.get("name")
+        token = auth_token.name
         if not isinstance(token, str) or not token:
             raise VoiceSessionUnavailableError("Canlı sesli sohbet token'ı alınamadı.")
 
-        payload_expire_time = payload.get("expireTime")
-        parsed_expiry = (
-            self._parse_timestamp(payload_expire_time)
-            if isinstance(payload_expire_time, str)
-            else None
-        )
         return VoiceSessionTicket(
             provider="gemini",
             mode="realtime",
             model=self._settings.gemini_live_model or DEFAULT_GEMINI_LIVE_MODEL,
             voice_name=self._settings.gemini_live_voice or DEFAULT_GEMINI_LIVE_VOICE,
             ephemeral_token=token,
-            expires_at=parsed_expiry or expire_time,
+            expires_at=expire_time,
         )
 
     @staticmethod

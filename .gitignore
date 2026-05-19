@@ -58,3 +58,4 @@ minio-data/
 .cache/
 coverage/
 *.local
+gemini-live-api-examples-main/
