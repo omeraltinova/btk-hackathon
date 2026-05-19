@@ -25,7 +25,6 @@ from app.schemas.transaction import (
     TransactionUpdate,
 )
 from app.services.envelopes import build_envelope_budget_summary
-from app.services.recurring_materializer import materialize_due_subscriptions
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -81,7 +80,6 @@ def list_transactions(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Sequence[Transaction]:
     user_ids = visible_user_ids(current_user)
-    materialize_due_subscriptions(db, user_ids)
     return (
         db.execute(
             select(Transaction)
@@ -158,7 +156,6 @@ def get_transaction_summary(
     current_start = _month_start(now)
     previous_start = _previous_month_start(current_start)
     user_ids = visible_user_ids(current_user)
-    materialize_due_subscriptions(db, user_ids, today=now.date())
 
     categories = (
         db.execute(

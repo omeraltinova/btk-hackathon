@@ -1,4 +1,4 @@
-"""Materialize due recurring subscriptions as expense transactions."""
+"""Materialize due recurring subscriptions as income or expense transactions."""
 
 from __future__ import annotations
 
@@ -15,6 +15,12 @@ from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 
 ISTANBUL = ZoneInfo("Europe/Istanbul")
+# WHY: cap runaway backfill when a subscription has been paused (or seeded with
+# a far-past `next_billing_date`) for too long. Above the cap we skip ahead to
+# the most recent due cycle instead of forging history. 12 monthly periods is
+# the master_plan §12.2.19 dashboard window; weekly subs get ~3 months of
+# real history at the same cap.
+MAX_BACKFILL_PERIODS = 12
 
 
 def _add_months(value: date, months: int) -> date:
@@ -62,12 +68,21 @@ def _recurring_transaction_exists(db: Session, subscription: Subscription, due_d
     )
     subscription_id = str(subscription.id)
     billing_date = due_date.isoformat()
+    # Prefer the FK match; fall back to the legacy JSONB marker so rows that
+    # pre-date migration 0008 still dedupe correctly.
     return any(
-        isinstance(transaction.raw_ocr_data, dict)
-        and transaction.raw_ocr_data.get("subscription_id") == subscription_id
-        and transaction.raw_ocr_data.get("billing_date") == billing_date
+        transaction.subscription_id == subscription.id
+        or (
+            isinstance(transaction.raw_ocr_data, dict)
+            and transaction.raw_ocr_data.get("subscription_id") == subscription_id
+            and transaction.raw_ocr_data.get("billing_date") == billing_date
+        )
         for transaction in existing_transactions
     )
+
+
+def _transaction_type(subscription: Subscription) -> str:
+    return "income" if subscription.type == "income" else "expense"
 
 
 def materialize_due_subscriptions(
@@ -76,7 +91,7 @@ def materialize_due_subscriptions(
     *,
     today: date | None = None,
 ) -> int:
-    """Create expense transactions for active subscriptions due up to today."""
+    """Create transactions for active recurring records due up to today."""
 
     if not user_ids:
         return 0
@@ -102,15 +117,30 @@ def materialize_due_subscriptions(
         due_date = subscription.next_billing_date
         if due_date is None:
             continue
-        while due_date <= local_today:
+        transaction_type = _transaction_type(subscription)
+        # Fast-forward past the cap before writing rows so a year-long pause
+        # plus reactivate does not flood the ledger with forged history.
+        due_date = _fast_forward_past_cap(
+            due_date,
+            local_today,
+            subscription.recurrence_interval,
+            subscription.recurrence_unit,
+        )
+        written_this_run = 0
+        while due_date <= local_today and written_this_run < MAX_BACKFILL_PERIODS:
             if not _recurring_transaction_exists(db, subscription, due_date):
                 db.add(
                     Transaction(
                         user_id=subscription.user_id,
                         amount=Decimal(subscription.amount),
-                        type="expense",
+                        type=transaction_type,
                         category_id=subscription.category_id,
-                        description="Tekrarlayan ödeme",
+                        subscription_id=subscription.id,
+                        description=(
+                            "Tekrarlayan gelir"
+                            if transaction_type == "income"
+                            else "Tekrarlayan ödeme"
+                        ),
                         merchant=subscription.merchant or subscription.name,
                         occurred_at=_local_noon_utc(due_date),
                         source="recurring",
@@ -123,6 +153,7 @@ def materialize_due_subscriptions(
                     ),
                 )
                 created_count += 1
+            written_this_run += 1
             due_date = next_recurrence_date(
                 due_date,
                 subscription.recurrence_interval,
@@ -135,3 +166,38 @@ def materialize_due_subscriptions(
     if created_count > 0 or advanced_count > 0:
         db.commit()
     return created_count
+
+
+def _fast_forward_past_cap(
+    due_date: date,
+    today: date,
+    interval: int | None,
+    unit: str | None,
+) -> date:
+    """Skip past dates that exceed `MAX_BACKFILL_PERIODS` to avoid forged history.
+
+    Walks the recurrence calendar from `due_date` toward `today` and, if more
+    than `MAX_BACKFILL_PERIODS` cycles fit, returns the date that is exactly
+    `MAX_BACKFILL_PERIODS - 1` cycles before the latest one in the window so
+    the caller writes at most `MAX_BACKFILL_PERIODS` real transactions.
+    """
+    safe_interval = max(interval or 1, 1)
+    if unit == "day":
+        gap_periods = (today - due_date).days // safe_interval
+    elif unit == "week":
+        gap_periods = (today - due_date).days // (7 * safe_interval)
+    elif unit == "year":
+        gap_periods = ((today.year - due_date.year) * 12 + (today.month - due_date.month)) // (
+            12 * safe_interval
+        )
+    else:
+        gap_periods = (
+            (today.year - due_date.year) * 12 + (today.month - due_date.month)
+        ) // safe_interval
+    if gap_periods < MAX_BACKFILL_PERIODS:
+        return due_date
+    skip = gap_periods - MAX_BACKFILL_PERIODS + 1
+    advanced = due_date
+    for _ in range(skip):
+        advanced = next_recurrence_date(advanced, interval, unit)
+    return advanced

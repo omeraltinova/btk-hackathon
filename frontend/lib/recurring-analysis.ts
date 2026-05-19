@@ -13,7 +13,16 @@ export function isSubscriptionPaymentCandidate(
   transaction: Transaction,
   subscription: Subscription,
 ): boolean {
-  if (transaction.user_id !== subscription.user_id || transaction.type !== "expense") return false;
+  // Prefer the authoritative FK. Materializer (post-migration 0008) and any
+  // future manual-link UI write this directly, so a positive match here is
+  // unambiguous and skips the fuzzy heuristics below.
+  if (transaction.subscription_id === subscription.id) return true;
+  // A row that does claim a subscription_id but a DIFFERENT one is not ours.
+  if (transaction.subscription_id !== null) return false;
+
+  if (transaction.user_id !== subscription.user_id || transaction.type !== subscription.type) {
+    return false;
+  }
   if (!isPastTransaction(transaction)) return false;
 
   const subscriptionMerchant = textToken(subscription.merchant);

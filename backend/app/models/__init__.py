@@ -6,6 +6,7 @@
 from app.models.base import Base
 from app.models.category import Category
 from app.models.conversation import Conversation
+from app.models.generated_report import GeneratedReport
 from app.models.insight import ProactiveInsight
 from app.models.memory import AgentMemory
 from app.models.message import Message
@@ -19,6 +20,7 @@ __all__ = [
     "Base",
     "Category",
     "Conversation",
+    "GeneratedReport",
     "Message",
     "ProactiveInsight",
     "SavingGoal",

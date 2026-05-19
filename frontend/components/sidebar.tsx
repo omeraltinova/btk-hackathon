@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   LineChart,
   LogOut,
+  Mail,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -19,7 +20,7 @@ import {
 import type { Session } from "next-auth";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -28,25 +29,48 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { useKidMode } from "@/lib/kid-mode";
 import { cn } from "@/lib/utils";
 
+const ENVELOPE_HREF = "/goals?sekme=zarflar";
+
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel", section: "01", icon: LayoutDashboard },
-  { href: "/dashboard/transactions", label: "İşlemler", section: "02", icon: WalletCards },
-  { href: "/dashboard/income-expense", label: "Gelir/Gider", section: "03", icon: LineChart },
-  { href: "/dashboard/goals", label: "Hedefler", section: "04", icon: Target },
-  { href: "/learn", label: "Dersler", section: "05", icon: BookOpen },
-  { href: "/chat", label: "Sohbet", section: "06", icon: MessageSquare },
-  { href: "/family", label: "Aile", section: "07", icon: Users },
-  { href: "/account", label: "Hesap", section: "08", icon: UserRound },
+  { href: "/transactions", label: "İşlemler", section: "02", icon: WalletCards },
+  { href: "/income-expense", label: "Gelir/Gider", section: "03", icon: LineChart },
+  { href: "/goals", label: "Hedefler", section: "04", icon: Target },
+  { href: ENVELOPE_HREF, label: "Zarflar", section: "05", icon: Mail },
+  { href: "/learn", label: "Dersler", section: "06", icon: BookOpen },
+  { href: "/chat", label: "Sohbet", section: "07", icon: MessageSquare },
+  { href: "/family", label: "Aile", section: "08", icon: Users },
+  { href: "/account", label: "Hesap", section: "09", icon: UserRound },
 ] as const;
 
 const KID_NAV_ITEMS = [
   { href: "/dashboard", label: "Cüzdanım", section: "01", icon: PiggyBank },
-  { href: "/dashboard/transactions", label: "Hareketler", section: "02", icon: WalletCards },
-  { href: "/dashboard/goals", label: "Hedefim", section: "03", icon: Target },
+  { href: "/transactions", label: "Hareketler", section: "02", icon: WalletCards },
+  { href: "/goals", label: "Hedefim", section: "03", icon: Target },
   { href: "/learn", label: "Öğren", section: "04", icon: BookOpen },
   { href: "/chat", label: "Koç", section: "05", icon: Sparkles },
   { href: "/account", label: "Profilim", section: "06", icon: UserRound },
 ] as const;
+
+function isEnvelopeView(pathname: string, sekme: string | null, zarf: string | null): boolean {
+  return pathname === "/goals" && (sekme === "zarflar" || zarf !== null);
+}
+
+function isNavActive(
+  href: string,
+  pathname: string,
+  searchParams: URLSearchParams | null,
+): boolean {
+  const sekme = searchParams?.get("sekme") ?? null;
+  const zarf = searchParams?.get("zarf") ?? null;
+  if (href === "/dashboard") return pathname === href;
+  if (href === ENVELOPE_HREF) return isEnvelopeView(pathname, sekme, zarf);
+  if (href === "/goals") {
+    if (pathname.startsWith("/goals/")) return true;
+    return pathname === "/goals" && !isEnvelopeView(pathname, sekme, zarf);
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 const ROLE_LABELS = {
   parent: "Ebeveyn",
@@ -70,6 +94,7 @@ type SidebarProps = {
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isKid } = useKidMode();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const baseNavItems = isKid
@@ -105,28 +130,32 @@ export function Sidebar({ user }: SidebarProps) {
       {/* Brand */}
       <div
         className={cn(
-          "binder-holes relative flex items-center justify-between gap-3 px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-6",
-          isCollapsed ? "lg:flex-col" : "lg:block lg:px-8 lg:py-7",
+          "binder-holes relative flex flex-col gap-3 px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-6",
+          isCollapsed ? "lg:items-center" : "lg:px-8 lg:py-7",
         )}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="hard-shadow-accent grid h-11 w-11 place-items-center rounded-[1rem_1rem_0.55rem_1rem] border border-primary/30 bg-primary text-primary-foreground">
-            <Wallet className="h-5 w-5" />
+        <div
+          className={cn(
+            "flex min-w-0 items-start justify-between gap-3",
+            isCollapsed && "lg:flex-col lg:items-center",
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="hard-shadow-accent grid h-11 w-11 shrink-0 place-items-center rounded-[1rem_1rem_0.55rem_1rem] border border-primary/30 bg-primary text-primary-foreground">
+              <Wallet className="h-5 w-5" />
+            </div>
+            <div className={cn("min-w-0", isCollapsed && "lg:hidden")}>
+              <span className="block truncate font-display text-xl font-bold tracking-tight">
+                {brandTitle}
+              </span>
+              <p className="text-xs text-muted-foreground">{brandSubtitle}</p>
+            </div>
           </div>
-          <div className={cn("min-w-0", isCollapsed && "lg:hidden")}>
-            <span className="block truncate font-display text-xl font-bold tracking-tight">
-              {brandTitle}
-            </span>
-            <p className="text-xs text-muted-foreground">{brandSubtitle}</p>
-          </div>
-        </div>
-        <div className={cn("flex shrink-0 items-center gap-2", isCollapsed && "lg:flex-col")}>
-          <NotificationBell collapsed={isCollapsed} />
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="hidden rounded-[1rem] lg:inline-flex"
+            className="hidden shrink-0 rounded-[1rem] lg:inline-flex"
             aria-label={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
             title={isCollapsed ? "Sol menüyü genişlet" : "Sol menüyü daralt"}
             onClick={handleToggleSidebar}
@@ -138,14 +167,22 @@ export function Sidebar({ user }: SidebarProps) {
             )}
           </Button>
         </div>
-        <span
+        <div
           className={cn(
-            "stamp-label shrink-0 bg-background/65 text-primary lg:mt-6 lg:inline-flex",
-            isCollapsed && "lg:hidden",
+            "flex shrink-0 items-center gap-2",
+            isCollapsed ? "lg:flex-col" : "lg:justify-between",
           )}
         >
-          {roleChip}
-        </span>
+          <NotificationBell collapsed={isCollapsed} />
+          <span
+            className={cn(
+              "stamp-label shrink-0 bg-background/65 text-primary lg:inline-flex",
+              isCollapsed && "lg:hidden",
+            )}
+          >
+            {roleChip}
+          </span>
+        </div>
       </div>
 
       <div
@@ -169,10 +206,7 @@ export function Sidebar({ user }: SidebarProps) {
         className="flex gap-2 overflow-x-auto px-3 pb-3 [scrollbar-width:none] lg:mt-6 lg:flex-1 lg:flex-col lg:gap-2 lg:overflow-visible lg:px-4 lg:pb-0 [&::-webkit-scrollbar]:hidden"
       >
         {navItems.map((item) => {
-          const isActive =
-            item.href === "/dashboard"
-              ? pathname === item.href
-              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive = isNavActive(item.href, pathname, searchParams);
           const Icon = item.icon;
           return (
             <Link

@@ -321,6 +321,77 @@ function FamilyExpensePie({ data }: { data: FamilyPiePoint[] }) {
   );
 }
 
+function formatMoneyTR(value: string | number): string {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return `${value} ₺`;
+  return `${new Intl.NumberFormat("tr-TR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numeric)} ₺`;
+}
+
+function MemberCategoryBreakdownGrid({ members }: { members: FamilyMemberFinance[] }) {
+  const withSpending = members.filter((member) => member.category_breakdown.length > 0);
+  if (withSpending.length === 0) {
+    return (
+      <ChartEmpty
+        title="Aile kategori dağılımı"
+        detail="Bu ay aileye ait gider olmadığı için kategori dağılımı henüz oluşmadı."
+      />
+    );
+  }
+  return (
+    <div className="ledger-card rounded-[1.6rem] border border-border/80 bg-card p-4 sm:p-5">
+      <div className="flex items-center gap-2">
+        <BarChart3 className="h-5 w-5 text-primary" />
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          Üye bazında en yüksek kategoriler
+        </p>
+      </div>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Bu ay her üye için en yüksek dört gider kategorisi ve diğerleri.
+      </p>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        {withSpending.map((member) => (
+          <article
+            key={member.user_id}
+            className="rounded-2xl border border-border/70 bg-muted/30 p-3"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="font-display text-base font-black">{member.name}</h3>
+              <span className="text-xs text-muted-foreground">
+                {formatMoneyTR(member.expense)} bu ay
+              </span>
+            </div>
+            <ul className="mt-3 space-y-2">
+              {member.category_breakdown.map((slice, index) => {
+                const percent = Math.max(0, Math.min(100, Number(slice.share_percent)));
+                return (
+                  <li key={`${member.user_id}-${slice.category_id ?? "other"}-${index}`}>
+                    <div className="flex items-baseline justify-between gap-2 text-sm">
+                      <span className="truncate font-medium">{slice.category_name}</span>
+                      <span className="font-bold tabular-nums">{formatMoneyTR(slice.amount)}</span>
+                    </div>
+                    <div
+                      className="mt-1 h-1.5 overflow-hidden rounded-full bg-background"
+                      title={`%${slice.share_percent}`}
+                    >
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${percent}%`, backgroundColor: chartColor(index) }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ChartEmpty({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="rounded-[1.75rem] border border-dashed border-border/75 bg-card/70 p-5">
@@ -899,9 +970,12 @@ export function FamilyClient() {
           </div>
 
           {showMemberDetails ? (
-            <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
-              <FamilyBarComparison data={familyChartData} />
-              <FamilyExpensePie data={expensePieData} />
+            <div className="space-y-4">
+              <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+                <FamilyBarComparison data={familyChartData} />
+                <FamilyExpensePie data={expensePieData} />
+              </div>
+              <MemberCategoryBreakdownGrid members={overview.members} />
             </div>
           ) : null}
         </section>

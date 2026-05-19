@@ -1,4 +1,4 @@
-"""Subscriptions router: authenticated recurring payments and bills."""
+"""Subscriptions router: authenticated recurring income and expense records."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from app.models.subscription import Subscription
 from app.models.user import User
 from app.routers._scoping import visible_user_ids
 from app.schemas.subscription import SubscriptionCreate, SubscriptionRead, SubscriptionUpdate
-from app.services.recurring_materializer import materialize_due_subscriptions
 from app.utils.recurrence import (
     monthly_equivalent,
     recurrence_from_billing_cycle,
@@ -32,6 +31,7 @@ def _to_read(subscription: Subscription) -> SubscriptionRead:
         name=subscription.name,
         merchant=subscription.merchant,
         amount=subscription.amount,
+        type=subscription.type,
         billing_cycle=subscription.billing_cycle,
         recurrence_interval=subscription.recurrence_interval,
         recurrence_unit=subscription.recurrence_unit,
@@ -86,7 +86,7 @@ def _get_scoped_subscription(
     if subscription is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tekrarlayan ödeme bulunamadı.",
+            detail="Tekrarlayan kayıt bulunamadı.",
         )
     return subscription
 
@@ -117,7 +117,6 @@ def list_subscriptions(
     current_user: User = Depends(get_current_user),
 ) -> list[SubscriptionRead]:
     user_ids = visible_user_ids(current_user)
-    materialize_due_subscriptions(db, user_ids)
     subscriptions = (
         db.execute(
             select(Subscription)
@@ -147,6 +146,7 @@ def create_subscription(
         name=payload.name,
         merchant=payload.merchant,
         amount=payload.amount,
+        type=payload.type,
         billing_cycle=payload.billing_cycle,
         recurrence_interval=payload.recurrence_interval or 1,
         recurrence_unit=payload.recurrence_unit or "month",

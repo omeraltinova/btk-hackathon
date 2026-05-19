@@ -24,6 +24,19 @@ class FakeResult:
         return self._items[0] if self._items else None
 
 
+def _within_bounds(value: datetime, bounds: list[tuple[datetime, str]]) -> bool:
+    for bound_value, op_label in bounds:
+        if op_label in {"ge", "gte", "__ge__"} and value < bound_value:
+            return False
+        if op_label in {"lt", "__lt__"} and value >= bound_value:
+            return False
+        if op_label in {"le", "__le__"} and value > bound_value:
+            return False
+        if op_label in {"gt", "__gt__"} and value <= bound_value:
+            return False
+    return True
+
+
 class FakeSession:
     def __init__(self, subscriptions: list[Subscription], today: date) -> None:
         self.subscriptions = subscriptions
@@ -46,7 +59,26 @@ class FakeSession:
                 ],
             )
         if entity is Transaction or name == "id":
-            return FakeResult(self.transactions)
+            # Honor the `Transaction.occurred_at >= start AND < end` bounds the
+            # materializer issues so the dedupe check (`subscription_id` FK)
+            # is scoped to the same calendar day instead of matching every
+            # historical row for the subscription.
+            bounds: list[tuple[datetime, str]] = []
+            for criterion in getattr(statement, "_where_criteria", ()):
+                left = getattr(getattr(criterion, "left", None), "name", None)
+                if left != "occurred_at":
+                    continue
+                value = getattr(getattr(criterion, "right", None), "value", None)
+                if isinstance(value, datetime):
+                    op_name = getattr(criterion, "operator", None)
+                    op_label = getattr(op_name, "__name__", str(op_name))
+                    bounds.append((value, op_label))
+            filtered = [
+                transaction
+                for transaction in self.transactions
+                if _within_bounds(transaction.occurred_at, bounds)
+            ]
+            return FakeResult(filtered)
         return FakeResult([])
 
     def add(self, row: Transaction) -> None:
@@ -70,6 +102,7 @@ def make_subscription(
         name=name,
         merchant="TurkNet",
         amount=Decimal("499.90"),
+        type="expense",
         billing_cycle="monthly",
         recurrence_interval=1,
         recurrence_unit="month",
@@ -107,6 +140,70 @@ def test_materialize_due_subscription_posts_expense_and_advances_date() -> None:
     assert transaction.amount == Decimal("499.90")
     assert transaction.merchant == "TurkNet"
     assert transaction.occurred_at == datetime(2026, 5, 13, 9, 0, tzinfo=UTC)
+
+
+def test_materialize_due_subscription_posts_income_when_configured() -> None:
+    subscription = make_subscription(next_billing_date=date(2026, 5, 13), name="Maaş")
+    subscription.type = "income"
+    subscription.merchant = "Okul"
+    subscription.amount = Decimal("32000.00")
+    db = FakeSession([subscription], today=date(2026, 5, 13))
+
+    created = materialize_due_subscriptions(
+        db,  # type: ignore[arg-type]
+        [subscription.user_id],
+        today=date(2026, 5, 13),
+    )
+
+    assert created == 1
+    assert subscription.next_billing_date == date(2026, 6, 13)
+    transaction = db.transactions[0]
+    assert transaction.type == "income"
+    assert transaction.description == "Tekrarlayan gelir"
+    assert transaction.amount == Decimal("32000.00")
+    assert transaction.merchant == "Okul"
+
+
+def test_materialize_due_subscriptions_backfills_multiple_missed_periods() -> None:
+    """A subscription dormant for a few months catches up exactly once."""
+    subscription = make_subscription(next_billing_date=date(2026, 2, 13))
+    db = FakeSession([subscription], today=date(2026, 5, 13))
+
+    created = materialize_due_subscriptions(
+        db,  # type: ignore[arg-type]
+        [subscription.user_id],
+        today=date(2026, 5, 13),
+    )
+
+    assert created == 4  # Feb, Mar, Apr, May
+    assert subscription.next_billing_date == date(2026, 6, 13)
+    occurred_dates = sorted(transaction.occurred_at.date() for transaction in db.transactions)
+    assert occurred_dates == [
+        date(2026, 2, 13),
+        date(2026, 3, 13),
+        date(2026, 4, 13),
+        date(2026, 5, 13),
+    ]
+
+
+def test_materialize_due_subscriptions_caps_runaway_backfill() -> None:
+    """Long-stale subscriptions write at most MAX_BACKFILL_PERIODS rows."""
+    subscription = make_subscription(next_billing_date=date(2020, 5, 13))
+    db = FakeSession([subscription], today=date(2026, 5, 13))
+
+    created = materialize_due_subscriptions(
+        db,  # type: ignore[arg-type]
+        [subscription.user_id],
+        today=date(2026, 5, 13),
+    )
+
+    assert created == 12  # MAX_BACKFILL_PERIODS
+    assert subscription.next_billing_date == date(2026, 6, 13)
+    occurred_dates = sorted(transaction.occurred_at.date() for transaction in db.transactions)
+    # All twelve transactions land in the trailing year before `today`, no
+    # forged 2020-2024 history.
+    assert occurred_dates[0] == date(2025, 6, 13)
+    assert occurred_dates[-1] == date(2026, 5, 13)
 
 
 def test_materialize_due_subscriptions_keeps_same_merchant_subscriptions_distinct() -> None:

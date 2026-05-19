@@ -182,6 +182,10 @@ function categoryName(categoryNameById: Map<string, string>, transaction: Transa
     : "Kategorisiz";
 }
 
+function formatRecurringKurus(value: number, type: TransactionType): string {
+  return formatKurus(type === "income" ? value : -value);
+}
+
 function CategoryTooltip({
   active,
   payload,
@@ -214,6 +218,17 @@ export function IncomeExpenseClient() {
   const loadData = useCallback(async () => {
     setError(null);
     try {
+      // Trigger recurring materialization first — read endpoints stopped doing
+      // this in P1.5 (docs/decisions.md). Failure is non-fatal.
+      try {
+        await api<{ created: number }>("/api/recurring/materialize", {
+          method: "POST",
+          silent: true,
+        });
+      } catch {
+        // Swallow: detail screen still loads with the existing dataset.
+      }
+
       const [transactionData, categoryData, subscriptionData] = await Promise.all([
         api<Transaction[]>("/api/transactions?limit=100", { silent: true }),
         api<Category[]>("/api/categories", { silent: true }),
@@ -284,9 +299,15 @@ export function IncomeExpenseClient() {
     (total, transaction) => total + amountToKurus(transaction.amount),
     0,
   );
-  const nextMonthEstimate = subscriptions
+  const nextMonthExpenseEstimate = subscriptions
     .filter((subscription) => subscription.is_active)
+    .filter((subscription) => subscription.type === "expense")
     .reduce((total, subscription) => total + amountToKurus(subscription.monthly_equivalent), 0);
+  const nextMonthIncomeEstimate = subscriptions
+    .filter((subscription) => subscription.is_active)
+    .filter((subscription) => subscription.type === "income")
+    .reduce((total, subscription) => total + amountToKurus(subscription.monthly_equivalent), 0);
+  const nextMonthNetEstimate = nextMonthIncomeEstimate - nextMonthExpenseEstimate;
   const monthlyRows = useMemo(() => {
     const rows = new Map<string, { income: number; expense: number }>();
     for (const transaction of rangeTransactions) {
@@ -368,7 +389,7 @@ export function IncomeExpenseClient() {
             Gelir ve giderleri ayrı ayrı incele.
           </h1>
           <p className="text-foreground/78 max-w-[68ch] text-base leading-7 sm:text-lg">
-            Özet panel kısa kalır; burada dağılımları, tarihli kayıtları ve tekrarlayan ödeme
+            Özet panel kısa kalır; burada dağılımları, tarihli kayıtları ve tekrarlayan kayıt
             geçmişini daha ayrıntılı görebilirsin.
           </p>
         </div>
@@ -515,12 +536,13 @@ export function IncomeExpenseClient() {
           </p>
         </div>
         <div className="cash-envelope min-h-36 p-5">
-          <p className="text-sm font-bold text-secondary-foreground/80">Gelecek ay tahmini</p>
+          <p className="text-sm font-bold text-secondary-foreground/80">Tekrarlayan net</p>
           <p className="mt-6 font-display text-4xl font-black tabular-nums">
-            {formatKurus(nextMonthEstimate)}
+            {formatKurus(nextMonthNetEstimate)}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Aktif abonelik/faturalardan yaklaşık; kesin değildir.
+            Gelir {formatKurus(nextMonthIncomeEstimate)} / gider{" "}
+            {formatKurus(nextMonthExpenseEstimate)}.
           </p>
         </div>
       </div>
@@ -713,9 +735,9 @@ export function IncomeExpenseClient() {
         <div className="relative z-10 space-y-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="eyebrow">Tekrarlayan ödeme analizi</p>
+              <p className="eyebrow">Tekrarlayan kayıt analizi</p>
               <h2 className="mt-2 font-display text-[2rem] font-black leading-none sm:text-3xl">
-                Geçmiş ödeme ve artış özeti
+                Geçmiş kayıt ve artış özeti
               </h2>
               <p className="mt-2 text-sm font-semibold text-muted-foreground">{rangeSummary}</p>
             </div>
@@ -728,7 +750,7 @@ export function IncomeExpenseClient() {
                 <div className="receipt-tape px-5 py-6">
                   <p className="font-display text-xl font-black">Tekrarlayan kayıt yok</p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Abonelik eklediğinde geçmiş ödeme tahmini burada görünür.
+                    Düzenli gelir veya ödeme eklediğinde geçmiş kayıt tahmini burada görünür.
                   </p>
                 </div>
               ) : (
@@ -751,8 +773,9 @@ export function IncomeExpenseClient() {
                         {subscription.name}
                       </span>
                       <span className="mt-1 block text-sm text-muted-foreground">
-                        Bugünkü tutar {formatKurus(amountToKurus(subscription.amount))} / geçmişte
-                        eşleşen {formatKurus(paid)}
+                        Bugünkü tutar{" "}
+                        {formatTransactionAmount(subscription.amount, subscription.type)} / geçmişte
+                        eşleşen {formatRecurringKurus(paid, subscription.type)}
                       </span>
                     </button>
                   );
@@ -770,7 +793,10 @@ export function IncomeExpenseClient() {
                       </p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {selectedSubscription.recurrence_label} / aylık etki{" "}
-                        {formatKurus(amountToKurus(selectedSubscription.monthly_equivalent))}
+                        {formatTransactionAmount(
+                          selectedSubscription.monthly_equivalent,
+                          selectedSubscription.type,
+                        )}
                       </p>
                     </div>
                     <span className="stamp-label bg-background/80">
@@ -782,11 +808,11 @@ export function IncomeExpenseClient() {
                     <div className="rounded-2xl bg-background/70 p-4">
                       <p className="text-xs font-bold text-muted-foreground">Geçmiş toplam</p>
                       <p className="mt-2 font-display text-2xl font-black tabular-nums">
-                        {formatKurus(selectedPaidTotal)}
+                        {formatRecurringKurus(selectedPaidTotal, selectedSubscription.type)}
                       </p>
                     </div>
                     <div className="rounded-2xl bg-background/70 p-4">
-                      <p className="text-xs font-bold text-muted-foreground">Eşleşen ödeme</p>
+                      <p className="text-xs font-bold text-muted-foreground">Eşleşen kayıt</p>
                       <p className="mt-2 font-display text-2xl font-black tabular-nums">
                         {selectedHistory.length}
                       </p>
@@ -803,8 +829,8 @@ export function IncomeExpenseClient() {
                     {selectedHistory.length === 0 ? (
                       <div className="bg-background/72 grid h-full place-items-center rounded-[1.5rem] border border-dashed border-primary/30 p-5 text-center">
                         <p className="text-sm leading-6 text-muted-foreground">
-                          Bu abonelik için geçmiş ödeme eşleşmedi. Aynı satıcı veya benzer tutarla
-                          işlem eklediğinde grafik oluşur.
+                          Bu tekrarlayan kayıt için geçmiş işlem eşleşmedi. Aynı kaynak veya benzer
+                          tutarla işlem eklediğinde grafik oluşur.
                         </p>
                       </div>
                     ) : (
@@ -831,7 +857,7 @@ export function IncomeExpenseClient() {
                                 <div className="rounded-2xl border border-border/80 bg-card px-4 py-3 text-sm shadow-xl">
                                   <p className="font-display text-base font-black">{point.date}</p>
                                   <p className="mt-1 font-semibold">{point.amountFormatted}</p>
-                                  <p className="text-muted-foreground">Geçmiş ödeme tutarı</p>
+                                  <p className="text-muted-foreground">Geçmiş kayıt tutarı</p>
                                 </div>
                               );
                             }}

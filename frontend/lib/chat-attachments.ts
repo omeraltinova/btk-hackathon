@@ -11,6 +11,15 @@ export type ChatAttachmentItem =
       type: "image";
       imageUrl: string;
       altText: string;
+    }
+  | {
+      id: string;
+      type: "report";
+      reportId: string;
+      downloadUrl: string;
+      filename: string;
+      title: string;
+      format: string;
     };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -80,6 +89,18 @@ export function chatAttachmentsFromHistory(
         type: "image",
         imageUrl: attachment.image_url,
         altText: attachment.alt_text ?? "Finansal kavram görseli",
+      });
+      return;
+    }
+    if (attachment.type === "report" && attachment.report_id && attachment.download_url) {
+      items.push({
+        id: `report-${index}`,
+        type: "report",
+        reportId: attachment.report_id,
+        downloadUrl: attachment.download_url,
+        filename: attachment.filename,
+        title: attachment.title ?? "Aylık Koç Raporu",
+        format: attachment.format ?? "docx",
       });
     }
   });

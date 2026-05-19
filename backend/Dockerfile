@@ -12,6 +12,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Direct Gemini STT accepts fewer browser recording containers than OpenRouter.
+# ffmpeg is used only when the Gemini path must normalize an unsupported clip.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
 # 1) Install deps first for cacheability — only this layer rebuilds when deps change.
 COPY pyproject.toml ./
 # uv.lock is created on first `uv sync`; copy only if present so initial builds work.

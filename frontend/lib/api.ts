@@ -131,3 +131,108 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 
   return payload as T;
 }
+
+/**
+ * Trigger a browser download for a binary endpoint (e.g. ZIP / CSV exports).
+ *
+ * Mirrors `api()` for auth and active-profile handling, but pulls the response
+ * as a Blob and clicks a synthetic anchor so the browser handles the save
+ * dialog. Errors still travel as `ApiError` so callers can surface inline UX.
+ */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
+  const headers: Record<string, string> = { Accept: "application/octet-stream" };
+  const token = await getBackendToken(true);
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, { method: "GET", headers, credentials: "include" });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    const message = describeError(0, undefined);
+    throw new ApiError(0, message);
+  }
+
+  if (!response.ok) {
+    let detail: string | undefined;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // ignore: non-JSON error bodies fall back to describeError defaults.
+    }
+    throw new ApiError(response.status, describeError(response.status, detail));
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/**
+ * Fetch a binary payload while preserving the same auth/profile behavior as `api()`.
+ *
+ * Used by provider-backed TTS where the browser should play the returned blob
+ * directly instead of downloading it to disk.
+ */
+export async function apiBlob(path: string, options: ApiOptions = {}): Promise<Blob> {
+  const {
+    method = "GET",
+    body,
+    headers = {},
+    signal,
+    silent = false,
+    useActiveProfile = true,
+  } = options;
+  const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  const finalHeaders: Record<string, string> = {
+    Accept: "application/octet-stream",
+    ...headers,
+  };
+  if (body !== undefined && !isFormData) finalHeaders["Content-Type"] = "application/json";
+
+  const token = await getBackendToken(useActiveProfile);
+  if (token) finalHeaders.Authorization = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: finalHeaders,
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
+      signal,
+      credentials: "include",
+    });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    const message = describeError(0, undefined);
+    if (!silent) toast.error(message);
+    throw new ApiError(0, message);
+  }
+
+  if (!response.ok) {
+    let detail: string | undefined;
+    try {
+      const errorBody = (await response.json()) as { detail?: unknown };
+      if (typeof errorBody.detail === "string") detail = errorBody.detail;
+    } catch {
+      // Non-JSON bodies use the generic fallback below.
+    }
+    const message = describeError(response.status, detail);
+    if (!silent) toast.error(message);
+    throw new ApiError(response.status, message);
+  }
+
+  return response.blob();
+}

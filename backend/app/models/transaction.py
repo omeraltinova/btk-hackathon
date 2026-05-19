@@ -44,6 +44,7 @@ class Transaction(TimestampMixin, Base):
         Index("idx_tx_user_date", "user_id", text("occurred_at DESC")),
         Index("idx_tx_category", "category_id"),
         Index("idx_tx_merchant", "merchant"),
+        Index("ix_transactions_subscription_id", "subscription_id"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -62,6 +63,11 @@ class Transaction(TimestampMixin, Base):
     category_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("categories.id"),
+        nullable=True,
+    )
+    subscription_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="SET NULL"),
         nullable=True,
     )
     description: Mapped[str | None] = mapped_column(String, nullable=True)

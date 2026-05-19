@@ -160,13 +160,16 @@ def make_transaction(
     )
 
 
-def make_subscription(*, user_id: UUID, amount: str, next_date: date) -> Subscription:
+def make_subscription(
+    *, user_id: UUID, amount: str, next_date: date, tx_type: str = "expense"
+) -> Subscription:
     return Subscription(
         id=uuid4(),
         user_id=user_id,
         name="İnternet faturası",
         merchant="Servis",
         amount=Decimal(amount),
+        type=tx_type,
         billing_cycle="monthly",
         recurrence_interval=1,
         recurrence_unit="month",
@@ -218,6 +221,38 @@ def test_build_insight_candidates_generates_financial_rules() -> None:
     assert "category_overspending" in insight_types
     assert "upcoming_recurring" in insight_types
     assert "receipt_activity" in insight_types
+
+
+def test_build_insight_candidates_treats_recurring_income_as_info_not_burden() -> None:
+    user = make_user()
+    db = FakeSession(
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=None,
+                amount="1000.00",
+                occurred_at=datetime(2026, 5, 1, 9, 0, tzinfo=UTC),
+                tx_type="income",
+            ),
+        ],
+        subscriptions=[
+            make_subscription(
+                user_id=user.id,
+                amount="30000.00",
+                next_date=date(2026, 5, 15),
+                tx_type="income",
+            ),
+        ],
+    )
+
+    candidates = build_insight_candidates(db, user, now=datetime(2026, 5, 12, 12, 0, tzinfo=UTC))
+    upcoming = next(
+        candidate for candidate in candidates if candidate.insight_type == "upcoming_recurring"
+    )
+
+    assert upcoming.severity == "info"
+    assert "gelir girişi" in upcoming.content
+    assert "savings_opportunity" not in {candidate.insight_type for candidate in candidates}
 
 
 def test_refresh_insights_dismisses_old_active_items_and_persists_new_ones() -> None:

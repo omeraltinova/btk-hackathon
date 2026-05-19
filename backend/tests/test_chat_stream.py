@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from io import BytesIO
 from typing import Any
 from uuid import UUID, uuid4
 
+from docx import Document
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from pytest import MonkeyPatch
 
 from app.agent.prompts import build_system_prompt
@@ -17,6 +20,7 @@ from app.db import get_db
 from app.main import app
 from app.models.category import Category
 from app.models.conversation import Conversation
+from app.models.generated_report import GeneratedReport
 from app.models.memory import AgentMemory
 from app.models.message import Message
 from app.models.saving_goal import SavingGoal
@@ -62,6 +66,7 @@ class FakeSession:
         self.memories: list[AgentMemory] = []
         self.conversations: list[Conversation] = []
         self.messages: list[Message] = []
+        self.generated_reports: list[GeneratedReport] = []
 
     def execute(self, statement: object) -> FakeResult:
         descriptions = getattr(statement, "column_descriptions", [])
@@ -105,6 +110,14 @@ class FakeSession:
             return FakeResult(
                 [memory for memory in self.memories if self._matches_memory(statement, memory)],
             )
+        if entity is GeneratedReport:
+            return FakeResult(
+                [
+                    report
+                    for report in self.generated_reports
+                    if self._matches_report(statement, report)
+                ],
+            )
         return FakeResult([])
 
     def add(self, item: object) -> None:
@@ -128,6 +141,10 @@ class FakeSession:
             if item.id is None:
                 item.id = uuid4()
             self.memories.append(item)
+        if isinstance(item, GeneratedReport):
+            if item.id is None:
+                item.id = uuid4()
+            self.generated_reports.append(item)
 
     def commit(self) -> None:
         return None
@@ -140,6 +157,8 @@ class FakeSession:
         if isinstance(item, SavingGoal) and item.id is None:
             item.id = uuid4()
         if isinstance(item, AgentMemory) and item.id is None:
+            item.id = uuid4()
+        if isinstance(item, GeneratedReport) and item.id is None:
             item.id = uuid4()
 
     def delete(self, item: object) -> None:
@@ -205,6 +224,16 @@ class FakeSession:
                 return False
         return True
 
+    def _matches_report(self, statement: object, report: GeneratedReport) -> bool:
+        for criterion in getattr(statement, "_where_criteria", ()):
+            column_name = getattr(getattr(criterion, "left", None), "name", None)
+            value = getattr(getattr(criterion, "right", None), "value", None)
+            if column_name == "user_id" and not self._matches_user_id(value, report.user_id):
+                return False
+            if column_name == "id" and report.id != value:
+                return False
+        return True
+
     @staticmethod
     def _matches_user_id(value: object, user_id: UUID) -> bool:
         if isinstance(value, list | tuple | set):
@@ -248,6 +277,7 @@ def make_subscription(user_id: UUID, amount: str = "120.00") -> Subscription:
         name="Dijital servis",
         merchant="Servis",
         amount=Decimal(amount),
+        type="expense",
         billing_cycle="monthly",
         recurrence_interval=1,
         recurrence_unit="month",
@@ -367,27 +397,30 @@ def test_live_graph_mutating_tool_call_is_intercepted_for_approval(
     fake_session.messages.append(current_user_message)
 
     class FakeGraph:
-        def stream(self, _state: object, *, stream_mode: str) -> Iterator[dict[str, object]]:
-            assert stream_mode == "updates"
-            yield {
-                "agent": {
-                    "messages": [
-                        AIMessage(
-                            content="",
-                            tool_calls=[
-                                {
-                                    "id": "call-1",
-                                    "name": "create_saving_goal",
-                                    "args": {
-                                        "category": "Eğlence",
-                                        "target_reduction_percent": 15,
+        def stream(self, _state: object, *, stream_mode: list[str]) -> Iterator[tuple[str, object]]:
+            assert stream_mode == ["messages", "updates"]
+            yield (
+                "updates",
+                {
+                    "agent": {
+                        "messages": [
+                            AIMessage(
+                                content="",
+                                tool_calls=[
+                                    {
+                                        "id": "call-1",
+                                        "name": "create_saving_goal",
+                                        "args": {
+                                            "category": "Eğlence",
+                                            "target_reduction_percent": 15,
+                                        },
                                     },
-                                },
-                            ],
-                        ),
-                    ],
+                                ],
+                            ),
+                        ],
+                    },
                 },
-            }
+            )
 
     monkeypatch.setattr(
         "app.services.agent_runner.build_agent_graph_from_settings",
@@ -416,6 +449,132 @@ def test_live_graph_mutating_tool_call_is_intercepted_for_approval(
     assert fake_session.messages[-2].role == "tool"
     assert fake_session.messages[-2].tool_calls is not None
     assert fake_session.messages[-2].tool_calls["status"] == "pending"
+
+
+def test_live_graph_report_answer_uses_card_copy(monkeypatch: MonkeyPatch) -> None:
+    user = make_user()
+    conversation = Conversation(id=uuid4(), user_id=user.id)
+    current_user_message = Message(
+        id=uuid4(),
+        conversation_id=conversation.id,
+        role="user",
+        content="Bu ayın raporunu hazırla.",
+    )
+    fake_session = FakeSession(user, [], [])
+    fake_session.conversations.append(conversation)
+    fake_session.messages.append(current_user_message)
+    report_id = uuid4()
+
+    class FakeGraph:
+        def stream(self, _state: object, *, stream_mode: list[str]) -> Iterator[tuple[str, object]]:
+            assert stream_mode == ["messages", "updates"]
+            yield (
+                "updates",
+                {
+                    "tools": {
+                        "messages": [
+                            ToolMessage(
+                                content=json.dumps(
+                                    {
+                                        "report_id": str(report_id),
+                                        "title": "Aylık Koç Raporu",
+                                        "filename": "cuzdan-kocu-raporu-2026-05.docx",
+                                        "download_url": f"/api/reports/{report_id}/download",
+                                        "chart_count": 1,
+                                        "ai_illustration_count": 0,
+                                    },
+                                ),
+                                name="generate_monthly_report",
+                                tool_call_id="call-report",
+                            ),
+                        ],
+                    },
+                },
+            )
+            yield (
+                "updates",
+                {
+                    "agent": {
+                        "messages": [
+                            AIMessage(
+                                content=(
+                                    "[Aylık Koç Raporunu İndir (DOCX)]"
+                                    f"(/api/reports/{report_id}/download)"
+                                ),
+                            ),
+                        ],
+                    },
+                },
+            )
+
+    monkeypatch.setattr(
+        "app.services.agent_runner.build_agent_graph_from_settings",
+        lambda _settings=None: FakeGraph(),
+    )
+
+    events = list(
+        _stream_live_graph(
+            fake_session,
+            user,
+            ChatStreamRequest(message="Bu ayın raporunu hazırla.", conversation_id=conversation.id),
+            conversation,
+            current_user_message=current_user_message,
+            settings=None,
+        ),
+    )
+
+    assistant_text = "".join(
+        str(event.get("content", "")) for event in events if event.get("type") == "delta"
+    )
+    assert "aşağıdaki karttan indirebilirsin" in assistant_text
+    assert "](/api/reports/" not in assistant_text
+    assert fake_session.messages[-1].content == assistant_text
+
+
+def test_live_graph_streams_message_chunks_without_duplicate_final_delta(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    user = make_user()
+    conversation = Conversation(id=uuid4(), user_id=user.id)
+    current_user_message = Message(
+        id=uuid4(),
+        conversation_id=conversation.id,
+        role="user",
+        content="Bu ay nasılım?",
+    )
+    fake_session = FakeSession(user, [], [])
+    fake_session.conversations.append(conversation)
+    fake_session.messages.append(current_user_message)
+
+    class FakeGraph:
+        def stream(self, _state: object, *, stream_mode: list[str]) -> Iterator[tuple[str, object]]:
+            assert stream_mode == ["messages", "updates"]
+            yield ("messages", (AIMessageChunk(content="İyi "), {}))
+            yield ("messages", (AIMessageChunk(content="gidiyorsun."), {}))
+            yield (
+                "updates",
+                {"agent": {"messages": [AIMessage(content="İyi gidiyorsun.")]}},
+            )
+
+    monkeypatch.setattr(
+        "app.services.agent_runner.build_agent_graph_from_settings",
+        lambda _settings=None: FakeGraph(),
+    )
+
+    events = list(
+        _stream_live_graph(
+            fake_session,
+            user,
+            ChatStreamRequest(message="Bu ay nasılım?", conversation_id=conversation.id),
+            conversation,
+            current_user_message=current_user_message,
+            settings=None,
+        ),
+    )
+
+    deltas = [str(event.get("content", "")) for event in events if event.get("type") == "delta"]
+    assert deltas == ["İyi ", "gidiyorsun."]
+    assert fake_session.messages[-1].content == "İyi gidiyorsun."
 
 
 def test_chat_stream_returns_sse_tool_trace_from_scoped_data() -> None:
@@ -981,7 +1140,7 @@ def test_chat_stream_can_show_goals_with_chart_payload() -> None:
     assert '"tool_name": "visualize_saving_goals"' in response.text
     assert '"chart"' in response.text
     assert "Aktif 2 hedefin var" in response.text
-    assert "/dashboard/goals" in response.text
+    assert "/goals" in response.text
 
 
 def test_chat_stream_can_create_smart_saving_plan() -> None:
@@ -1174,6 +1333,181 @@ def test_chat_stream_returns_monthly_chart_payload_for_trend_request() -> None:
     assert '"series": "Market"' in response.text
 
 
+def test_chat_stream_can_generate_monthly_docx_report(monkeypatch: MonkeyPatch) -> None:
+    user = make_user()
+    category = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=Decimal("600.00"),
+    )
+    transaction = Transaction(
+        id=uuid4(),
+        user_id=user.id,
+        amount=Decimal("125.00"),
+        type="expense",
+        category_id=category.id,
+        description="Alışveriş",
+        merchant="Market",
+        occurred_at=datetime.now(UTC),
+        source="manual",
+        receipt_image_url=None,
+        raw_ocr_data=None,
+    )
+    fake_session = FakeSession(user, [category], [transaction])
+
+    class FakeReportStorage:
+        def save_report(
+            self,
+            *,
+            user_id: UUID,
+            filename: str,
+            content: bytes,
+            content_type: str,
+        ) -> object:
+            assert user_id == user.id
+            assert filename.endswith(".docx")
+            assert content.startswith(b"PK")
+            assert "wordprocessingml.document" in content_type
+
+            class Stored:
+                def __init__(self) -> None:
+                    self.object_name = "reports/test.docx"
+                    self.content_type = content_type
+                    self.file_size_bytes = len(content)
+
+            return Stored()
+
+    monkeypatch.setattr(
+        "app.services.reports.MinioReportStorage",
+        lambda: FakeReportStorage(),
+    )
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Bu ayın docx raporunu grafik ve görsellerle hazırla."},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"tool_name": "generate_monthly_report"' in response.text
+    assert '"download_url": "/api/reports/' in response.text
+    assert "Aylık Koç Raporu hazır" in response.text
+    assert len(fake_session.generated_reports) == 1
+    assert fake_session.generated_reports[0].scope_type == "self"
+
+
+def test_monthly_docx_report_contains_detailed_sections(monkeypatch: MonkeyPatch) -> None:
+    user = make_user()
+    category = Category(
+        id=uuid4(),
+        user_id=None,
+        name="Market",
+        icon=None,
+        parent_id=None,
+        budget_monthly=Decimal("600.00"),
+    )
+    transactions = [
+        Transaction(
+            id=uuid4(),
+            user_id=user.id,
+            amount=Decimal("250.00"),
+            type="expense",
+            category_id=category.id,
+            description="Haftalık alışveriş",
+            merchant="Market",
+            occurred_at=datetime(2026, 5, 10, 9, 0, tzinfo=UTC),
+            source="manual",
+            receipt_image_url=None,
+            raw_ocr_data=None,
+        ),
+        Transaction(
+            id=uuid4(),
+            user_id=user.id,
+            amount=Decimal("1000.00"),
+            type="income",
+            category_id=None,
+            description="Gelir",
+            merchant="İşveren",
+            occurred_at=datetime(2026, 5, 1, 9, 0, tzinfo=UTC),
+            source="manual",
+            receipt_image_url=None,
+            raw_ocr_data=None,
+        ),
+        Transaction(
+            id=uuid4(),
+            user_id=user.id,
+            amount=Decimal("200.00"),
+            type="expense",
+            category_id=category.id,
+            description="Geçen ay market",
+            merchant="Market",
+            occurred_at=datetime(2026, 4, 10, 9, 0, tzinfo=UTC),
+            source="manual",
+            receipt_image_url=None,
+            raw_ocr_data=None,
+        ),
+    ]
+    fake_session = FakeSession(user, [category], transactions)
+    captured: dict[str, bytes] = {}
+
+    class FakeReportStorage:
+        def save_report(
+            self,
+            *,
+            user_id: UUID,
+            filename: str,
+            content: bytes,
+            content_type: str,
+        ) -> object:
+            captured["content"] = content
+
+            class Stored:
+                def __init__(self) -> None:
+                    self.object_name = "reports/test.docx"
+                    self.content_type = content_type
+                    self.file_size_bytes = len(content)
+
+            return Stored()
+
+    monkeypatch.setattr(
+        "app.services.reports.MinioReportStorage",
+        lambda: FakeReportStorage(),
+    )
+
+    def override_db() -> Iterator[FakeSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/stream",
+            headers={"Authorization": f"Bearer {create_token(user.id)}"},
+            json={"message": "Bu ay için görselsiz aylık rapor hazırla."},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    document = Document(BytesIO(captured["content"]))
+    text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "Nakit Akışı ve Geçen Ay Karşılaştırması" in text
+    assert "Zarf Bütçesi Durumu" in text
+    assert "Gelecek Ay İçin Kontrol Listesi" in text
+    assert "Analiz yalnızca uygulamaya girilen kayıtlar kadar güçlüdür" in text
+
+
 def test_chat_stream_rejects_investment_advice_without_tool_call() -> None:
     user = make_user()
     fake_session = FakeSession(user, [], [])
@@ -1300,6 +1634,13 @@ def test_chat_stream_can_create_custom_finance_school_lesson() -> None:
     assert '"duration_minutes": 7' in response.text
     assert '"examples": []' in response.text
     assert "Bütçe planlama: Başlangıç dersi" in response.text
+    assistant_answer = fake_session.messages[-1].content
+    assert "**Ders akışı:**" in assistant_answer
+    assert "1. **Bütçenin amacı**" in assistant_answer
+    assert "Bütçe, paranın nereye gittiğini takip etmek değil" in assistant_answer
+    assert "**Mini quiz:**" in assistant_answer
+    assert "Cevap:" not in assistant_answer
+    assert "Cevaplarını yazarsan birlikte kontrol edip doğrulayabilirim." in assistant_answer
     assert [message.role for message in fake_session.messages] == ["user", "tool", "assistant"]
 
 

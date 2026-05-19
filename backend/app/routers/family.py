@@ -8,12 +8,13 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import create_token, get_current_user
 from app.config import get_settings
 from app.db import get_db
+from app.models.category import Category
 from app.models.subscription import Subscription
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -21,6 +22,7 @@ from app.schemas.auth import AuthUser, TokenResponse
 from app.schemas.family import (
     ChildCreate,
     ChildUpdate,
+    FamilyMemberCategoryBreakdown,
     FamilyMemberFinanceRead,
     FamilyMemberRead,
     FamilyOverviewRead,
@@ -178,6 +180,10 @@ def family_overview(
     count_by_user = dict.fromkeys(user_ids, 0)
     receipt_count_by_user = dict.fromkeys(user_ids, 0)
     latest_by_user: dict[UUID, Transaction | None] = dict.fromkeys(user_ids, None)
+    # Per-member expense category breakdown — keyed by user_id then category_id.
+    expense_by_category: dict[UUID, dict[UUID | None, Decimal]] = {
+        user_id: {} for user_id in user_ids
+    }
 
     for transaction in transactions:
         occurred_at = _as_aware_utc(transaction.occurred_at).astimezone(ISTANBUL)
@@ -196,8 +202,14 @@ def family_overview(
             income_by_user[transaction.user_id] += amount
         else:
             expense_by_user[transaction.user_id] += amount
+            bucket = expense_by_category[transaction.user_id]
+            bucket[transaction.category_id] = (
+                bucket.get(transaction.category_id, Decimal("0")) + amount
+            )
 
     for subscription in subscriptions:
+        if subscription.type != "expense":
+            continue
         recurring_by_user[subscription.user_id] += monthly_equivalent(
             Decimal(subscription.amount),
             subscription.recurrence_interval,
@@ -207,6 +219,58 @@ def family_overview(
         recurring_count_by_user[subscription.user_id] += 1
 
     total_expense = sum(expense_by_user.values(), Decimal("0"))
+
+    # Look up category names once for any category id we actually used.
+    used_category_ids: set[UUID] = set()
+    for buckets in expense_by_category.values():
+        for category_id in buckets:
+            if category_id is not None:
+                used_category_ids.add(category_id)
+    category_name_by_id: dict[UUID, str] = {}
+    if used_category_ids:
+        rows = db.execute(
+            select(Category.id, Category.name).where(
+                Category.id.in_(used_category_ids),
+                or_(Category.user_id.in_(user_ids), Category.user_id.is_(None)),
+            ),
+        ).all()
+        category_name_by_id = {row.id: row.name for row in rows}
+
+    def build_category_breakdown(
+        user_id: UUID, total_for_user: Decimal
+    ) -> list[FamilyMemberCategoryBreakdown]:
+        buckets = expense_by_category.get(user_id, {})
+        if not buckets or total_for_user <= 0:
+            return []
+        top_n = 4
+        sorted_items = sorted(buckets.items(), key=lambda item: item[1], reverse=True)
+        head = sorted_items[:top_n]
+        tail = sorted_items[top_n:]
+        breakdown: list[FamilyMemberCategoryBreakdown] = []
+        for category_id, amount in head:
+            breakdown.append(
+                FamilyMemberCategoryBreakdown(
+                    category_id=category_id,
+                    category_name=(
+                        category_name_by_id.get(category_id, "Kategorisiz")
+                        if category_id is not None
+                        else "Kategorisiz"
+                    ),
+                    amount=_money(amount),
+                    share_percent=_percent(amount, total_for_user),
+                ),
+            )
+        if tail:
+            other_amount = sum((amount for _, amount in tail), Decimal("0"))
+            breakdown.append(
+                FamilyMemberCategoryBreakdown(
+                    category_id=None,
+                    category_name="Diğer",
+                    amount=_money(other_amount),
+                    share_percent=_percent(other_amount, total_for_user),
+                ),
+            )
+        return breakdown
 
     member_rows: list[FamilyMemberFinanceRead] = []
     for member in members:
@@ -236,6 +300,10 @@ def family_overview(
                     _money(Decimal(latest.amount)) if latest is not None else None
                 ),
                 latest_transaction_type=(latest.type if latest is not None else None),
+                category_breakdown=build_category_breakdown(
+                    member.id,
+                    expense_by_user[member.id],
+                ),
             ),
         )
 

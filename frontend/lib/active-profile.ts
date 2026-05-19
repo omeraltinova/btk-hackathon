@@ -44,6 +44,27 @@ function notifyProfileChange() {
   window.dispatchEvent(new Event(ACTIVE_PROFILE_EVENT));
 }
 
+declare global {
+  interface Window {
+    __cuzdanProfileCrossTabSyncWired?: boolean;
+  }
+}
+
+// WHY: ACTIVE_PROFILE_EVENT is a custom event that only fires in the tab that
+// switched profile. If another tab is open on the same browser, its `<= state
+// becomes stale and its next API call uses the new token under the old UI.
+// Mirror the change via the browser's cross-tab `storage` event so every
+// subscriber in every tab re-reads `readActiveProfile()` and re-runs the same
+// teardown the originating tab already did.
+if (typeof window !== "undefined" && !window.__cuzdanProfileCrossTabSyncWired) {
+  window.__cuzdanProfileCrossTabSyncWired = true;
+  window.addEventListener("storage", (event) => {
+    if (event.key === ACTIVE_PROFILE_KEY) {
+      window.dispatchEvent(new Event(ACTIVE_PROFILE_EVENT));
+    }
+  });
+}
+
 export function readActiveProfile(): ActiveProfile | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(ACTIVE_PROFILE_KEY);

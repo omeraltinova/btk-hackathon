@@ -79,6 +79,7 @@ export type Transaction = {
   amount: string;
   type: TransactionType;
   category_id: string | null;
+  subscription_id: string | null;
   description: string | null;
   merchant: string | null;
   occurred_at: string;
@@ -225,6 +226,7 @@ export type Subscription = {
   name: string;
   merchant: string | null;
   amount: string;
+  type: TransactionType;
   billing_cycle: BillingCycle;
   recurrence_interval: number;
   recurrence_unit: RecurrenceUnit;
@@ -241,6 +243,7 @@ export type SubscriptionCreateInput = {
   name: string;
   merchant?: string | null;
   amount: string;
+  type?: TransactionType;
   billing_cycle: BillingCycle;
   recurrence_interval?: number | null;
   recurrence_unit?: RecurrenceUnit | null;
@@ -259,6 +262,15 @@ export type ChatStreamRequest = {
   receipt_content_type?: string | null;
   approval_id?: string | null;
   approval_decision?: "approved" | "rejected" | null;
+};
+
+export type VoiceSessionResponse = {
+  provider: "gemini" | "openrouter";
+  mode: "realtime" | "cascade";
+  model: string | null;
+  voice_name: string | null;
+  ephemeral_token: string | null;
+  expires_at: string | null;
 };
 
 export type ChatToolPayload = Record<string, unknown>;
@@ -330,6 +342,13 @@ export type FamilyMember = AuthUser & {
   updated_at: string;
 };
 
+export type FamilyMemberCategoryBreakdown = {
+  category_id: string | null;
+  category_name: string;
+  amount: string;
+  share_percent: string;
+};
+
 export type FamilyMemberFinance = {
   user_id: string;
   name: string;
@@ -349,6 +368,7 @@ export type FamilyMemberFinance = {
   latest_transaction_merchant: string | null;
   latest_transaction_amount: string | null;
   latest_transaction_type: TransactionType | null;
+  category_breakdown: FamilyMemberCategoryBreakdown[];
 };
 
 export type FamilyOverview = {
@@ -404,6 +424,17 @@ export type ConversationAttachment =
       chart?: null;
       image_url: string;
       alt_text: string | null;
+    }
+  | {
+      type: "report";
+      chart?: null;
+      image_url?: null;
+      alt_text?: null;
+      report_id: string;
+      download_url: string;
+      filename: string;
+      title: string | null;
+      format: string | null;
     };
 
 export type ConversationMessage = {

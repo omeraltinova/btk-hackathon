@@ -253,6 +253,7 @@ def _ensure_subscription(
             name=name,
             merchant=merchant,
             amount=Decimal(amount),
+            type="expense",
             billing_cycle=billing_cycle,
             recurrence_interval=recurrence_interval,
             recurrence_unit=recurrence_unit,

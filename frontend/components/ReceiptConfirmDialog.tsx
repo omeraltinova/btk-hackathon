@@ -91,13 +91,18 @@ export function ReceiptConfirmDialog({
       setFormError("Tutarı 1250,50 biçiminde girer misin?");
       return;
     }
+    const merchantValue = merchant.trim();
+    if (!merchantValue) {
+      setFormError("Satıcı zorunlu.");
+      return;
+    }
 
     setFormError(null);
     await onConfirm({
       amount: normalizedAmount,
       type: "expense",
       category_id: categoryId || null,
-      merchant: merchant || null,
+      merchant: merchantValue,
       description: description || null,
       occurred_at: toIsoDateTime(occurredAt),
       source: "receipt_ocr",
@@ -171,6 +176,7 @@ export function ReceiptConfirmDialog({
                   value={merchant}
                   onChange={(event) => setMerchant(event.target.value)}
                   placeholder="Satıcı adı"
+                  required
                 />
               </div>
               <div className="space-y-2">

@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ArrowDownRight,
   ArrowUpRight,
-  BookOpen,
   CalendarDays,
   Edit3,
   ImagePlus,
@@ -21,9 +20,23 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
 
+import { BenchmarksCard } from "@/components/BenchmarksCard";
+import { EmptyDashboardHero } from "@/components/EmptyDashboardHero";
 import { InsightBanner } from "@/components/InsightBanner";
+import { KidBadgesShelf } from "@/components/KidBadgesShelf";
+import { MonthlySummaryShareCard } from "@/components/MonthlySummaryShareCard";
+import { OnboardingTour } from "@/components/OnboardingTour";
 import { ReceiptUploader } from "@/components/ReceiptUploader";
 import { SpendingChart } from "@/components/SpendingChart";
 import { TransactionEditDialog } from "@/components/TransactionEditDialog";
@@ -85,6 +98,7 @@ type SubscriptionDraft = {
   name: string;
   merchant: string;
   amount: string;
+  type: TransactionType;
   billingCycle: BillingCycle;
   recurrenceInterval: string;
   recurrenceUnit: RecurrenceUnit;
@@ -115,13 +129,13 @@ const DASHBOARD_TABS: Array<{
     helper: "Grafikler ve eğilimler",
   },
   {
-    href: "/dashboard/transactions",
+    href: "/transactions",
     view: "transactions",
     label: "İşlemler",
     helper: "Tek seferlik ve tekrarlayan",
   },
   {
-    href: "/dashboard/income-expense",
+    href: "/income-expense",
     view: "income-expense",
     label: "Gelir/Gider",
     helper: "Detay ve dağılım",
@@ -157,16 +171,16 @@ const insightSeverityLabels: Record<ProactiveInsight["severity"], string> = {
 
 function insightHref(insight: ProactiveInsight): string {
   if (insight.insight_type === "upcoming_recurring" || insight.action_label?.includes("Tekrar")) {
-    return "/dashboard/transactions";
+    return "/transactions";
   }
   if (
     insight.insight_type === "receipt_activity" ||
     insight.action_label?.toLocaleLowerCase("tr-TR").includes("fiş")
   ) {
-    return "/dashboard/transactions";
+    return "/transactions";
   }
   if (insight.action_label?.includes("İşlem")) {
-    return "/dashboard/transactions";
+    return "/transactions";
   }
   return "/dashboard";
 }
@@ -215,25 +229,29 @@ function CategoryNameInput({
   categories,
   onValueChange,
   helper,
+  label = "Kategori",
+  placeholder = "Kategori seç veya yeni yaz",
 }: {
   id: string;
   value: string;
   categories: Category[];
   onValueChange: (value: string) => void;
   helper: string;
+  label?: string;
+  placeholder?: string;
 }) {
   const listId = `${id}-options`;
   return (
     <div className="space-y-2">
       <label htmlFor={id} className="text-sm font-medium">
-        Kategori
+        {label}
       </label>
       <Input
         id={id}
         list={listId}
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
-        placeholder="Kategori seç veya yeni yaz"
+        placeholder={placeholder}
       />
       <datalist id={listId}>
         {categories.map((category) => (
@@ -250,6 +268,7 @@ function subscriptionToDraft(subscription: Subscription): SubscriptionDraft {
     name: subscription.name,
     merchant: subscription.merchant ?? "",
     amount: amountInput(subscription.amount),
+    type: subscription.type,
     billingCycle: subscription.billing_cycle,
     recurrenceInterval: String(subscription.recurrence_interval),
     recurrenceUnit: subscription.recurrence_unit,
@@ -412,44 +431,122 @@ function MonthEndProjection({ summary }: { summary: TransactionSummary | null })
   const daysLeft = Math.max(daysInMonth - elapsedDays, 0);
   const currentExpense = amountToKurus(summary?.expense ?? "0");
   const remainingBudget = amountToKurus(summary?.remaining_budget ?? "0");
+  const budgetedMonth = amountToKurus(summary?.budgeted_month ?? "0");
   const projectedExpense = Math.round((currentExpense * daysInMonth) / elapsedDays);
   const safeDaily = daysLeft > 0 ? Math.max(0, Math.round(remainingBudget / daysLeft)) : 0;
+  const scale = Math.max(projectedExpense, budgetedMonth, currentExpense, 1) * 1.05;
+  const actualPercent = Math.max(0, Math.min(100, (currentExpense / scale) * 100));
+  const projectedPercent = Math.max(0, Math.min(100, (projectedExpense / scale) * 100));
+  const projectionExtra = Math.max(0, projectedPercent - actualPercent);
+  const budgetPercent =
+    budgetedMonth > 0 ? Math.max(0, Math.min(100, (budgetedMonth / scale) * 100)) : null;
+  const exceedsBudget = budgetedMonth > 0 && projectedExpense > budgetedMonth;
 
   return (
     <section className="ledger-sheet p-5 sm:p-7">
-      <div className="relative z-10 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <div>
-          <p className="eyebrow">Ay sonu projeksiyonu</p>
-          <h2 className="mt-2 font-display text-[1.75rem] font-black leading-none sm:text-3xl">
-            Bu ay sonu ne olur?
-          </h2>
-          <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
-            Bu kart kesin taahhüt değil; sadece bugüne kadarki harcama temposunu aya yayarak görünür
-            kılar.
-          </p>
+      <div className="relative z-10 space-y-5">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div>
+            <p className="eyebrow">Ay sonu projeksiyonu</p>
+            <h2 className="mt-2 font-display text-[1.75rem] font-black leading-none sm:text-3xl">
+              Bu ay sonu ne olur?
+            </h2>
+            <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
+              Bu kart kesin taahhüt değil; sadece bugüne kadarki harcama temposunu aya yayarak
+              görünür kılar.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[28rem]">
+            <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                Mevcut hızla
+              </p>
+              <p className="mt-3 font-display text-2xl font-black tabular-nums text-primary">
+                {formatKurus(projectedExpense)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">ay sonu gider tahmini</p>
+            </div>
+            <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                Güvenli günlük tempo
+              </p>
+              <p className="mt-3 font-display text-2xl font-black tabular-nums text-accent-foreground">
+                {formatKurus(safeDaily)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {daysLeft > 0 ? `${daysLeft} gün için yaklaşık üst sınır` : "Ay bugün kapanıyor"}
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[28rem]">
-          <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
-            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-              <CalendarDays className="h-4 w-4 text-primary" />
-              Mevcut hızla
-            </p>
-            <p className="mt-3 font-display text-2xl font-black tabular-nums text-primary">
-              {formatKurus(projectedExpense)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">ay sonu gider tahmini</p>
-          </div>
-          <div className="rounded-[1.4rem] border border-border/70 bg-card/75 p-4">
+
+        <div className="rounded-[1.4rem] border border-border/70 bg-card/55 p-4">
+          <div className="flex items-baseline justify-between gap-2">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-              Güvenli günlük tempo
+              Bugüne kadar / projeksiyon
             </p>
-            <p className="mt-3 font-display text-2xl font-black tabular-nums text-accent-foreground">
-              {formatKurus(safeDaily)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {daysLeft > 0 ? `${daysLeft} gün için yaklaşık üst sınır` : "Ay bugün kapanıyor"}
+            <p className="text-xs text-muted-foreground">
+              Gün {elapsedDays} / {daysInMonth}
             </p>
           </div>
+          <div
+            className="month-projection-bar relative mt-3 h-5 overflow-hidden rounded-full bg-muted/55"
+            role="img"
+            aria-label={`Bugüne kadar ${formatKurus(currentExpense)}, projeksiyon ${formatKurus(projectedExpense)}.${
+              budgetedMonth > 0 ? ` Bütçe ${formatKurus(budgetedMonth)}.` : ""
+            }`}
+          >
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-primary transition-all"
+              style={{ width: `${actualPercent}%` }}
+            />
+            {projectionExtra > 0 ? (
+              <div
+                className="absolute inset-y-0 transition-all"
+                style={{
+                  left: `${actualPercent}%`,
+                  width: `${projectionExtra}%`,
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, oklch(var(--primary) / 0.55) 0 6px, oklch(var(--primary) / 0.18) 6px 12px)",
+                }}
+              />
+            ) : null}
+            {budgetPercent !== null ? (
+              <div
+                className="absolute inset-y-0 w-px bg-accent"
+                style={{ left: `${budgetPercent}%` }}
+                title={`Bütçe sınırı: ${formatKurus(budgetedMonth)}`}
+              />
+            ) : null}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+              Bugüne kadar {formatKurus(currentExpense)}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-3 rounded-sm"
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, oklch(var(--primary) / 0.55) 0 4px, oklch(var(--primary) / 0.18) 4px 8px)",
+                }}
+              />
+              Projeksiyon {formatKurus(projectedExpense)}
+            </span>
+            {budgetPercent !== null ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-px bg-accent" />
+                Bütçe {formatKurus(budgetedMonth)}
+              </span>
+            ) : null}
+          </div>
+          {exceedsBudget ? (
+            <p className="mt-2 text-xs font-semibold text-destructive">
+              Mevcut tempo aylık bütçeyi aşıyor.
+            </p>
+          ) : null}
         </div>
       </div>
     </section>
@@ -476,9 +573,9 @@ function RecurringBars({
   if (active.length === 0) {
     return (
       <div className="bg-background/72 rounded-[1.75rem] border border-dashed border-primary/30 p-5">
-        <p className="font-display text-xl font-black">Tekrarlayan ödeme grafiği boş</p>
+        <p className="font-display text-xl font-black">Tekrarlayan kayıt grafiği boş</p>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Aktif abonelik veya fatura eklediğinde aylık etkileri çubuk grafik olarak görünecek.
+          Aktif düzenli gelir veya ödeme eklediğinde aylık etkileri çubuk grafik olarak görünecek.
         </p>
       </div>
     );
@@ -491,14 +588,22 @@ function RecurringBars({
         return (
           <div key={subscription.id} className="space-y-1.5">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="truncate font-bold">{subscription.name}</span>
+              <span className="truncate font-bold">
+                {subscription.name}
+                <span className="ml-2 text-xs font-medium text-muted-foreground">
+                  {subscription.type === "income" ? "Gelir" : "Gider"}
+                </span>
+              </span>
               <span className="shrink-0 font-display font-black tabular-nums">
-                {formatKurus(monthly)}
+                {formatTransactionAmount(subscription.monthly_equivalent, subscription.type)}
               </span>
             </div>
             <div className="h-2.5 overflow-hidden rounded-full bg-background/80">
               <div
-                className="h-full rounded-full bg-primary"
+                className={cn(
+                  "h-full rounded-full",
+                  subscription.type === "income" ? "bg-primary" : "bg-accent",
+                )}
                 style={{ width: `${(monthly / maxAmount) * 100}%` }}
               />
             </div>
@@ -608,6 +713,7 @@ function SubscriptionRow({
             {subscription.name}
           </p>
           <p className="mt-0.5 text-xs font-medium text-muted-foreground sm:text-sm">
+            {subscription.type === "income" ? "Gelir" : "Gider"} /{" "}
             {subscription.recurrence_label || billingCycleLabels[subscription.billing_cycle]} /{" "}
             {categoryName}
             {subscription.next_billing_date
@@ -619,11 +725,16 @@ function SubscriptionRow({
           ) : null}
         </div>
         <div className="shrink-0 sm:text-right">
-          <p className="break-words font-display text-lg font-black tabular-nums sm:text-xl">
-            {formatKurus(amountToKurus(subscription.amount))}
+          <p
+            className={cn(
+              "break-words font-display text-lg font-black tabular-nums sm:text-xl",
+              subscription.type === "income" ? "text-primary" : "text-accent-foreground",
+            )}
+          >
+            {formatTransactionAmount(subscription.amount, subscription.type)}
           </p>
           <p className="text-xs font-bold text-muted-foreground">
-            Aylık etki {formatKurus(amountToKurus(subscription.monthly_equivalent))}
+            Aylık etki {formatTransactionAmount(subscription.monthly_equivalent, subscription.type)}
           </p>
         </div>
       </div>
@@ -718,7 +829,6 @@ function RecurringManagerDialog({
   const [paymentDraft, setPaymentDraft] = useState<TransactionDraft | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const expenseCategories = useMemo(() => categoriesForType(categories, "expense"), [categories]);
 
   useEffect(() => {
     if (!open || !subscription) return;
@@ -731,22 +841,22 @@ function RecurringManagerDialog({
 
   const { candidatePayments, isFallbackList } = useMemo(() => {
     if (!subscription) return { candidatePayments: [], isFallbackList: false };
-    const sameUserPastExpenses = transactions
+    const sameUserPastRecords = transactions
       .filter(
         (transaction) =>
           transaction.user_id === subscription.user_id &&
-          transaction.type === "expense" &&
+          transaction.type === subscription.type &&
           isPastTransaction(transaction),
       )
       .sort(
         (left, right) =>
           new Date(right.occurred_at).getTime() - new Date(left.occurred_at).getTime(),
       );
-    const matched = sameUserPastExpenses.filter((transaction) =>
+    const matched = sameUserPastRecords.filter((transaction) =>
       isSubscriptionPaymentCandidate(transaction, subscription),
     );
     return {
-      candidatePayments: (matched.length > 0 ? matched : sameUserPastExpenses).slice(0, 8),
+      candidatePayments: (matched.length > 0 ? matched : sameUserPastRecords).slice(0, 8),
       isFallbackList: matched.length === 0,
     };
   }, [subscription, transactions]);
@@ -790,7 +900,7 @@ function RecurringManagerDialog({
     if (!subscription || !futureDraft) return;
     const normalizedAmount = normalizeAmountInput(futureDraft.amount);
     if (!isValidAmount(normalizedAmount)) {
-      setLocalError("Gelecek ödeme tutarını 1250,50 biçiminde girer misin?");
+      setLocalError("Gelecek kayıt tutarını 1250,50 biçiminde girer misin?");
       return;
     }
     const recurrenceInterval = Number.parseInt(futureDraft.recurrenceInterval, 10);
@@ -798,14 +908,20 @@ function RecurringManagerDialog({
       futureDraft.billingCycle === "custom" &&
       (!Number.isFinite(recurrenceInterval) || recurrenceInterval < 1)
     ) {
-      setLocalError("Gelecek ödemeler için tekrar aralığı 1 veya daha büyük olmalı.");
+      setLocalError("Gelecek kayıtlar için tekrar aralığı 1 veya daha büyük olmalı.");
+      return;
+    }
+    const futureMerchant = futureDraft.merchant.trim();
+    if (!futureMerchant) {
+      setLocalError("Kurum veya satıcı zorunlu.");
       return;
     }
 
     const payload: SubscriptionUpdateInput = {
       name: futureDraft.name,
-      merchant: futureDraft.merchant || null,
+      merchant: futureMerchant,
       amount: normalizedAmount,
+      type: futureDraft.type,
       billing_cycle: futureDraft.billingCycle,
       recurrence_interval: futureDraft.billingCycle === "custom" ? recurrenceInterval : null,
       recurrence_unit: futureDraft.billingCycle === "custom" ? futureDraft.recurrenceUnit : null,
@@ -820,7 +936,7 @@ function RecurringManagerDialog({
       await onSaveFuture(subscription, payload);
       onOpenChange(false);
     } catch (err) {
-      setLocalError(friendlyError(err, "Gelecek ödemeler güncellenemedi, tekrar dener misin?"));
+      setLocalError(friendlyError(err, "Gelecek kayıtlar güncellenemedi, tekrar dener misin?"));
     } finally {
       setIsSaving(false);
     }
@@ -829,16 +945,21 @@ function RecurringManagerDialog({
   async function handleSaveSinglePayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedPaymentId || !paymentDraft) {
-      setLocalError("Düzenlemek için bir geçmiş ödeme seç.");
+      setLocalError("Düzenlemek için bir geçmiş kayıt seç.");
       return;
     }
     const normalizedAmount = normalizeAmountInput(paymentDraft.amount);
     if (!isValidAmount(normalizedAmount)) {
-      setLocalError("Geçmiş ödeme tutarını 1250,50 biçiminde girer misin?");
+      setLocalError("Geçmiş kayıt tutarını 1250,50 biçiminde girer misin?");
       return;
     }
     if (!paymentDraft.occurredAt) {
-      setLocalError("Geçmiş ödeme için tarih ve saat seç.");
+      setLocalError("Geçmiş kayıt için tarih ve saat seç.");
+      return;
+    }
+    const paymentMerchant = paymentDraft.merchant.trim();
+    if (!paymentMerchant) {
+      setLocalError("Satıcı veya kaynak zorunlu.");
       return;
     }
 
@@ -846,7 +967,7 @@ function RecurringManagerDialog({
       amount: normalizedAmount,
       type: paymentDraft.type,
       category_id: paymentDraft.categoryId || null,
-      merchant: paymentDraft.merchant || null,
+      merchant: paymentMerchant,
       description: paymentDraft.description || null,
       occurred_at: toIsoDateTime(paymentDraft.occurredAt),
     };
@@ -857,23 +978,26 @@ function RecurringManagerDialog({
       await onSaveSinglePayment(selectedPaymentId, payload);
       onOpenChange(false);
     } catch (err) {
-      setLocalError(friendlyError(err, "Geçmiş ödeme güncellenemedi, tekrar dener misin?"));
+      setLocalError(friendlyError(err, "Geçmiş kayıt güncellenemedi, tekrar dener misin?"));
     } finally {
       setIsSaving(false);
     }
   }
 
   if (!subscription || !futureDraft) return null;
+  const futureCategories = categoriesForType(categories, futureDraft.type);
+  const paymentCategories = categoriesForType(categories, paymentDraft?.type ?? subscription.type);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] w-[calc(100vw-1.5rem)] overflow-hidden rounded-[1.5rem] p-4 sm:max-w-6xl sm:p-6">
         <DialogHeader>
           <DialogTitle className="font-display text-3xl font-black">
-            Tekrarlayan ödemeyi yönet
+            Tekrarlayan kaydı yönet
           </DialogTitle>
           <DialogDescription>
-            Tek bir geçmiş ödemeyi düzeltebilir veya gelecekteki tüm yenilemeleri değiştirebilirsin.
+            Tek bir geçmiş gelir/gider kaydını düzeltebilir veya gelecekteki tüm yenilemeleri
+            değiştirebilirsin.
           </DialogDescription>
         </DialogHeader>
 
@@ -886,7 +1010,7 @@ function RecurringManagerDialog({
                   <p className="mt-1 text-sm text-muted-foreground">
                     {subscription.recurrence_label ||
                       billingCycleLabels[subscription.billing_cycle]}{" "}
-                    / {formatKurus(amountToKurus(subscription.amount))}
+                    / {formatTransactionAmount(subscription.amount, subscription.type)}
                   </p>
                 </div>
                 <span className="stamp-label bg-background/80">
@@ -898,8 +1022,8 @@ function RecurringManagerDialog({
             <div className="grid gap-2 rounded-[1.5rem] border border-border/70 bg-background/70 p-2 sm:grid-cols-2">
               {(
                 [
-                  ["future", "Gelecektekilerin tümü", "Abonelik/fatura kuralını değiştir"],
-                  ["single", "Geçmiş tek ödeme", "Seçili işlem kaydını düzelt"],
+                  ["future", "Gelecektekilerin tümü", "Düzenli kayıt kuralını değiştir"],
+                  ["single", "Geçmiş tek kayıt", "Seçili işlem kaydını düzelt"],
                 ] as const
               ).map(([value, label, helper]) => {
                 const isActive = mode === value;
@@ -934,6 +1058,32 @@ function RecurringManagerDialog({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label htmlFor="future-subscription-type" className="text-sm font-medium">
+                      Tür
+                    </label>
+                    <select
+                      id="future-subscription-type"
+                      className={selectClassName}
+                      value={futureDraft.type}
+                      onChange={(event) =>
+                        setFutureDraft((current) => {
+                          if (!current) return current;
+                          const nextType = event.target.value as TransactionType;
+                          return {
+                            ...current,
+                            type: nextType,
+                            categoryId: hasCategoryForType(categories, current.categoryId, nextType)
+                              ? current.categoryId
+                              : "",
+                          };
+                        })
+                      }
+                    >
+                      <option value="expense">Gider</option>
+                      <option value="income">Gelir</option>
+                    </select>
+                  </div>
                   <div className="space-y-2">
                     <label htmlFor="future-subscription-name" className="text-sm font-medium">
                       Ad
@@ -1069,7 +1219,7 @@ function RecurringManagerDialog({
                       }
                     >
                       <option value="">Kategori seçme</option>
-                      {expenseCategories.map((category) => (
+                      {futureCategories.map((category) => (
                         <option key={category.id} value={category.id}>
                           {category.name}
                           {category.user_id ? " · özel" : ""}
@@ -1111,29 +1261,30 @@ function RecurringManagerDialog({
                         current ? { ...current, merchant: event.target.value } : current,
                       )
                     }
-                    placeholder="İsteğe bağlı"
+                    placeholder="Örn. Netflix, maaş kurumu"
+                    required
                   />
                 </div>
 
                 <Button type="submit" className="w-full" disabled={isSaving}>
-                  {isSaving ? "Kaydediliyor..." : "Gelecekteki tüm ödemeleri güncelle"}
+                  {isSaving ? "Kaydediliyor..." : "Gelecekteki tüm kayıtları güncelle"}
                 </Button>
               </form>
             ) : (
               <form className="space-y-4" onSubmit={handleSaveSinglePayment}>
                 <div className="bg-background/72 rounded-[1.5rem] border border-dashed border-primary/30 p-4 text-sm leading-6 text-muted-foreground">
-                  Bu bölüm yalnızca seçtiğin geçmiş işlem kaydını değiştirir; gelecek ödeme planı
+                  Bu bölüm yalnızca seçtiğin geçmiş işlem kaydını değiştirir; gelecek kayıt planı
                   aynı kalır.
                 </div>
 
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="font-display text-xl font-black">Geçmiş ödeme seç</p>
+                      <p className="font-display text-xl font-black">Geçmiş kayıt seç</p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {isFallbackList
-                          ? "Benzer kayıt bulunamadı; aynı profile ait son giderler gösteriliyor."
-                          : "Bu tekrarlayan kayda benzeyen geçmiş ödemeler."}
+                          ? "Benzer kayıt bulunamadı; aynı profile ait son kayıtlar gösteriliyor."
+                          : "Bu tekrarlayan kayda benzeyen geçmiş işlemler."}
                       </p>
                     </div>
                     <span className="stamp-label bg-background/80">
@@ -1143,9 +1294,9 @@ function RecurringManagerDialog({
 
                   {candidatePayments.length === 0 ? (
                     <div className="receipt-tape px-5 py-6">
-                      <p className="font-display text-xl font-black">Geçmiş ödeme yok</p>
+                      <p className="font-display text-xl font-black">Geçmiş kayıt yok</p>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        Önce bu ödeme için bir işlem kaydı eklediğinde burada tek kaydı
+                        Önce bu düzenli kayıt için bir işlem eklediğinde burada tek kaydı
                         düzenleyebilirsin.
                       </p>
                     </div>
@@ -1169,7 +1320,7 @@ function RecurringManagerDialog({
                             onClick={() => handleSelectPayment(transaction)}
                           >
                             <span className="block font-display text-lg font-black">
-                              {transaction.merchant ?? transaction.description ?? "İsimsiz ödeme"}
+                              {transaction.merchant ?? transaction.description ?? "İsimsiz kayıt"}
                             </span>
                             <span className="mt-1 block text-sm text-muted-foreground">
                               {formatDateTR(transaction.occurred_at)} / {categoryName}
@@ -1237,7 +1388,7 @@ function RecurringManagerDialog({
                           }
                         >
                           <option value="">Kategori seçme</option>
-                          {expenseCategories.map((category) => (
+                          {paymentCategories.map((category) => (
                             <option key={category.id} value={category.id}>
                               {category.name}
                               {category.user_id ? " · özel" : ""}
@@ -1254,11 +1405,21 @@ function RecurringManagerDialog({
                           className={selectClassName}
                           value={paymentDraft.type}
                           onChange={(event) =>
-                            setPaymentDraft((current) =>
-                              current
-                                ? { ...current, type: event.target.value as TransactionType }
-                                : current,
-                            )
+                            setPaymentDraft((current) => {
+                              if (!current) return current;
+                              const nextType = event.target.value as TransactionType;
+                              return {
+                                ...current,
+                                type: nextType,
+                                categoryId: hasCategoryForType(
+                                  categories,
+                                  current.categoryId,
+                                  nextType,
+                                )
+                                  ? current.categoryId
+                                  : "",
+                              };
+                            })
                           }
                         >
                           <option value="expense">Gider</option>
@@ -1279,7 +1440,8 @@ function RecurringManagerDialog({
                             current ? { ...current, merchant: event.target.value } : current,
                           )
                         }
-                        placeholder="İsteğe bağlı"
+                        placeholder="Örn. Migros, maaş, kira"
+                        required
                       />
                     </div>
 
@@ -1302,7 +1464,7 @@ function RecurringManagerDialog({
                 ) : null}
 
                 <Button type="submit" className="w-full" disabled={isSaving || !paymentDraft}>
-                  {isSaving ? "Kaydediliyor..." : "Seçili geçmiş ödemeyi güncelle"}
+                  {isSaving ? "Kaydediliyor..." : "Seçili geçmiş kaydı güncelle"}
                 </Button>
               </form>
             )}
@@ -1360,7 +1522,7 @@ function GoalSlider({
             </h2>
           </div>
           <Button asChild size="sm" variant="secondary" className="w-fit">
-            <Link href="/dashboard/goals">
+            <Link href="/goals">
               Hedefleri aç
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -1391,7 +1553,7 @@ function GoalSlider({
               return (
                 <Link
                   key={goal.id}
-                  href={`/dashboard/goals?hedef=${encodeURIComponent(goal.id)}`}
+                  href={`/goals?hedef=${encodeURIComponent(goal.id)}`}
                   className={cn(
                     "min-w-0 rounded-[1.25rem] border p-3 transition-transform duration-200 ease-quint hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                     tone.row,
@@ -1428,7 +1590,7 @@ function GoalSlider({
             })}
             {activeGoals.length > 6 ? (
               <Link
-                href="/dashboard/goals"
+                href="/goals"
                 className="grid min-h-32 place-items-center rounded-[1.25rem] border border-dashed border-border/80 bg-background/65 p-3 text-center text-sm font-black text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 +{activeGoals.length - 6} hedef daha
@@ -1442,7 +1604,9 @@ function GoalSlider({
 }
 
 function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }) {
-  const envelopes = summary?.envelopes ?? [];
+  const envelopes = (summary?.envelopes ?? []).filter(
+    (envelope) => amountToKurus(envelope.budget) > 0,
+  );
   const savingsEnvelope = envelopes.find((envelope) => envelope.is_savings_goal) ?? null;
   const orderedEnvelopes = envelopes
     .map((envelope, index) => ({ envelope, index }))
@@ -1476,7 +1640,7 @@ function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Link
-                href={`/dashboard/goals?zarf=${encodeURIComponent(envelope.slug)}`}
+                href={`/goals?zarf=${encodeURIComponent(envelope.slug)}`}
                 className={cn(
                   "truncate font-display text-lg font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   envelope.is_savings_goal ? "hover:text-primary" : "hover:text-foreground",
@@ -1574,7 +1738,7 @@ function BudgetEnvelopeBoard({ summary }: { summary: TransactionSummary | null }
 
         {orderedEnvelopes.length > 0 ? (
           <Button asChild size="sm" variant="secondary" className="w-fit">
-            <Link href="/dashboard/goals?sekme=zarflar">
+            <Link href="/goals?sekme=zarflar">
               Tüm zarfları göster
               {hiddenEnvelopeCount > 0 ? ` (+${hiddenEnvelopeCount})` : null}
               <ArrowRight className="h-4 w-4" />
@@ -1632,7 +1796,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [isAddingSubscription, setIsAddingSubscription] = useState(false);
   const [isRefreshingInsights, setIsRefreshingInsights] = useState(false);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
-  const [dismissingInsightId, setDismissingInsightId] = useState<string | null>(null);
+  const pendingInsightDismissalsRef = useRef<Map<string, number>>(new Map());
   const [isTransactionListOpen, setIsTransactionListOpen] = useState(false);
   const [isSubscriptionListOpen, setIsSubscriptionListOpen] = useState(false);
   const [isRecurringImpactOpen, setIsRecurringImpactOpen] = useState(false);
@@ -1650,6 +1814,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const [subscriptionName, setSubscriptionName] = useState("");
   const [subscriptionMerchant, setSubscriptionMerchant] = useState("");
   const [subscriptionAmount, setSubscriptionAmount] = useState("");
+  const [subscriptionType, setSubscriptionType] = useState<TransactionType>("expense");
   const [subscriptionCycle, setSubscriptionCycle] = useState<BillingCycle>("monthly");
   const [subscriptionInterval, setSubscriptionInterval] = useState("1");
   const [subscriptionUnit, setSubscriptionUnit] = useState<RecurrenceUnit>("month");
@@ -1660,6 +1825,20 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const loadDashboardData = useCallback(async () => {
     setError(null);
     try {
+      // Run the recurring materializer once per dashboard load so freshly due
+      // subscriptions show up in the summary/transactions below. Read endpoints
+      // no longer trigger this side effect (P1.5 in docs/decisions.md). Errors
+      // here are non-fatal — we still want the dashboard to render with stale
+      // data rather than block on materialization.
+      try {
+        await api<{ created: number }>("/api/recurring/materialize", {
+          method: "POST",
+          silent: true,
+        });
+      } catch {
+        // Swallow: dashboard data still loads even if materialize fails.
+      }
+
       const [transactionData, categoryData, summaryData, subscriptionData, goalData, insightData] =
         await Promise.all([
           api<Transaction[]>("/api/transactions", { silent: true }),
@@ -1693,6 +1872,16 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   useEffect(() => {
     void loadDashboardData();
   }, [loadDashboardData]);
+
+  useEffect(() => {
+    const timers = pendingInsightDismissalsRef.current;
+    return () => {
+      for (const handle of timers.values()) {
+        window.clearTimeout(handle);
+      }
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     function handleActiveProfileChange() {
@@ -1732,8 +1921,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     [categories, type],
   );
   const subscriptionCategories = useMemo(
-    () => categoriesForType(categories, "expense"),
-    [categories],
+    () => categoriesForType(categories, subscriptionType),
+    [categories, subscriptionType],
   );
   const merchantSuggestions = useMemo(
     () =>
@@ -1761,9 +1950,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
   const monthlyExpense = summary ? amountToKurus(summary.expense) : fallbackExpense;
   const monthlyIncome = summary ? amountToKurus(summary.income) : fallbackIncome;
   const balance = summary ? amountToKurus(summary.balance) : fallbackBalance;
-  const recurringMonthlyTotal = subscriptions
+  const recurringExpenseMonthlyTotal = subscriptions
     .filter((subscription) => subscription.is_active)
+    .filter((subscription) => subscription.type === "expense")
     .reduce((total, subscription) => total + amountToKurus(subscription.monthly_equivalent), 0);
+  const recurringIncomeMonthlyTotal = subscriptions
+    .filter((subscription) => subscription.is_active)
+    .filter((subscription) => subscription.type === "income")
+    .reduce((total, subscription) => total + amountToKurus(subscription.monthly_equivalent), 0);
+  const recurringMonthlyNetTotal = recurringIncomeMonthlyTotal - recurringExpenseMonthlyTotal;
   const primaryInsight = insights[0] ?? null;
   const visibleInsightCount = insights.length;
   const previewTransactions = transactions.slice(0, TRANSACTION_PREVIEW_LIMIT);
@@ -1787,20 +1982,49 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
-  async function handleDismissInsight(insightId: string) {
-    setDismissingInsightId(insightId);
+  function handleDismissInsight(insightId: string) {
+    const target = insights.find((insight) => insight.id === insightId);
+    if (target === undefined) return;
+    if (pendingInsightDismissalsRef.current.has(insightId)) return;
+
+    // Optimistic UI: drop the row immediately so user feels response.
+    setInsights((current) => current.filter((insight) => insight.id !== insightId));
     setError(null);
-    try {
-      await api<ProactiveInsight>(`/api/insights/${insightId}/dismiss`, {
-        method: "PATCH",
-        silent: true,
-      });
-      setInsights((current) => current.filter((insight) => insight.id !== insightId));
-    } catch (err) {
-      setError(friendlyError(err, "Koç notu kapatılamadı, tekrar dener misin?"));
-    } finally {
-      setDismissingInsightId(null);
-    }
+
+    const timer = window.setTimeout(() => {
+      pendingInsightDismissalsRef.current.delete(insightId);
+      void (async () => {
+        try {
+          await api<ProactiveInsight>(`/api/insights/${insightId}/dismiss`, {
+            method: "PATCH",
+            silent: true,
+          });
+        } catch (err) {
+          setInsights((current) =>
+            current.some((insight) => insight.id === insightId) ? current : [target, ...current],
+          );
+          setError(friendlyError(err, "Koç notu kapatılamadı, tekrar dener misin?"));
+        }
+      })();
+    }, 5000);
+    pendingInsightDismissalsRef.current.set(insightId, timer);
+
+    toast("Koç notu kapatıldı.", {
+      action: {
+        label: "Geri al",
+        onClick: () => {
+          const pending = pendingInsightDismissalsRef.current.get(insightId);
+          if (pending !== undefined) {
+            window.clearTimeout(pending);
+            pendingInsightDismissalsRef.current.delete(insightId);
+          }
+          setInsights((current) =>
+            current.some((insight) => insight.id === insightId) ? current : [target, ...current],
+          );
+        },
+      },
+      duration: 5000,
+    });
   }
 
   function handleStartSmartPlan() {
@@ -1833,6 +2057,12 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setIsSubmitting(false);
       return;
     }
+    const merchantValue = merchant.trim();
+    if (!merchantValue) {
+      setError("Satıcı veya kaynak zorunlu.");
+      setIsSubmitting(false);
+      return;
+    }
     try {
       const resolvedCategoryId = await resolveCategoryId({
         input: categoryInput,
@@ -1844,7 +2074,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
         amount: normalizedAmount,
         type,
         category_id: resolvedCategoryId || null,
-        merchant: merchant || null,
+        merchant: merchantValue,
         description: description || null,
         occurred_at: toIsoDateTime(occurredAt),
       };
@@ -1920,6 +2150,15 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     if (!typed) return "";
     const matched = findCategoryByInput(allowedCategories, typed);
     if (matched) return matched.id;
+    const unavailable = findCategoryByInput(categories, typed);
+    if (unavailable !== null) {
+      const message =
+        fallbackType === "income"
+          ? "Bu kategori gider/zarf için ayrılmış; gelir için ayrı bir kategori seç."
+          : "Bu kategori gelir için ayrılmış; gider için ayrı bir kategori seç.";
+      setError(message);
+      throw new Error(message);
+    }
     if (currentId && hasCategoryForType(categories, currentId, fallbackType)) return currentId;
     const created = await handleCreateCategory(typed);
     return created.id;
@@ -1944,7 +2183,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     setIsAddingSubscription(true);
     const normalizedAmount = normalizeAmountInput(subscriptionAmount);
     if (!isValidAmount(normalizedAmount)) {
-      setError("Tekrarlayan ödeme tutarını 1250,50 biçiminde girer misin?");
+      setError("Tekrarlayan kayıt tutarını 1250,50 biçiminde girer misin?");
       setIsAddingSubscription(false);
       return;
     }
@@ -1965,17 +2204,24 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setIsAddingSubscription(false);
       return;
     }
+    const subscriptionMerchantValue = subscriptionMerchant.trim();
+    if (!subscriptionMerchantValue) {
+      setError("Kurum veya satıcı zorunlu.");
+      setIsAddingSubscription(false);
+      return;
+    }
     try {
       const resolvedCategoryId = await resolveCategoryId({
         input: subscriptionCategoryInput,
         allowedCategories: subscriptionCategories,
         currentId: subscriptionCategoryId,
-        fallbackType: "expense",
+        fallbackType: subscriptionType,
       });
       const payload: SubscriptionCreateInput = {
         name: subscriptionName,
-        merchant: subscriptionMerchant || null,
+        merchant: subscriptionMerchantValue,
         amount: normalizedAmount,
+        type: subscriptionType,
         billing_cycle: subscriptionCycle,
         recurrence_interval: subscriptionCycle === "custom" ? recurrenceInterval : null,
         recurrence_unit: subscriptionCycle === "custom" ? subscriptionUnit : null,
@@ -1992,6 +2238,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setSubscriptionName("");
       setSubscriptionMerchant("");
       setSubscriptionAmount("");
+      setSubscriptionType("expense");
       setSubscriptionCycle("monthly");
       setSubscriptionInterval("1");
       setSubscriptionUnit("month");
@@ -2000,7 +2247,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setSubscriptionCategoryInput("");
       void refreshInsights().catch(() => undefined);
     } catch (err) {
-      setError(friendlyError(err, "Tekrarlayan ödeme kaydedilemedi, tekrar dener misin?"));
+      setError(friendlyError(err, "Tekrarlayan kayıt kaydedilemedi, tekrar dener misin?"));
     } finally {
       setIsAddingSubscription(false);
     }
@@ -2073,7 +2320,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       setManagedSubscriptionId((current) => (current === subscriptionId ? null : current));
       void refreshInsights().catch(() => undefined);
     } catch (err) {
-      setError(friendlyError(err, "Tekrarlayan ödeme silinemedi, tekrar dener misin?"));
+      setError(friendlyError(err, "Tekrarlayan kayıt silinemedi, tekrar dener misin?"));
     } finally {
       setUpdatingSubscriptionId(null);
     }
@@ -2109,6 +2356,14 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
     }
   }
 
+  function handleSubscriptionTypeChange(nextType: TransactionType) {
+    setSubscriptionType(nextType);
+    if (!hasCategoryForType(categories, subscriptionCategoryId, nextType)) {
+      setSubscriptionCategoryId("");
+      setSubscriptionCategoryInput("");
+    }
+  }
+
   function handleTransactionCategoryInput(nextValue: string) {
     setCategoryInput(nextValue);
     setCategoryId(findCategoryByInput(transactionCategories, nextValue)?.id ?? "");
@@ -2130,6 +2385,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
 
   return (
     <div className="page-enter space-y-8">
+      <OnboardingTour disabled={isKid} />
       <DashboardTabs activeView={view} />
 
       {view === "overview" ? (
@@ -2162,6 +2418,11 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   Yeni bir harçlık ya da gider eklemek için aşağıdaki Hareketler kartını
                   kullanabilirsin.
                 </p>
+                <KidBadgesShelf
+                  transactions={transactions}
+                  income={monthlyIncome}
+                  expense={monthlyExpense}
+                />
               </div>
             ) : (
               <div className="ledger-sheet binder-holes p-5 pl-8 sm:p-9 sm:pl-20">
@@ -2172,13 +2433,17 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       Bütçe sayfası artık kategorili.
                     </h1>
                     <p className="text-foreground/78 max-w-[62ch] text-base leading-7 sm:text-lg sm:leading-8">
-                      Özet burada kalır; tek seferlik işlem, tekrarlayan ödeme ve fiş tarama aynı
+                      Özet burada kalır; tek seferlik işlem, tekrarlayan kayıt ve fiş tarama aynı
                       İşlemler ekranından yönetilir. Böylece kayıt ekleme akışı tek yerde kalır.
                     </p>
                   </div>
                 </div>
               </div>
             )}
+
+            {!isLoading && transactions.length === 0 && subscriptions.length === 0 ? (
+              <EmptyDashboardHero isKid={isKid} />
+            ) : null}
 
             <InsightBanner
               title={
@@ -2205,40 +2470,62 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       {visibleInsightCount - 1} ek koç notu hazır.
                     </p>
                   ) : null}
-                  <div className="flex flex-wrap gap-2">
-                    {primaryInsight.action_label ? (
-                      <Button asChild size="sm">
-                        <Link href={insightHref(primaryInsight)}>
-                          {primaryInsight.action_label}
-                          <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                    ) : null}
-                    <Button asChild size="sm" variant="secondary">
-                      <Link href="/dashboard/goals">
-                        Hedef oluştur
-                        <Target className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <Button asChild size="sm" variant="secondary">
-                      <Link href="/learn">
-                        Dersi aç
-                        <BookOpen className="h-4 w-4" />
-                      </Link>
-                    </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(() => {
+                      const type = primaryInsight.insight_type;
+                      const isOverspend =
+                        type === "spending_spike" || type === "category_overspending";
+                      const wantsPlan =
+                        type === "monthly_status" ||
+                        type === "savings_opportunity" ||
+                        type === "goal_at_risk_critical" ||
+                        isOverspend;
+                      const wantsGoalLink = type === "goal_reached";
+                      return (
+                        <>
+                          {primaryInsight.action_label ? (
+                            <Button asChild size="sm">
+                              <Link href={insightHref(primaryInsight)}>
+                                {primaryInsight.action_label}
+                                <ArrowRight className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          ) : null}
+                          {isOverspend && !primaryInsight.action_label ? (
+                            <Button asChild size="sm">
+                              <Link href="/goals">
+                                Tasarruf hedefi aç
+                                <Target className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          ) : null}
+                          {wantsGoalLink ? (
+                            <Button asChild size="sm" variant="secondary">
+                              <Link href="/goals">
+                                Hedeflerime bak
+                                <Target className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          ) : wantsPlan ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={handleStartSmartPlan}
+                            >
+                              Plan çıkar
+                              <Sparkles className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                     <Button
                       type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleStartSmartPlan}
-                    >
-                      Plan çıkar
-                      <Sparkles className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
+                      size="icon"
+                      variant="ghost"
+                      title="Koç notlarını yenile"
+                      aria-label="Koç notlarını yenile"
                       onClick={handleRefreshInsights}
                       disabled={isRefreshingInsights}
                     >
@@ -2247,27 +2534,22 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                       ) : (
                         <RefreshCw className="h-4 w-4" />
                       )}
-                      Yenile
                     </Button>
                     <Button
                       type="button"
-                      size="sm"
+                      size="icon"
                       variant="ghost"
-                      onClick={() => void handleDismissInsight(primaryInsight.id)}
-                      disabled={dismissingInsightId === primaryInsight.id}
+                      title="Bu uyarıyı kapat"
+                      aria-label="Bu uyarıyı kapat"
+                      onClick={() => handleDismissInsight(primaryInsight.id)}
                     >
-                      {dismissingInsightId === primaryInsight.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <XCircle className="h-4 w-4" />
-                      )}
-                      Kapat
+                      <XCircle className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <p>Yeni işlem, fiş veya tekrarlayan ödeme geldikçe koç buraya uyarı çıkarır.</p>
+                  <p>Yeni işlem, fiş veya tekrarlayan kayıt geldikçe koç buraya uyarı çıkarır.</p>
                   <Button
                     type="button"
                     size="sm"
@@ -2311,9 +2593,9 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     "Ay sonuna kadar kullanılabilir",
                   ],
                   [
-                    "Gelecek ay tahmini",
-                    formatKurus(recurringMonthlyTotal),
-                    "Aktif tekrarlar; kesinleşmiş borç değildir",
+                    "Tekrarlayan net",
+                    formatKurus(recurringMonthlyNetTotal),
+                    `Gelir ${formatKurus(recurringIncomeMonthlyTotal)} / gider ${formatKurus(recurringExpenseMonthlyTotal)}`,
                   ],
                   [
                     "Riskli kategori",
@@ -2373,10 +2655,18 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                 />
               </div>
               <MonthEndProjection summary={summary} />
+              {!isKid ? (
+                <div className="flex justify-end">
+                  <MonthlySummaryShareCard summary={summary} />
+                </div>
+              ) : null}
               <div className="grid min-w-0 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
                 <SummaryStatus summary={summary} />
                 <SpendingChart summary={summary} />
               </div>
+              {!isKid && summary !== null ? (
+                <BenchmarksCard categoryTotals={summary.category_totals} />
+              ) : null}
             </>
           )}
         </>
@@ -2400,7 +2690,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   <p className="mt-2 text-sm leading-5 text-muted-foreground">
                     {isKid
                       ? "Aldığın harçlığı, yaptığın alışverişi veya fişini bu sayfadan ekleyebilirsin."
-                      : "Tek seferlik gelir/gider, tekrarlayan ödeme ve fiş tarama aynı ekrandan eklenir."}
+                      : "Tek seferlik gelir/gider, tekrarlayan kayıt ve fiş tarama aynı ekrandan eklenir."}
                   </p>
                 </div>
 
@@ -2483,7 +2773,17 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         value={categoryInput}
                         categories={transactionCategories}
                         onValueChange={handleTransactionCategoryInput}
-                        helper="Listeden seçebilir ya da yeni kategori adını yazabilirsin."
+                        label={type === "expense" ? "Gider kategorisi / zarf" : "Gelir kategorisi"}
+                        placeholder={
+                          type === "expense"
+                            ? "Zarf kategorisi seç veya yeni yaz"
+                            : "Gelir kategorisi seç veya yeni yaz"
+                        }
+                        helper={
+                          type === "expense"
+                            ? "Aynı kategoride açık zarf varsa bu gider otomatik o zarfın harcanan tutarına eklenir."
+                            : "Gelir zarfa eklenmez; zarflar sadece gider limitlerini takip eder."
+                        }
                       />
                       <div className="space-y-2">
                         <label htmlFor="transaction-date" className="text-sm font-medium">
@@ -2508,7 +2808,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         list="merchant-source-options"
                         value={merchant}
                         onChange={(event) => setMerchant(event.target.value)}
-                        placeholder="İsteğe bağlı"
+                        placeholder="Örn. Migros, maaş, kira"
+                        required
                       />
                       <datalist id="merchant-source-options">
                         {merchantSuggestions.map((suggestion) => (
@@ -2534,7 +2835,23 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                   </form>
                 ) : entryMode === "recurring" ? (
                   <form className="space-y-4" onSubmit={handleCreateSubscription}>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <label htmlFor="subscription-type" className="text-sm font-medium">
+                          Tür
+                        </label>
+                        <select
+                          id="subscription-type"
+                          className={selectClassName}
+                          value={subscriptionType}
+                          onChange={(event) =>
+                            handleSubscriptionTypeChange(event.target.value as TransactionType)
+                          }
+                        >
+                          <option value="expense">Gider</option>
+                          <option value="income">Gelir</option>
+                        </select>
+                      </div>
                       <div className="space-y-2">
                         <label htmlFor="subscription-name" className="text-sm font-medium">
                           Ad
@@ -2543,7 +2860,9 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                           id="subscription-name"
                           value={subscriptionName}
                           onChange={(event) => setSubscriptionName(event.target.value)}
-                          placeholder="Ödeme adı"
+                          placeholder={
+                            subscriptionType === "income" ? "Maaş, kira geliri" : "Ödeme adı"
+                          }
                           required
                         />
                       </div>
@@ -2637,7 +2956,21 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                         value={subscriptionCategoryInput}
                         categories={subscriptionCategories}
                         onValueChange={handleSubscriptionCategoryInput}
-                        helper="Gider kategorilerinden seç veya yeni bir ad yaz."
+                        label={
+                          subscriptionType === "expense"
+                            ? "Gider kategorisi / zarf"
+                            : "Gelir kategorisi"
+                        }
+                        placeholder={
+                          subscriptionType === "expense"
+                            ? "Zarf kategorisi seç veya yeni yaz"
+                            : "Gelir kategorisi seç veya yeni yaz"
+                        }
+                        helper={
+                          subscriptionType === "income"
+                            ? "Gelir zarfa eklenmez; zarflar sadece gerçekleşen giderleri takip eder."
+                            : "Aynı kategoride açık zarf varsa gerçekleşen gider otomatik o zarfı doldurur."
+                        }
                       />
                       <div className="space-y-2">
                         <label htmlFor="subscription-merchant" className="text-sm font-medium">
@@ -2648,7 +2981,8 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                           list="subscription-merchant-source-options"
                           value={subscriptionMerchant}
                           onChange={(event) => setSubscriptionMerchant(event.target.value)}
-                          placeholder="İsteğe bağlı"
+                          placeholder="Örn. Netflix, maaş kurumu"
+                          required
                         />
                         <datalist id="subscription-merchant-source-options">
                           {merchantSuggestions.map((suggestion) => (
@@ -2682,13 +3016,17 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                 <div className="receipt-tape p-4 pt-6 sm:p-5 sm:pt-7">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="eyebrow">Tekrarlayan aylık etki</p>
+                      <p className="eyebrow">Tekrarlayan aylık net</p>
                       <h3 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                        {formatKurus(recurringMonthlyTotal)}
+                        {formatKurus(recurringMonthlyNetTotal)}
                       </h3>
                     </div>
                     <span className="stamp-label bg-background/80">Toplam</span>
                   </div>
+                  <p className="mt-2 text-xs font-semibold text-muted-foreground">
+                    Gelir {formatKurus(recurringIncomeMonthlyTotal)} / gider{" "}
+                    {formatKurus(recurringExpenseMonthlyTotal)}
+                  </p>
                   <div className="mt-4">
                     <RecurringBars
                       subscriptions={subscriptions}
@@ -2773,7 +3111,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     <div>
                       <p className="eyebrow">Yenilenen kayıtlar</p>
                       <h2 className="mt-2 font-display text-[1.65rem] font-black leading-none sm:text-2xl">
-                        Tekrarlayan ödemeler
+                        Tekrarlayan kayıtlar
                       </h2>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2798,11 +3136,11 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
                     <div className="receipt-tape px-4 py-6">
                       <Repeat2 className="h-6 w-6 text-primary" />
                       <h3 className="mt-4 font-display text-2xl font-black">
-                        Tekrarlayan ödeme yok
+                        Tekrarlayan kayıt yok
                       </h3>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        Abonelik veya fatura eklediğinde tekil tutarlar ve aylık toplam burada
-                        görünür.
+                        Maaş, kira geliri, abonelik veya fatura eklediğinde tekil tutarlar ve aylık
+                        toplam burada görünür.
                       </p>
                     </div>
                   ) : (
@@ -2873,7 +3211,7 @@ export function DashboardClient({ view = "overview" }: DashboardClientProps) {
       <FullListDialog
         open={isSubscriptionListOpen}
         onOpenChange={setIsSubscriptionListOpen}
-        title="Tüm tekrarlayan ödemeler"
+        title="Tüm tekrarlayan kayıtlar"
         description={`Bu profilde görünen ${subscriptions.length} tekrarlayan kayıt.`}
       >
         {subscriptions.map((subscription) => (

@@ -1,16 +1,37 @@
 "use client";
 
-import { BrainCircuit, Loader2, Save, ShieldCheck } from "lucide-react";
-import { useSession } from "next-auth/react";
+import {
+  BrainCircuit,
+  Download,
+  Loader2,
+  Mail,
+  Save,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
+import type { Session } from "next-auth";
+import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, apiDownload } from "@/lib/api";
+import { clearActiveProfile } from "@/lib/active-profile";
 import type { AccountUpdateInput, AgeStatus, AuthUser, FinanceLevel } from "@/lib/types";
+
+type SessionUser = Session["user"];
 
 const selectClassName =
   "flex h-11 w-full rounded-2xl border border-input bg-background/80 px-4 py-2 text-sm ring-offset-background transition-all duration-200 ease-quint focus-visible:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
@@ -159,109 +180,418 @@ export function AccountClient() {
 
       {error ? <ErrorNote>{error}</ErrorNote> : null}
 
-      <form className="ledger-sheet max-w-4xl p-5 sm:p-8" onSubmit={handleSubmit}>
-        <div className="relative z-10 space-y-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="account-name" className="text-sm font-medium">
-                Ad soyad
-              </label>
-              <Input
-                id="account-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-              />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(22rem,0.82fr)] xl:items-start">
+        <form className="ledger-sheet p-5 sm:p-8" onSubmit={handleSubmit}>
+          <div className="relative z-10 space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="account-name" className="text-sm font-medium">
+                  Ad soyad
+                </label>
+                <Input
+                  id="account-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="account-email" className="text-sm font-medium">
+                  E-posta
+                </label>
+                <Input
+                  id="account-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="account-email" className="text-sm font-medium">
-                E-posta
-              </label>
-              <Input
-                id="account-email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
-            </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="account-birth-date" className="text-sm font-medium">
-                Doğum tarihi
-              </label>
-              <Input
-                id="account-birth-date"
-                type="date"
-                value={birthDate}
-                onChange={(event) => setBirthDate(event.target.value)}
-                placeholder="İsteğe bağlı"
-              />
-              <p className="text-xs font-medium text-muted-foreground">
-                {user?.age !== null && user?.age !== undefined
-                  ? `${user.age} yaş / ${
-                      user.ageStatus ? ageStatusLabels[user.ageStatus] : "Statü hesaplanıyor"
-                    }`
-                  : "Yaş otomatik hesaplanır."}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="account-birth-date" className="text-sm font-medium">
+                  Doğum tarihi
+                </label>
+                <Input
+                  id="account-birth-date"
+                  type="date"
+                  value={birthDate}
+                  onChange={(event) => setBirthDate(event.target.value)}
+                  placeholder="İsteğe bağlı"
+                />
+                <p className="text-xs font-medium text-muted-foreground">
+                  {user?.age !== null && user?.age !== undefined
+                    ? `${user.age} yaş / ${
+                        user.ageStatus ? ageStatusLabels[user.ageStatus] : "Statü hesaplanıyor"
+                      }`
+                    : "Yaş otomatik hesaplanır."}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="account-finance-level" className="text-sm font-medium">
+                  Finans seviyesi
+                </label>
+                <select
+                  id="account-finance-level"
+                  className={selectClassName}
+                  value={financeLevel}
+                  onChange={(event) =>
+                    setFinanceLevel(event.target.value as Exclude<FinanceLevel, "child">)
+                  }
+                >
+                  {Object.entries(financeLevelLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="bg-background/72 grid gap-4 rounded-[1.5rem] border border-dashed border-primary/30 p-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="account-current-password" className="text-sm font-medium">
+                  Mevcut şifre
+                </label>
+                <Input
+                  id="account-current-password"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  placeholder="Şifre değişecekse"
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="account-new-password" className="text-sm font-medium">
+                  Yeni şifre
+                </label>
+                <Input
+                  id="account-new-password"
+                  type="password"
+                  minLength={8}
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="En az 8 karakter"
+                />
+              </div>
+            </div>
+
+            <Button type="submit" className="w-full md:w-auto" disabled={isSaving}>
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {isSaving ? "Kaydediliyor..." : "Bilgileri kaydet"}
+            </Button>
+          </div>
+        </form>
+
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-1">
+          <DataExportSection />
+          <EmailSummarySection email={user?.email} />
+          <DangerZoneSection user={user} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function nextMondayLabel(): string {
+  const today = new Date();
+  const day = today.getDay();
+  const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7 || 7;
+  const next = new Date(today);
+  next.setDate(today.getDate() + daysUntilMonday);
+  return new Intl.DateTimeFormat("tr-TR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }).format(next);
+}
+
+const EMAIL_SUMMARY_STORAGE_KEY = "cuzdan-kocu.email-summary.enabled";
+
+function EmailSummarySection({ email }: { email: string | null | undefined }) {
+  const [enabled, setEnabled] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      setEnabled(window.localStorage.getItem(EMAIL_SUMMARY_STORAGE_KEY) === "on");
+    } catch {
+      // ignore localStorage failures; toggle just stays off.
+    } finally {
+      setHydrated(true);
+    }
+  }, []);
+
+  function handleToggle() {
+    setEnabled((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(EMAIL_SUMMARY_STORAGE_KEY, next ? "on" : "off");
+      } catch {
+        // best-effort persistence
+      }
+      toast.success(
+        next ? "Haftalık özet e-postası planlandı." : "Haftalık özet e-postası kapatıldı.",
+      );
+      return next;
+    });
+  }
+
+  return (
+    <section className="ledger-sheet h-full p-5 sm:p-8">
+      <div className="relative z-10 grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+        <div>
+          <span className="stamp-label bg-background/70">Haftalık özet</span>
+          <h2 className="mt-3 font-display text-3xl font-black tracking-tight">
+            Pazartesi sabahı özet e-postası
+          </h2>
+          <p className="mt-2 max-w-[58ch] text-sm leading-6 text-muted-foreground">
+            Açık olduğunda haftanın geliri, gideri, en yüksek üç kategorisi ve hedef ilerlemen
+            pazartesi sabahı kısa bir e-posta olarak gelir.
+            {email ? (
+              <>
+                {" "}
+                Gönderim adresi: <strong className="font-bold">{email}</strong>.
+              </>
+            ) : null}
+          </p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {enabled
+              ? `Sonraki gönderim yaklaşık ${nextMondayLabel()}.`
+              : "Demo aşamasında gerçek e-posta gönderilmez; bu tercih yalnızca tarayıcına kaydedilir."}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant={enabled ? "default" : "outline"}
+          onClick={handleToggle}
+          disabled={!hydrated}
+          className="md:justify-self-end"
+          aria-pressed={enabled}
+        >
+          <Mail className="h-4 w-4" />
+          {enabled ? "Açık" : "Kapalı"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function formatTodayStamp(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function DataExportSection() {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  async function handleDownload() {
+    setIsDownloading(true);
+    try {
+      const filename = `cuzdan-kocu-verim-${formatTodayStamp()}.zip`;
+      await apiDownload("/api/exports/all.zip", filename);
+      toast.success("Verilerin indirildi.");
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError
+          ? err.detail
+          : "Verilerin indirilemedi, biraz sonra tekrar dener misin?",
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  return (
+    <section className="ledger-sheet h-full p-5 sm:p-8">
+      <div className="relative z-10 grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+        <div>
+          <span className="stamp-label bg-background/70">Verim benim</span>
+          <h2 className="mt-3 font-display text-3xl font-black tracking-tight">Verilerimi indir</h2>
+          <p className="mt-2 max-w-[58ch] text-sm leading-6 text-muted-foreground">
+            Tüm işlemlerini, aboneliklerini ve hedeflerini tek ZIP içinde dışa aktarabilirsin. Excel
+            uyumlu CSV, Türkçe karakterler korunur.
+          </p>
+        </div>
+        <Button
+          type="button"
+          onClick={handleDownload}
+          disabled={isDownloading}
+          className="md:justify-self-end"
+        >
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          {isDownloading ? "Hazırlanıyor..." : "Verilerimi indir (ZIP)"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function DangerZoneSection({ user }: { user: SessionUser | undefined }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const isDemo = user?.isDemo === true;
+
+  return (
+    <>
+      <section className="bg-destructive/8 h-full rounded-[1.5rem] border border-destructive/35 p-5 sm:p-8 md:col-span-2 xl:col-span-1">
+        <div className="space-y-4">
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-destructive/15 text-destructive">
+              <ShieldAlert className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="font-display text-2xl font-black tracking-tight">Tehlikeli bölge</h2>
+              <p className="mt-1 max-w-[58ch] text-sm leading-6 text-muted-foreground">
+                Hesabını sildiğinde tüm işlemlerin, fişlerin, hedeflerin, aboneliklerin ve hafıza
+                notların kalıcı olarak silinir. Bu işlem geri alınamaz.
               </p>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="account-finance-level" className="text-sm font-medium">
-                Finans seviyesi
-              </label>
-              <select
-                id="account-finance-level"
-                className={selectClassName}
-                value={financeLevel}
-                onChange={(event) =>
-                  setFinanceLevel(event.target.value as Exclude<FinanceLevel, "child">)
-                }
-              >
-                {Object.entries(financeLevelLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
 
-          <div className="bg-background/72 grid gap-4 rounded-[1.5rem] border border-dashed border-primary/30 p-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="account-current-password" className="text-sm font-medium">
-                Mevcut şifre
-              </label>
-              <Input
-                id="account-current-password"
-                type="password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                placeholder="Şifre değişecekse"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="account-new-password" className="text-sm font-medium">
-                Yeni şifre
-              </label>
-              <Input
-                id="account-new-password"
-                type="password"
-                minLength={8}
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                placeholder="En az 8 karakter"
-              />
-            </div>
-          </div>
+          {isDemo ? (
+            <p className="rounded-2xl border border-destructive/30 bg-background/70 px-4 py-3 text-sm font-semibold text-foreground">
+              Demo hesabı silinemez. Demo hesaplar jüri ve sunum için korunur.
+            </p>
+          ) : null}
 
-          <Button type="submit" className="w-full md:w-auto" disabled={isSaving}>
-            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {isSaving ? "Kaydediliyor..." : "Bilgileri kaydet"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => setIsOpen(true)}
+              disabled={isDemo}
+              title={isDemo ? "Demo hesabı silinemez." : undefined}
+            >
+              <Trash2 className="h-4 w-4" />
+              Hesabımı sil
+            </Button>
+          </div>
         </div>
-      </form>
-    </div>
+      </section>
+
+      <DeleteAccountDialog open={isOpen} onOpenChange={setIsOpen} user={user} />
+    </>
+  );
+}
+
+function DeleteAccountDialog({
+  open,
+  onOpenChange,
+  user,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  user: SessionUser | undefined;
+}) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setCurrentPassword("");
+      setError(null);
+      setIsSubmitting(false);
+    }
+  }, [open]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await api<void>("/api/auth/me", {
+        method: "DELETE",
+        body: { current_password: currentPassword },
+        silent: true,
+      });
+      clearActiveProfile();
+      toast.success("Hesabın silindi.");
+      await signOut({ callbackUrl: "/login" });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.detail);
+      } else {
+        setError("Hesap silinemedi, tekrar dener misin?");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const isParent = user?.role === "parent";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Hesabını silmek istediğine emin misin?</DialogTitle>
+          <DialogDescription>
+            Bu işlem geri alınamaz. Tüm işlemlerin, fişlerin, hedeflerin, aboneliklerin ve hafıza
+            notların silinecek.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isParent ? (
+          <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-semibold text-foreground">
+            Çocuk profilleri ve onlara ait tüm veriler de silinecek.
+          </p>
+        ) : null}
+
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="space-y-2">
+            <label htmlFor="delete-account-password" className="text-sm font-medium">
+              Mevcut şifre
+            </label>
+            <Input
+              id="delete-account-password"
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+
+          {error ? (
+            <p className="bg-destructive/14 rounded-2xl border border-destructive/35 px-4 py-3 text-sm font-semibold text-foreground">
+              {error}
+            </p>
+          ) : null}
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isSubmitting}
+            >
+              Vazgeç
+            </Button>
+            <Button type="submit" variant="destructive" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Hesabımı kalıcı olarak sil
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

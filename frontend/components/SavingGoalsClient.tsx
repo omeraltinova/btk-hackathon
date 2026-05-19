@@ -12,7 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -118,7 +118,7 @@ function statusLabel(status: SavingGoalProgress["status_label"]): string {
 }
 
 function goalHref(goalId: string): string {
-  return `/dashboard/goals?hedef=${encodeURIComponent(goalId)}`;
+  return `/goals?hedef=${encodeURIComponent(goalId)}`;
 }
 
 function goalIdFromLocation(): string | null {
@@ -133,7 +133,7 @@ function surfaceFromLocation(): GoalSurface {
 }
 
 function surfaceHref(surface: GoalSurface): string {
-  return surface === "goals" ? "/dashboard/goals" : "/dashboard/goals?sekme=zarflar";
+  return surface === "goals" ? "/goals" : "/goals?sekme=zarflar";
 }
 
 function clearLegacyHashNavigation() {
@@ -252,6 +252,7 @@ function RelatedSpendingList({
 
 export function SavingGoalsClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isKid } = useKidMode();
   const [categories, setCategories] = useState<Category[]>([]);
   const [goals, setGoals] = useState<SavingGoal[]>([]);
@@ -319,6 +320,31 @@ export function SavingGoalsClient() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only; form state should not refetch.
   }, []);
+
+  // Use the serialized query string as the dependency so this effect fires on
+  // every query change — `useSearchParams()` itself can hand back a stable
+  // ReadonlyURLSearchParams reference in some Next.js navigation paths
+  // (notably when only the query changes and pathname stays put, e.g. the
+  // sidebar Zarflar link going from /goals to /goals?sekme=zarflar). Compare
+  // by string content to keep the surface in sync with the URL deterministically.
+  const searchParamsKey = searchParams.toString();
+  useEffect(
+    () => {
+      const requestedGoalId = searchParams.get("hedef");
+      const isEnvelopeRoute = searchParams.has("zarf") || searchParams.get("sekme") === "zarflar";
+      setActiveSurface(isEnvelopeRoute ? "envelopes" : "goals");
+      if (requestedGoalId && goals.some((goal) => goal.id === requestedGoalId)) {
+        setSelectedGoalId(requestedGoalId);
+      } else if (requestedGoalId === null && !isEnvelopeRoute) {
+        setSelectedGoalId((current) => current ?? goals[0]?.id ?? null);
+      }
+    },
+    // searchParams itself is intentionally not a dep — `useSearchParams()` can
+    // return a stable reference across query-only navigations. Trigger on the
+    // serialized content of the query string instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [goals, searchParamsKey],
+  );
 
   useEffect(() => {
     const requestedGoalId = goalIdFromLocation();
@@ -432,7 +458,7 @@ export function SavingGoalsClient() {
     event.preventDefault();
     setActiveSurface("goals");
     setSelectedGoalId(goalId);
-    window.history.pushState(null, "", goalHref(goalId));
+    router.push(goalHref(goalId));
   }
 
   function handleSurfaceSelect(event: MouseEvent<HTMLAnchorElement>, surface: GoalSurface) {
@@ -444,7 +470,7 @@ export function SavingGoalsClient() {
     setActiveSurface(surface);
     const nextHref =
       surface === "goals" && selectedGoalId ? goalHref(selectedGoalId) : surfaceHref(surface);
-    window.history.pushState(null, "", nextHref);
+    router.push(nextHref);
   }
 
   async function patchGoal(
@@ -634,7 +660,7 @@ export function SavingGoalsClient() {
 
               <div
                 className={cn(
-                  "grid gap-3 rounded-[1.5rem] border border-dashed p-4",
+                  "grid gap-3 rounded-[1.5rem] border border-dashed p-4 lg:min-h-[13.25rem] lg:content-start",
                   goalTone(mode).panel,
                 )}
               >
@@ -681,22 +707,20 @@ export function SavingGoalsClient() {
                         />
                       </label>
                     </div>
-                    <div className="rounded-[1.2rem] border border-dashed border-primary/20 bg-background/55 p-3">
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                        Hızlı şablonlar
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {goalTemplates.map((template) => (
-                          <button
-                            key={template.label}
-                            type="button"
-                            onClick={() => applyGoalTemplate(template)}
-                            className="rounded-full border border-border/70 bg-card/75 px-3 py-1.5 text-xs font-bold text-foreground transition-colors hover:border-primary/45 hover:bg-primary/10"
-                          >
-                            {template.label}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <span className="shrink-0 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                        Hızlı:
+                      </span>
+                      {goalTemplates.map((template) => (
+                        <button
+                          key={template.label}
+                          type="button"
+                          onClick={() => applyGoalTemplate(template)}
+                          className="shrink-0 rounded-full border border-border/70 bg-card/75 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/45 hover:bg-primary/10"
+                        >
+                          {template.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 ) : (

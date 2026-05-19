@@ -246,7 +246,7 @@ Bu kurallar şemaya ve mantığa kazınmıştır; bozulmaları bug'dır.
 
 **İK-17.** Tekrarlayan kayıtlar yalnızca haftalık/aylık/yıllık seçeneklerine bağlı değildir. `billing_cycle='custom'` için `recurrence_interval >= 1` ve `recurrence_unit IN ('day','week','month','year')` zorunludur.
 
-**İK-18.** Aktif tekrarlayan ödemeler `next_billing_date <= bugün` olduğunda otomatik olarak `transactions.source='recurring'` ve `type='expense'` işlemine materialize edilir. Aynı abonelik/tarih için tekrar işlem yazılmamalıdır; işlem tarihleri Europe/Istanbul yerel tarihine göre ay bazlı raporlanır.
+**İK-18.** Aktif tekrarlayan kayıtlar `next_billing_date <= bugün` olduğunda otomatik olarak `transactions.source='recurring'` işlemine materialize edilir. `subscriptions.type='income'` olanlar gelir, `type='expense'` olanlar gider yazar. Aynı abonelik/tarih için tekrar işlem yazılmamalıdır; işlem tarihleri Europe/Istanbul yerel tarihine göre ay bazlı raporlanır.
 
 ---
 
@@ -381,7 +381,7 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     değil) ve A-4 (tavsiye yasağı) ihlal edilemez. P5 (çocuk dilinde somut
     örnek) ile uyumlu: çocuk modunda görsel anlatımı kuvvetlendirir. Maliyet
     için her kullanıcıya günlük 10 görsel sınırı uygulanır.
-18. **Gelir/gider detay ve düzenleme yüzeyi:** `/dashboard/income-expense`
+18. **Gelir/gider detay ve düzenleme yüzeyi:** `/income-expense`
     ayrı bir detay sayfasıdır. Kullanıcı kendi kapsamındaki gelir/gider
     kayıtlarını tarih, tutar, kategori, satıcı/kaynak ve not alanlarıyla
     düzenleyebilir; ekleme formunda olduğu gibi tarih girebilir. Gelir ve gider
@@ -390,16 +390,19 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     dashboard kısa kalır; detay sayfası kategori dağılımı, Recharts tooltip,
     işlem listesi ve tekrarlayan ödeme ayrıntılarını gösterir. Yeni backend
     veri kapsamı yoktur; mevcut scoped transaction/subscription endpoint'leri
-    kullanılır. Abonelik geçmişi, `transactions` tablosunda `subscription_id`
-    olmadığı için merchant/name/amount benzerliğiyle sunumsal olarak eşlenir;
-    kesin occurrence takibi gerekiyorsa ayrı schema değişikliği gerekir.
-19. **Tekrarlayan ödeme otomatik gider yazımı ve gelecek ay tahmini:** Aktif
-    abonelik/fatura `next_billing_date` gününe geldiğinde sistem bu kaydı gider
-    işlemine otomatik yazar ve `next_billing_date` değerini bir sonraki tekrar
-    tarihine taşır. Özet ve detay ekranları gelir/gideri ay bazında ayrı gösterir.
-    Gelecek ay tahmini, aktif abonelik/faturalardan hesaplanan yaklaşık değerdir;
-    kesinleşmiş borç veya finansal taahhüt değildir ve UI'da bu belirsizlik açık
-    yazılır.
+    kullanılır. Abonelik geçmişi `transactions.subscription_id` ilişkisiyle
+    kesin eşlenir; eski veya manuel satırlarda ilişki boşsa yalnızca sunumsal
+    geri dönüş olarak satıcı/ad/tutar benzerliği kullanılabilir.
+19. **Tekrarlayan kayıt otomatik gelir/gider yazımı ve gelecek ay tahmini:** Aktif
+    abonelik/fatura veya düzenli gelir `next_billing_date` gününe geldiğinde sistem
+    bu kaydı `subscriptions.type` değerine göre gelir ya da gider işlemine otomatik
+    yazar ve `next_billing_date` değerini bir sonraki tekrar tarihine taşır. Maaş,
+    kira geliri ve faiz geliri gibi düzenli girişler `type='income'`; abonelik,
+    fatura ve kira ödemesi gibi düzenli çıkışlar `type='expense'` olarak tutulur.
+    Özet ve detay ekranları gelir/gideri ay bazında ayrı gösterir. Gelecek ay
+    tahmini, aktif tekrarlayan kayıtların yaklaşık gelir/gider etkisidir;
+    kesinleşmiş borç, tahsilat veya finansal taahhüt değildir ve UI'da bu
+    belirsizlik açık yazılır.
 20. **Zarf bütçesi ve birikim hedefi (MVP):** Dashboard, mevcut
     `categories.budget_monthly` alanını kullanarak Türk aile bütçesine uygun
     hazır `Market`, `Fatura`, `Okul`, `Ulaşım`, `Harçlık` ve `Birikim`
@@ -408,13 +411,14 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     ait `categories` kaydı ve pozitif `budget_monthly` değeriyle temsil edilir.
     `Birikim zarfı` aylık hedef olarak yorumlanır, çok dönemli hedef takibi
     stretch kapsamda kalır. Zarf oluşturma/güncelleme `categories.budget_monthly`
-    üzerine aktif kullanıcı shadow kategorisi yazar; silme gerçek kategori silmez,
-    aktif profil için limiti `0,00 ₺` yapar.
+    üzerine aktif kullanıcı kategori/shadow kategorisi yazar; zarf silme aktif
+    profilin kategori-backed zarf kaydını listeden kaldırır ve mevcut işlem
+    defterindeki gelir/gider satırlarını silmez.
     Agent `get_envelopes`, `create_envelope_budget`, `update_envelope_budget` ve
     `delete_envelope_budget` araçlarıyla scoped zarf listesini görebilir ve zarf
     limitlerini yönetebilir. `create_envelope_budget` kullanıcıdan gelen zarf adını
     kabul eder; hazır adlar mevcut zarfa, farklı adlar özel zarf kategorisine
-    yazılır. Zarf oluşturan, limit değiştiren veya zarfı kapatan agent işlemleri
+    yazılır. Zarf oluşturan, limit değiştiren veya zarfı silen agent işlemleri
     araç çalışmadan önce sohbet içinde açık kullanıcı onayı ister; okuma ve
     görselleştirme araçları onaysız çalışabilir. Agent aynı scoped zarf özetini kullanarak kalan bütçe ve ay sonuna
     kadar güvenli günlük harcama yanıtı verir.
@@ -446,26 +450,47 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     ve aktif abonelik etkisini inceler. Mevcut `saving_goals` yapısında 1–2
     kategori bazlı tasarruf hedefi ve amaç netse bir birikim hedefi oluşturabilir,
     haftalık limit/aylık katkı/taktik verir. Kullanıcı mevcut hedeflerini sorarsa
-    sohbet içinde bar grafik ve kısa özet gösterilir; `/dashboard/goals` kartları
+    sohbet içinde bar grafik ve kısa özet gösterilir; `/goals` kartları
     tıklanınca detay, ilerleme grafiği ve taktikler açılır. Bu akış da yatırım
     tavsiyesi vermez; sadece bütçe ve alışkanlık koçluğu yapar.
 23. **Finans Okulu (hazır + anlık özel AI dersleri):** Frontend, kontrollü bir başlık
     listesiyle (`Faiz`, `Enflasyon`, `Bütçe`, `Tasarruf`, `Kredi kartı asgari
     ödeme`, `Para piyasası fonu nedir?`) kısa ders akışı sunar. Kullanıcı başlığa
     tıklayınca mevcut `/api/chat/stream` üzerinden `explain_concept` ve gerekirse
-    `illustrate_concept` kullanılır; sonuç sayfada okunur, tarayıcı
-    text-to-speech ile sesli okutulabilir. Kullanıcı ayrıca konu, seviye, süre,
+    `illustrate_concept` kullanılır; sonuç sayfada okunur ve aynı provider
+    seçimine bağlı `/api/tts` yüzeyiyle sesli okutulabilir. Kullanıcı ayrıca konu, seviye, süre,
     örnek/mini quiz ve görsel tercihleriyle anlık özel ders isteyebilir; agent
     `create_custom_lesson` aracıyla yapılandırılmış ders taslağı üretir ve gerekirse
     `illustrate_concept` ile görsel anlatımı ekler. Özel dersler ilk MVP'de kalıcı
     kaydedilmez; chat geçmişinde normal mesaj/tool sonucu olarak kalır. Fon/ürün
     başlıkları yalnızca eğitim amaçlıdır; belirli ürün, getiri, al/sat/tut tavsiyesi verilmez.
-24. **Sesli koç (Web Speech MVP):** `/chat` ekranında destekleyen tarayıcılarda
-    Web Speech API ile Türkçe sesli giriş yapılabilir; metin kutusuna yazılan
-    transkript kullanıcı onayıyla gönderilir. Asistan yanıtları kullanıcı isterse
-    tarayıcı `speechSynthesis` ile `tr-TR` okunur; çocuk modunda bu tercih
-    varsayılan olarak açılır. Harici ses servisi, gerçek zamanlı görüşme veya yeni
-    backend endpoint'i yoktur.
+24. **Sesli koç (provider-backed STT/TTS + gerçek zamanlı sesli sohbet):** `/chat`
+    ekranında kullanıcı mikrofona basıp konuşur, durdurunca auth'lu `/api/stt`
+    endpoint'i kayıtlı sesi metne çevirip sohbet mesajı olarak yollar. Doğrudan Gemini
+    modunda mevcut multimodal `GEMINI_MODEL` audio understanding ile transkripsiyon
+    yapar; tarayıcı kaydı Gemini'nin desteklediği audio formatlarından biri değilse
+    yalnızca bu direct Gemini yolunda backend kayıtlı sesi desteklenen WAV biçimine
+    normalize eder; OpenRouter modunda `google/chirp-3` kullanılır. Provider STT
+    başarısız olursa tarayıcı `SpeechRecognition` yedek transkripti devreye girer.
+    Asistan yanıtları kullanıcı isterse auth'lu `/api/tts` endpoint'i üzerinden
+    okutulur; doğrudan Gemini modunda `gemini-3.1-flash-tts-preview`, OpenRouter
+    modunda `google/gemini-3.1-flash-tts-preview` kullanılır. Provider TTS başarısız
+    olursa tarayıcı `speechSynthesis` yedeği devreye girer; aynı mesaj daha önce
+    seslendiyse yeniden provider çağrısı yapılmadan mevcut ses tekrar oynatılır.
+    Çocuk modunda yanıtları sesli okuma tercihi varsayılan olarak açılır.
+
+    Mikrofonun yanında ayrı bir sesli sohbet düğmesi bulunur. `LLM_PROVIDER=gemini`
+    iken auth'lu backend `/api/voice/session` yüzeyi kısa ömürlü ephemeral token
+    üretir ve frontend `gemini-3.1-flash-live-preview` Live API oturumuna bağlanır;
+    ses katmanı gerçek zamanlı çalışır ama her anlamlı kullanıcı turu mevcut scoped
+    koç akışına delege edilir, bu yüzden normal agent tool'ları, onay kartları ve
+    konuşma geçmişi korunur. `LLM_PROVIDER=openrouter` iken gerçek zamanlı API
+    olmadığı için aynı düğme kalıcı bir sesli oturum paneli açar; frontend sessizliği
+    algılayarak her kullanıcı turunu otomatik `STT → mevcut chat/LLM agent akışı →
+    TTS` zincirine gönderir, yanıtı sesli okur ve oturum kapatılana kadar yeniden
+    dinlemeye döner. Gemini Live başlatılamazsa kullanıcı hata görmeden aynı
+    provider-backed kayıt/transkripsiyon/yanıt zincirine düşer; alt katmandaki
+    STT/TTS provider hatalarında mevcut browser fallback'leri yine devrededir.
 25. **Bildirim merkezi (mevcut insight yüzeyi + idempotent yenileme):** Sidebar
     üzerinde zil ikonu, mevcut scoped `/api/insights` sonuçlarını sayar ve son
     bildirimleri açılır panelde gösterir. Kullanıcı bildirimi kapatırsa mevcut
@@ -480,13 +505,41 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
     veya base64 fiş verisi hafızaya alınmaz. Parent, child hafızasına yalnızca
     family-switch ile aktif profil child olduğunda yazabilir; prompt'tan gelen
     `user_id` kullanılmaz.
+27. **Final demo polish yüzeyleri:** Ana uygulama kabuğunda breadcrumb ve ayrı
+    `Zarflar` navigasyon linki vardır; zarf linki mevcut `/goals?sekme=zarflar`
+    yüzeyini kullanır ve eski dashboard linkleri `next.config.ts` redirect'leriyle
+    korunur. Dashboard boş durum/onboarding turu, context-aware insight aksiyonları,
+    5 sn geri almalı insight kapatma, aylık özet paylaşım kartı, ay sonu
+    projeksiyon bandı ve yaklaşık benchmark kartı gösterir. Aile sayfası parent-only
+    finans özetini üye bazlı kategori kırılımıyla genişletir. Çocuk lite modda
+    kalıcı rozet şeridi gösterilebilir. Finans Okulu'nda haftalık mini quiz widget'ı
+    eğitim amaçlıdır ve yatırım/ürün tavsiyesi vermez. Bildirim merkezi okundu
+    durumu ve geri almalı kapatma kullanır. Hesap sayfasındaki haftalık e-posta
+    özeti toggle'ı demo/mock tercihtir; gerçek e-posta göndermez ve yalnızca
+    tarayıcı localStorage'ına kaydedilir.
+28. **Aylık Koç Raporu (DOCX + grafik + güvenli AI illüstrasyon):** Kullanıcı
+    sohbetten kişisel veya parent ise aile kapsamlı aylık rapor isteyebilir.
+    Agent `generate_monthly_report` aracıyla aktif profil state'inden gelen
+    `user_id` kapsamını kullanır; prompt'tan kullanıcı/kapsam değiştirme kabul
+    edilmez. Çıktı MVP'de yalnızca DOCX'tir ve private MinIO `reports` bucket'ına
+    yazılır; indirme `GET /api/reports/{id}/download` ile auth + rapor sahibi
+    kontrolünden geçer. Rapor gelir/gider, kategori kırılımı, geçen ay
+    karşılaştırması, zarf/hedef/tasarruf durumu, abonelik etkisi, parent-only aile
+    üye kırılımı, grafik PNG'leri ve genel koç değerlendirmesi içerir. Güvenli AI
+    illüstrasyonları anlatımı güçlendirmek için eklenebilir; görsel prompt'una
+    kullanıcı adı, çocuk adı, satıcı listesi, tutar, fiş detayı, ham OCR, IBAN,
+    kart veya kimlik bilgisi gönderilmez. Kişisel raporda en fazla 2, aile
+    raporunda en fazla 3 AI illüstrasyon denenir; görsel servis hazır değilse
+    rapor görselsiz değil, AI illüstrasyon bölümü atlanarak üretilir. Child ve
+    individual kullanıcılar sadece kendi raporunu alır; parent açıkça aile/çocuk
+    dahil raporu isterse aile üyeleri rapora katılır.
 
 ### 12.3 Stretch (ÖNCE 1–11 bitmeli)
 
-27. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
-28. Quiz modu
-29. CSV export
-30. Magic link auth (email-only login, parola yok)
+29. Gelişmiş hedef otomasyonu (otomatik katkı eşleştirme, hedef kilidi)
+30. Tam quiz modu ve kalıcı öğrenme ilerlemesi
+31. Magic link auth (email-only login, parola yok)
+32. Aylık Koç Raporu PDF renderer'ı (DOCX ile aynı rapor spec'inden üretilir)
 
 ---
 
@@ -517,8 +570,8 @@ Bu kurallar `SYSTEM_PROMPT` ve tool tasarımında somutlanır.
 ```
 ┌────────────────────────────────────────────────┐
 │ Next.js Frontend (port 3000)                    │
-│  /dashboard  /dashboard/transactions  /chat      │
-│  /receipts  /family  /account                    │
+│  /dashboard  /transactions  /income-expense      │
+│  /goals  /learn  /chat  /family  /account        │
 └──────────────────┬──────────────────────────────┘
                    │ HTTPS
 ┌──────────────────▼──────────────────────────────┐
@@ -628,6 +681,8 @@ CREATE TABLE subscriptions (
   name                        TEXT NOT NULL,
   merchant                    TEXT,
   amount                      NUMERIC(12,2) NOT NULL,
+  type                        TEXT NOT NULL DEFAULT 'expense'
+                              CHECK (type IN ('income','expense')),
   billing_cycle               TEXT NOT NULL
                               CHECK (billing_cycle IN ('weekly','monthly','yearly','custom')),
   recurrence_interval         INT NOT NULL DEFAULT 1 CHECK (recurrence_interval >= 1),
@@ -876,16 +931,16 @@ current_category_total > categories.budget_monthly
 → insight_type='category_overspending', severity='critical'
 ```
 
-**Kural 4 — Yaklaşan tekrarlayan ödeme:**
+**Kural 4 — Yaklaşan tekrarlayan kayıt:**
 ```
 subscriptions.is_active=true
 AND next_billing_date bugünden sonraki 7 gün içinde
-→ insight_type='upcoming_recurring', severity='warning'
+→ insight_type='upcoming_recurring', severity='warning' if type='expense' else 'info'
 ```
 
 **Kural 5 — Abonelik yükü ve fiş katkısı:**
 ```
-total_subs_monthly > current_income * 0.10
+total_recurring_expense_monthly > current_income * 0.10
 → insight_type='savings_opportunity', severity='info'
 
 bu ay source='receipt_ocr' transaction varsa
@@ -1131,8 +1186,56 @@ Coding agent (Claude Code/Cursor/Aider) ile çalışırken:
 
 ---
 
-**Doküman versiyonu:** 0.29
-**Son güncelleme:** 17 Mayıs 2026
+**Doküman versiyonu:** 0.39
+**Son güncelleme:** 18 Mayıs 2026
+**v0.39 değişiklikleri:** OpenRouter sesli sohbet yolu tek turluk buton davranışından
+kalıcı oturum paneline genişletildi. Panel açıkken frontend konuşma/sessizlik
+algısıyla kullanıcı turunu otomatik kaydeder, bırakınca gönderir, yanıtı TTS ile
+okutur ve oturum kapanana kadar yeniden dinlemeye döner.
+**v0.38 değişiklikleri:** `/chat` için ayrı sesli sohbet modu eklendi. Doğrudan
+Gemini yolunda `gemini-3.1-flash-live-preview` Live API oturumu kısa ömürlü
+ephemeral token ile açılır ve cevap üretimini mevcut scoped agent/tool akışına
+delege eder; OpenRouter yolunda aynı deneyim STT → chat/LLM → TTS zinciriyle
+kurulur. Sesli turlar normal konuşma geçmişine yazılır; Gemini Live başlatılamazsa
+provider-backed non-realtime yoluna geri düşer.
+**v0.37 değişiklikleri:** Direct Gemini STT yolu tarayıcıdan gelen desteklenmeyen ses
+kapsayıcılarını backend'de WAV'a normalize eder; OpenRouter `google/chirp-3` yolu
+desteklediği tarayıcı formatlarını doğrudan almaya devam eder.
+**v0.36 değişiklikleri:** Sesli koç kapsamı provider-backed speech-to-text ile
+genişletildi: `/api/stt` direct Gemini audio understanding veya OpenRouter
+`google/chirp-3` üzerinden kayıtlı sesi metne çevirir; provider hatalarında
+browser `SpeechRecognition` yedek akışı kullanılır. TTS provider hatalarında
+browser `speechSynthesis` yedeği devreye girer ve aynı mesajın ses blob'u tekrar
+kullanılır.
+**v0.35 değişiklikleri:** Sesli koç kapsamı tarayıcı TTS'den provider-backed TTS'ye
+çıkarıldı: `/api/tts` auth'lu backend yüzeyi eklendi; doğrudan Gemini yolunda
+`gemini-3.1-flash-tts-preview`, OpenRouter yolunda
+`google/gemini-3.1-flash-tts-preview` kullanılır. Web Speech mikrofon girişi korunur;
+gerçek zamanlı görüşme hâlâ kapsam dışıdır.
+**v0.34 değişiklikleri:** Aylık Koç Raporu core demo kapsamına eklendi: sohbetten
+DOCX rapor üretimi, grafik PNG'leri, güvenli AI illüstrasyonları, parent-only aile
+kapsamı ve private auth kontrollü indirme. PDF üretimi stretch kapsamına alındı.
+**v0.33 değişiklikleri:** Zarf silme davranışı kullanıcı beklentisiyle hizalandı:
+silme artık zarfı `0,00 ₺` kapalı limit olarak listede bırakmaz; aktif profil için
+kategori-backed zarf kaydı kaldırılır. Mevcut gelir/gider kayıtları silinmez;
+gerekirse kategori referansları boşaltılır. Hazır/system default kategoriler doğrudan
+mutasyona uğratılmaz.
+**v0.32 değişiklikleri:** Route ve abonelik geçmişi metni mevcut implementasyonla
+hizalandı: canlı detay yüzeyleri `/transactions`, `/income-expense` ve `/goals`
+altındadır; eski `/dashboard/...` linkleri yalnızca redirect olarak korunur.
+Tekrarlayan ödeme geçmişi artık `transactions.subscription_id` ile kesin eşlenir;
+heuristic eşleşme yalnızca ilişkisiz eski/manuel satırlar için sunumsal fallback'tir.
+**v0.31 değişiklikleri:** Final demo polish kapsamı §12.2'ye eklendi: breadcrumb,
+zarf navigasyonu, onboarding/boş durum, insight geri alma/okundu, aylık özet
+paylaşım kartı, aile kategori kırılımı, çocuk rozetleri, ay sonu projeksiyon bandı,
+yaklaşık benchmark, haftalık quiz widget'ı, sesli koç keşif ipucu ve mock haftalık
+e-posta özeti. Bu yüzeyler mevcut scoped endpoint'leri kullanır; yeni tablo, gerçek
+e-posta gönderimi veya yatırım tavsiyesi yoktur.
+**v0.30 değişiklikleri:** Tekrarlayan kayıt modeli düzenli gelirleri de kapsayacak
+şekilde genişletildi. `subscriptions.type` gelir/gider yönünü belirler; materializer
+aynı idempotency kuralıyla `transactions.source='recurring'` kaydını gelir veya
+gider olarak yazar. Maaş, kira geliri ve faiz geliri düzenli gelir; abonelik/fatura
+düzenli gider olarak modellenir.
 **v0.29 değişiklikleri:** Paralel Day 7 branchleri tek kapsamda birleştirildi:
 veri değiştiren hedef/zarf agent araçları için sohbet onayı, yerelleştirilmiş tool
 argümanı ayrıştırma, Web Speech sesli koç MVP'si, bildirim merkezi, idempotent
@@ -1155,8 +1258,8 @@ olarak kullanıcı özel zarf açabilir, fakat yeni tablo yoktur; özel zarflar 
 kullanıcının kategori kaydı ve pozitif `budget_monthly` değeriyle temsil edilir.
 **v0.25 değişiklikleri:** Zarf ve akıllı hedef agent yönetim kapsamı netleştirildi:
 agent hedefleri ve zarfları listeleyebilir, oluşturabilir, güncelleyebilir ve
-silebilir. Zarf silme gerçek kategori silmez; aktif profil için zarf limitini
-`0,00 ₺` yapan mevcut shadow-category modelini kullanır.
+silebilir. Not: v0.33 zarf silme davranışını güncelledi; aktif profil için zarf
+satırı listeden kaldırılır, gelir/gider kayıtları silinmez.
 **v0.24 değişiklikleri:** Finans Okulu kapsamı anlık özel ders üretimini içerecek
 şekilde genişletildi. `create_custom_lesson` agent aracıdır; konu/seviye/süre/
 örnek/quiz/görsel tercihleriyle yapılandırılmış ders taslağı üretir, kalıcı ders

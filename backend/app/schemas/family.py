@@ -31,6 +31,13 @@ class FamilyMemberRead(BaseModel):
     updated_at: datetime
 
 
+class FamilyMemberCategoryBreakdown(BaseModel):
+    category_id: UUID | None
+    category_name: str
+    amount: Decimal
+    share_percent: Decimal
+
+
 class FamilyMemberFinanceRead(BaseModel):
     user_id: UUID
     name: str
@@ -50,6 +57,7 @@ class FamilyMemberFinanceRead(BaseModel):
     latest_transaction_merchant: str | None
     latest_transaction_amount: Decimal | None
     latest_transaction_type: Literal["income", "expense"] | None
+    category_breakdown: list[FamilyMemberCategoryBreakdown]
 
 
 class FamilyOverviewRead(BaseModel):

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Cüzdan Koçu</title>
+  <rect width="64" height="64" rx="16" fill="#f9f1dc" />
+  <path d="M17 14h28a7 7 0 0 1 7 7v29H22a10 10 0 0 1-10-10V19a5 5 0 0 1 5-5Z" fill="#2f6b44" />
+  <path d="M18 19h27a4 4 0 0 1 4 4v24H23a7 7 0 0 1-7-7V21a2 2 0 0 1 2-2Z" fill="#fdf8e8" />
+  <path d="M23 27h18M23 34h14M23 41h20" stroke="#d2b15f" stroke-width="3" stroke-linecap="round" />
+  <path d="M45 23h7v24h-7a8 8 0 0 1-8-8v-8a8 8 0 0 1 8-8Z" fill="#d2b15f" />
+  <circle cx="45" cy="35" r="3" fill="#2f6b44" />
+  <path d="M13 20c4 0 6-2 6-6" stroke="#d2b15f" stroke-width="3" stroke-linecap="round" />
+</svg>

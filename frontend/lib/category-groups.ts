@@ -32,9 +32,28 @@ function normalizedCategoryName(category: Category): string {
   return category.name.trim().toLocaleLowerCase("tr-TR");
 }
 
+function isEnvelopeManagedCategory(category: Category): boolean {
+  return category.budget_monthly !== null;
+}
+
+function envelopeBudgetIsOpen(category: Category): boolean {
+  if (category.budget_monthly === null) return false;
+  const normalized = category.budget_monthly.includes(",")
+    ? category.budget_monthly.replaceAll(".", "").replace(",", ".")
+    : category.budget_monthly;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
 export function categoryMatchesType(category: Category, type: TransactionType): boolean {
-  if (category.user_id !== null) return true;
   const name = normalizedCategoryName(category);
+  if (category.user_id !== null) {
+    if (isEnvelopeManagedCategory(category) && !envelopeBudgetIsOpen(category)) return false;
+    if (type === "income") {
+      return !isEnvelopeManagedCategory(category) && !EXPENSE_CATEGORY_NAMES.has(name);
+    }
+    return !INCOME_CATEGORY_NAMES.has(name) || EXPENSE_CATEGORY_NAMES.has(name);
+  }
   return type === "income" ? INCOME_CATEGORY_NAMES.has(name) : EXPENSE_CATEGORY_NAMES.has(name);
 }
 

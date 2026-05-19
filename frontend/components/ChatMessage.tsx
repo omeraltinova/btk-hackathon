@@ -1,8 +1,11 @@
 "use client";
 
-import { Bot, UserRound, Volume2 } from "lucide-react";
-import { Fragment, type ReactNode } from "react";
+import { Bot, Loader2, UserRound, Volume2 } from "lucide-react";
+import { Fragment, type ReactNode, useState } from "react";
+import { toast } from "sonner";
 
+import { ApiError } from "@/lib/api";
+import { playTts } from "@/lib/tts";
 import { cn } from "@/lib/utils";
 
 type ChatMessageProps = {
@@ -14,7 +17,8 @@ type ChatMessageProps = {
 
 function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const inlinePattern = /!\[[^\]]*]\([^)]+\)|\*\*([^*]+?)\*\*|\*([^*]+?)\*/g;
+  const inlinePattern =
+    /!\[[^\]]*]\([^)]+\)|\[([^\]]+)]\((\/api\/reports\/[^)]+)\)|\*\*([^*]+?)\*\*|\*([^*]+?)\*/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -24,16 +28,18 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
     }
     if (match[0].startsWith("![")) {
       nodes.push("");
-    } else if (match[1]) {
+    } else if (match[1] && match[2]) {
+      nodes.push(match[1]);
+    } else if (match[3]) {
       nodes.push(
         <strong key={`${keyPrefix}-${match.index}`} className="font-black">
-          {match[1]}
+          {match[3]}
         </strong>,
       );
-    } else if (match[2]) {
+    } else if (match[4]) {
       nodes.push(
         <em key={`${keyPrefix}-${match.index}`} className="font-semibold italic">
-          {match[2]}
+          {match[4]}
         </em>,
       );
     }
@@ -189,31 +195,23 @@ export function FormattedMessageContent({ content }: { content: string }) {
   return <>{blocks.flatMap((block, index) => renderBlock(block, index))}</>;
 }
 
-function speechTextFromMarkdown(content: string): string {
-  return content
-    .replace(/!\[[^\]]*]\([^)]+\)/g, "")
-    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
-    .replace(/^\s*#{1,6}\s+/gm, "")
-    .replace(/^\s*(?:[-*]|\d+\.)\s+/gm, "")
-    .replace(/[*_`>]/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function speakMessage(content: string) {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-  const speechText = speechTextFromMarkdown(content);
-  if (!speechText) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(speechText);
-  utterance.lang = "tr-TR";
-  window.speechSynthesis.speak(utterance);
-}
-
 export function ChatMessage({ role, content, isStreaming = false, children }: ChatMessageProps) {
   const isAssistant = role === "assistant";
   const label = isAssistant ? "Cüzdan Koçu" : "Sen";
   const Icon = isAssistant ? Bot : UserRound;
+  const [isReading, setIsReading] = useState(false);
+
+  async function handleReadAloud() {
+    if (!content.trim() || isReading) return;
+    setIsReading(true);
+    try {
+      await playTts(content);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.detail : "Sesli okuma başlatılamadı.");
+    } finally {
+      setIsReading(false);
+    }
+  }
 
   return (
     <div className={cn("flex items-start gap-3", isAssistant ? "justify-start" : "justify-end")}>
@@ -237,10 +235,15 @@ export function ChatMessage({ role, content, isStreaming = false, children }: Ch
               type="button"
               title="Sesli oku"
               aria-label="Yanıtı sesli oku"
-              onClick={() => speakMessage(content)}
+              onClick={() => void handleReadAloud()}
+              disabled={isReading}
               className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <Volume2 className="h-4 w-4" />
+              {isReading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
             </button>
           ) : null}
         </div>

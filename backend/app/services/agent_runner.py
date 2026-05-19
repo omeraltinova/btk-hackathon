@@ -10,7 +10,13 @@ from typing import Any, TypedDict
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -24,6 +30,7 @@ from app.agent.tools import (
     build_envelope_budget_overview,
     build_envelope_budget_update,
     build_memory_upsert,
+    build_monthly_report_generation,
     build_receipt_candidate,
     build_saving_goal_creation,
     build_saving_goal_delete,
@@ -111,6 +118,17 @@ CUSTOM_LESSON_HINTS = (
     "ders olustur",
     "kendi ders",
 )
+REPORT_HINTS = (
+    "rapor",
+    "docx",
+    "word",
+    "aylık özet",
+    "aylik ozet",
+    "aylık özet dosyası",
+    "aylik ozet dosyasi",
+)
+REPORT_FAMILY_HINTS = ("aile", "çocuk", "cocuk", "çocukları", "cocuklari")
+REPORT_NO_AI_HINTS = ("görselsiz", "gorselsiz", "resimsiz", "illüstrasyonsuz")
 SAVING_GOAL_CREATE_HINTS = (
     "azalt",
     "düşür",
@@ -165,7 +183,7 @@ APPROVAL_ACTIONS_BY_TOOL = {
     "delete_saving_goal": "Hedefi sil",
     "create_envelope_budget": "Zarf ekle",
     "update_envelope_budget": "Zarf limitini güncelle",
-    "delete_envelope_budget": "Zarfı kapat",
+    "delete_envelope_budget": "Zarfı sil",
     "create_smart_saving_plan": "Akıllı hedef planı oluştur",
 }
 ENVELOPE_BUDGET_HINTS = (
@@ -505,6 +523,25 @@ def _wants_custom_lesson(message: str) -> bool:
     return any(hint in normalized for hint in CUSTOM_LESSON_HINTS)
 
 
+def _wants_monthly_report(message: str) -> bool:
+    normalized = message.casefold()
+    return any(hint in normalized for hint in REPORT_HINTS) and any(
+        hint in normalized for hint in ("ay", "aylık", "aylik", "bu ay", "monthly")
+    )
+
+
+def _report_input_from_message(current_user: User, message: str) -> dict[str, object]:
+    normalized = message.casefold()
+    family_requested = current_user.role == "parent" and any(
+        hint in normalized for hint in REPORT_FAMILY_HINTS
+    )
+    return {
+        "scope": "family" if family_requested else "self",
+        "include_children": family_requested,
+        "include_ai_illustrations": not any(hint in normalized for hint in REPORT_NO_AI_HINTS),
+    }
+
+
 def _wants_saving_goal_creation(message: str) -> bool:
     normalized = message.casefold()
     return any(hint in normalized for hint in SAVING_GOAL_CREATE_HINTS)
@@ -761,9 +798,9 @@ def _envelope_mutation_approval(message: str) -> dict[str, object] | None:
             approval_id=_approval_id(),
             tool_name="delete_envelope_budget",
             tool_input={"slug": "__lookup_required__", "name": name},
-            action_label="Zarfı kapat",
-            summary=f"{name} zarfı aktif profil için kapatılacak.",
-            details=["Kategori silinmez.", "Zarf limiti 0,00 ₺ yapılır."],
+            action_label="Zarfı sil",
+            summary=f"{name} zarfı aktif profilden silinecek.",
+            details=["Zarf listeden kaldırılır.", "Mevcut gelir/gider kayıtları silinmez."],
         )
     if amount is None:
         return None
@@ -1043,7 +1080,7 @@ def _approved_tool_answer(tool_name: str, result: dict[str, object]) -> str:
         return f"{name} zarfının aylık limitini {amount} yaptım."
     if tool_name == "delete_envelope_budget":
         name = str(result.get("category_name") or "Zarf")
-        return f"{name} zarfını aktif profil için kapattım. Kategori silinmedi; limit 0,00 ₺ oldu."
+        return f"{name} zarfını aktif profilden sildim."
     return "Onayladığın işlemi tamamladım."
 
 
@@ -1204,13 +1241,22 @@ def _spending_answer(result: dict[str, object]) -> str:
 
 def _subscription_answer(result: dict[str, object]) -> str:
     count = _int_result(result, "count")
-    total = str(result["monthly_total_formatted"])
     if count == 0:
         return (
-            "Aktif abonelik veya tekrarlayan ödeme kaydı bulamadım. "
+            "Aktif abonelik veya tekrarlayan gelir/gider kaydı bulamadım. "
             "Eklediğinde aylık etkisini burada birlikte takip edebiliriz."
         )
-    return f"Aktif tekrarlayan ödemelerin aylık etkisi {total}. Toplam {count} kayıt var."
+    income_total = str(result.get("monthly_income_total_formatted", "0,00 ₺"))
+    expense_total = str(result.get("monthly_expense_total_formatted", "0,00 ₺"))
+    net_total = str(
+        result.get("monthly_net_total_formatted")
+        or result.get("monthly_total_formatted")
+        or "0,00 ₺"
+    )
+    return (
+        f"Aktif tekrarlayan kayıtların aylık net etkisi {net_total}. "
+        f"Düzenli gelir {income_total}, düzenli gider {expense_total}. Toplam {count} kayıt var."
+    )
 
 
 def _receipt_answer(result: dict[str, object]) -> str:
@@ -1384,23 +1430,28 @@ def _custom_lesson_answer(result: dict[str, object]) -> str:
         lines.append("")
     if isinstance(sections, list) and sections:
         lines.append("**Ders akışı:**")
-        for section in sections[:4]:
+        for index, section in enumerate(sections[:4], start=1):
             if not isinstance(section, dict):
                 continue
             section_title = str(section.get("title") or "Bölüm")
             minutes = section.get("minutes")
             content = str(section.get("content") or "")
-            lines.append(f"- {section_title} ({minutes} dk): {content}")
-        lines.append("")
+            lines.append(f"{index}. **{section_title}** ({minutes} dk)")
+            if content:
+                lines.append(content)
+            lines.append("")
     if isinstance(examples, list) and examples:
         lines.append("**Örnekler:**")
         lines.extend(f"- {example}" for example in examples[:3])
         lines.append("")
     if isinstance(quiz, list) and quiz:
         lines.append("**Mini quiz:**")
-        for item in quiz[:2]:
+        for index, item in enumerate(quiz[:2], start=1):
             if isinstance(item, dict):
-                lines.append(f"- Soru: {item.get('question')} Cevap: {item.get('answer')}")
+                question = str(item.get("question") or "").strip()
+                if question:
+                    lines.append(f"{index}. {question}")
+        lines.append("Cevaplarını yazarsan birlikte kontrol edip doğrulayabilirim.")
         lines.append("")
     safety_note = result.get("safety_note")
     if isinstance(safety_note, str):
@@ -1439,7 +1490,7 @@ def _saving_goals_overview_answer(result: dict[str, object]) -> str:
             lines.append(
                 f"{category}: bu ay hedef limit {target}; şu ana kadar {actual}, kalan limit {remaining}."
             )
-    lines.append("Detay için /dashboard/goals sayfasında hedef kartına tıklayabilirsin.")
+    lines.append("Detay için /goals sayfasında hedef kartına tıklayabilirsin.")
     return " ".join(lines)
 
 
@@ -1509,6 +1560,19 @@ def _image_event_from_result(
         "image_url": image_url,
         "alt_text": alt_text if isinstance(alt_text, str) else "Finansal kavram görseli",
     }
+
+
+def _report_answer(result: dict[str, object]) -> str:
+    if "error" in result:
+        return str(result["error"])
+    title = str(result.get("title") or "Aylık Koç Raporu")
+    filename = str(result.get("filename") or "cuzdan-kocu-raporu.docx")
+    chart_count = result.get("chart_count")
+    ai_count = result.get("ai_illustration_count")
+    visual_text = ""
+    if isinstance(chart_count, int) and isinstance(ai_count, int):
+        visual_text = f" İçinde {chart_count} grafik ve {ai_count} AI illüstrasyon var."
+    return f"{title} hazır. {filename} dosyasını aşağıdaki karttan indirebilirsin.{visual_text}"
 
 
 def _receipt_context(result: dict[str, object]) -> str:
@@ -1608,7 +1672,7 @@ def _approval_summary_for_tool(tool_name: str, tool_input: dict[str, object]) ->
             or _optional_str(tool_input.get("slug"))
             or "Seçilecek zarf"
         )
-        return f"{name} zarfı aktif profil için kapatılacak."
+        return f"{name} zarfı aktif profilden silinecek."
     return "Bu işlem aktif profil verilerini değiştirecek."
 
 
@@ -1621,7 +1685,7 @@ def _approval_details_for_tool(tool_name: str) -> list[str]:
     if tool_name == "update_envelope_budget":
         return ["Zarf limiti aktif profil için güncellenir."]
     if tool_name == "delete_envelope_budget":
-        return ["Kategori silinmez.", "Zarf limiti 0,00 ₺ yapılır."]
+        return ["Zarf listeden kaldırılır.", "Bu işlem mevcut gelir/gider kayıtlarını silmez."]
     if tool_name in {"create_accumulation_goal", "update_saving_goal"}:
         return ["İşlem defterine otomatik gelir/gider yazılmaz."]
     if tool_name == "delete_saving_goal":
@@ -1702,15 +1766,32 @@ def _stream_live_graph(
         current_user_content=user_content,
     )
     final_answer = ""
-    for update in graph.stream(
+    latest_report_result: dict[str, object] | None = None
+    for stream_mode, update in graph.stream(
         {
             "messages": graph_messages,
             "user_id": str(current_user.id),
             "user_role": current_user.role,
             "finance_level": current_user.finance_level,
         },
-        stream_mode="updates",
+        stream_mode=["messages", "updates"],
     ):
+        if stream_mode == "messages":
+            if not isinstance(update, tuple) or len(update) < 1:
+                continue
+            message = update[0]
+            if isinstance(message, AIMessageChunk):
+                chunk = _message_text(message.content)
+                if chunk:
+                    final_answer += chunk
+                    yield {
+                        "type": "delta",
+                        "conversation_id": str(conversation.id),
+                        "content": chunk,
+                    }
+            continue
+        if stream_mode != "updates":
+            continue
         if not isinstance(update, dict):
             continue
         messages: list[BaseMessage] = []
@@ -1745,27 +1826,33 @@ def _stream_live_graph(
                         }
                 else:
                     content = _message_text(message.content)
-                    final_answer = content
-                    for chunk in _chunks(content):
-                        yield {
-                            "type": "delta",
-                            "conversation_id": str(conversation.id),
-                            "content": chunk,
-                        }
+                    if latest_report_result is not None:
+                        content = _report_answer(latest_report_result)
+                    if not final_answer or latest_report_result is not None:
+                        final_answer = content
+                        for chunk in _chunks(content):
+                            yield {
+                                "type": "delta",
+                                "conversation_id": str(conversation.id),
+                                "content": chunk,
+                            }
             elif isinstance(message, ToolMessage):
                 result = _tool_result_payload(message)
+                tool_name = message.name or "tool"
+                if tool_name == "generate_monthly_report":
+                    latest_report_result = result
                 _persist_message(
                     db,
                     conversation,
                     role="tool",
                     content="Araç sonucu alındı.",
-                    tool_name=message.name or "tool",
+                    tool_name=tool_name,
                     tool_calls={"result": result},
                 )
                 yield {
                     "type": "tool_result",
                     "conversation_id": str(conversation.id),
-                    "tool_name": message.name or "tool",
+                    "tool_name": tool_name,
                     "result": result,
                 }
                 image_event = _image_event_from_result(
@@ -2039,6 +2126,44 @@ def stream_chat_turn(
             "result": result,
         }
         answer = _memory_write_answer(result)
+        for chunk in _chunks(answer):
+            yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
+        _persist_message(db, conversation, role="assistant", content=answer)
+        yield {"type": "done", "conversation_id": conversation_id}
+        return
+
+    if _wants_monthly_report(payload.message):
+        report_input = _report_input_from_message(current_user, payload.message)
+        yield {
+            "type": "tool_call",
+            "conversation_id": conversation_id,
+            "tool_name": "generate_monthly_report",
+            "input": report_input,
+        }
+        result = build_monthly_report_generation(
+            db,
+            current_user,
+            scope=str(report_input["scope"]),
+            include_children=bool(report_input["include_children"]),
+            include_ai_illustrations=bool(report_input["include_ai_illustrations"]),
+        )
+        _persist_message(
+            db,
+            conversation,
+            role="tool",
+            content="Aylık Koç Raporu oluşturuldu."
+            if "error" not in result
+            else "Aylık Koç Raporu oluşturulamadı.",
+            tool_name="generate_monthly_report",
+            tool_calls={"input": report_input, "result": result},
+        )
+        yield {
+            "type": "tool_result",
+            "conversation_id": conversation_id,
+            "tool_name": "generate_monthly_report",
+            "result": result,
+        }
+        answer = _report_answer(result)
         for chunk in _chunks(answer):
             yield {"type": "delta", "conversation_id": conversation_id, "content": chunk}
         _persist_message(db, conversation, role="assistant", content=answer)

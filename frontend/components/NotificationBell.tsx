@@ -1,8 +1,9 @@
 "use client";
 
-import { Bell, ExternalLink, Loader2, X } from "lucide-react";
+import { Bell, CheckCheck, ExternalLink, Loader2, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
 import { api } from "@/lib/api";
@@ -19,11 +20,37 @@ const severityLabels: Record<ProactiveInsight["severity"], string> = {
   critical: "Öncelikli",
 };
 
+const SEEN_STORAGE_KEY = "cuzdan-kocu.bell-seen";
+const UNDO_TIMEOUT_MS = 5000;
+
+function readSeenIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(SEEN_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((value): value is string => typeof value === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeSeenIds(ids: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(Array.from(ids)));
+  } catch {
+    // localStorage is a best-effort store; surface no UI on failure.
+  }
+}
+
 function insightHref(insight: ProactiveInsight): string {
-  if (insight.insight_type === "receipt_activity") return "/dashboard/transactions";
-  if (insight.insight_type === "upcoming_recurring") return "/dashboard/transactions";
-  if (insight.insight_type === "savings_opportunity") return "/dashboard/goals";
-  if (insight.insight_type.includes("goal")) return "/dashboard/goals";
+  if (insight.insight_type === "receipt_activity") return "/transactions";
+  if (insight.insight_type === "upcoming_recurring") return "/transactions";
+  if (insight.insight_type === "savings_opportunity") return "/goals";
+  if (insight.insight_type.includes("goal")) return "/goals";
   return "/dashboard";
 }
 
@@ -41,10 +68,11 @@ function formatInsightDate(value: string): string {
 export function NotificationBell({ collapsed = false }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [dismissingId, setDismissingId] = useState<string | null>(null);
   const [insights, setInsights] = useState<ProactiveInsight[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set());
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const pendingDismissalsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   async function loadInsights() {
     setIsLoading(true);
@@ -60,6 +88,7 @@ export function NotificationBell({ collapsed = false }: NotificationBellProps) {
   }
 
   useEffect(() => {
+    setSeenIds(readSeenIds());
     void loadInsights();
     function handleActiveProfileChange() {
       void loadInsights();
@@ -77,23 +106,89 @@ export function NotificationBell({ collapsed = false }: NotificationBellProps) {
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [isOpen]);
 
-  async function dismissInsight(insightId: string) {
-    setDismissingId(insightId);
-    setError(null);
-    try {
-      await api<ProactiveInsight>(`/api/insights/${insightId}/dismiss`, {
-        method: "PATCH",
-        silent: true,
+  // After the panel is open for a moment, mark currently shown insights as seen.
+  useEffect(() => {
+    if (!isOpen || insights.length === 0) return;
+    const timer = window.setTimeout(() => {
+      setSeenIds((current) => {
+        const next = new Set(current);
+        for (const insight of insights) next.add(insight.id);
+        writeSeenIds(next);
+        return next;
       });
-      setInsights((current) => current.filter((insight) => insight.id !== insightId));
-    } catch {
-      setError("Bildirim kapatılamadı.");
-    } finally {
-      setDismissingId(null);
-    }
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, insights]);
+
+  // Cancel any pending dismissal timers if the component unmounts.
+  useEffect(() => {
+    const timers = pendingDismissalsRef.current;
+    return () => {
+      for (const handle of timers.values()) clearTimeout(handle);
+      timers.clear();
+    };
+  }, []);
+
+  function markAllAsRead() {
+    setSeenIds((current) => {
+      const next = new Set(current);
+      for (const insight of insights) next.add(insight.id);
+      writeSeenIds(next);
+      return next;
+    });
   }
 
-  const count = insights.length;
+  function dismissInsight(insightId: string) {
+    const target = insights.find((insight) => insight.id === insightId);
+    if (target === undefined) return;
+    if (pendingDismissalsRef.current.has(insightId)) return;
+
+    // Optimistically hide the row.
+    setInsights((current) => current.filter((insight) => insight.id !== insightId));
+    setError(null);
+
+    const timer = setTimeout(() => {
+      pendingDismissalsRef.current.delete(insightId);
+      void (async () => {
+        try {
+          await api<ProactiveInsight>(`/api/insights/${insightId}/dismiss`, {
+            method: "PATCH",
+            silent: true,
+          });
+        } catch {
+          // Restore the insight if the server rejects so the user sees it again.
+          setInsights((current) =>
+            current.some((insight) => insight.id === insightId) ? current : [target, ...current],
+          );
+          toast.error("Bildirim kapatılamadı, tekrar dener misin?");
+        }
+      })();
+    }, UNDO_TIMEOUT_MS);
+    pendingDismissalsRef.current.set(insightId, timer);
+
+    toast("Bildirim kapatıldı.", {
+      action: {
+        label: "Geri al",
+        onClick: () => {
+          const pending = pendingDismissalsRef.current.get(insightId);
+          if (pending !== undefined) {
+            clearTimeout(pending);
+            pendingDismissalsRef.current.delete(insightId);
+          }
+          setInsights((current) =>
+            current.some((insight) => insight.id === insightId) ? current : [target, ...current],
+          );
+        },
+      },
+      duration: UNDO_TIMEOUT_MS,
+    });
+  }
+
+  const unseenCount = useMemo(
+    () => insights.filter((insight) => !seenIds.has(insight.id)).length,
+    [insights, seenIds],
+  );
+  const count = unseenCount;
 
   return (
     <div ref={panelRef} className="relative">
@@ -125,7 +220,21 @@ export function NotificationBell({ collapsed = false }: NotificationBellProps) {
               </p>
               <p className="mt-1 font-display text-xl font-black">Koç notları</p>
             </div>
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
+            <div className="flex items-center gap-1">
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
+              {unseenCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={markAllAsRead}
+                  className="inline-flex items-center gap-1 rounded-full bg-muted/45 px-2 py-1 text-[0.68rem] font-bold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  title="Tümünü okundu işaretle"
+                  aria-label="Tümünü okundu işaretle"
+                >
+                  <CheckCheck className="h-3 w-3" />
+                  Tümü okundu
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {error ? <p className="mt-3 text-sm font-semibold text-destructive">{error}</p> : null}
@@ -137,47 +246,48 @@ export function NotificationBell({ collapsed = false }: NotificationBellProps) {
               </div>
             ) : null}
 
-            {insights.slice(0, 6).map((insight) => (
-              <article
-                key={insight.id}
-                className="rounded-2xl border border-border/70 bg-muted/35 p-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <span className="rounded-full bg-background/80 px-2 py-0.5 text-[0.68rem] font-black text-muted-foreground">
-                      {severityLabels[insight.severity]} · {formatInsightDate(insight.created_at)}
-                    </span>
-                    <h3 className="mt-2 line-clamp-2 font-display text-base font-black">
-                      {insight.title}
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Bildirimi kapat"
-                    disabled={dismissingId === insight.id}
-                    onClick={() => void dismissInsight(insight.id)}
-                    className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground disabled:opacity-60"
-                  >
-                    {dismissingId === insight.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <X className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </div>
-                <p className="mt-2 line-clamp-3 text-sm leading-5 text-muted-foreground">
-                  {insight.content}
-                </p>
-                <Link
-                  href={insightHref(insight)}
-                  onClick={() => setIsOpen(false)}
-                  className="mt-3 inline-flex items-center gap-1 text-xs font-black text-primary hover:underline"
+            {insights.slice(0, 6).map((insight) => {
+              const isUnseen = !seenIds.has(insight.id);
+              return (
+                <article
+                  key={insight.id}
+                  className={cn(
+                    "rounded-2xl border p-3 transition-colors",
+                    isUnseen ? "border-primary/45 bg-primary/5" : "border-border/70 bg-muted/35",
+                  )}
                 >
-                  {insight.action_label ?? "Detaya bak"}
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </Link>
-              </article>
-            ))}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="rounded-full bg-background/80 px-2 py-0.5 text-[0.68rem] font-black text-muted-foreground">
+                        {severityLabels[insight.severity]} · {formatInsightDate(insight.created_at)}
+                      </span>
+                      <h3 className="mt-2 line-clamp-2 font-display text-base font-black">
+                        {insight.title}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Bildirimi kapat"
+                      onClick={() => dismissInsight(insight.id)}
+                      className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <p className="mt-2 line-clamp-3 text-sm leading-5 text-muted-foreground">
+                    {insight.content}
+                  </p>
+                  <Link
+                    href={insightHref(insight)}
+                    onClick={() => setIsOpen(false)}
+                    className="mt-3 inline-flex items-center gap-1 text-xs font-black text-primary hover:underline"
+                  >
+                    {insight.action_label ?? "Detaya bak"}
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Link>
+                </article>
+              );
+            })}
           </div>
         </div>
       ) : null}

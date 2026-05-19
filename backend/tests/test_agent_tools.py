@@ -126,6 +126,8 @@ class FakeSession:
             item.id = uuid4()
 
     def delete(self, item: object) -> None:
+        if isinstance(item, Category):
+            self.categories = [category for category in self.categories if category is not item]
         if isinstance(item, SavingGoal):
             self.saving_goals = [goal for goal in self.saving_goals if goal is not item]
 
@@ -180,6 +182,15 @@ def make_user(*, role: str = "individual", parent_id: UUID | None = None) -> Use
     )
     user.children = []
     return user
+
+
+def make_parent_with_child() -> tuple[User, User]:
+    parent = make_user(role="parent")
+    parent.family_id = parent.id
+    child = make_user(role="child", parent_id=parent.id)
+    child.family_id = parent.family_id
+    parent.children = [child]
+    return parent, child
 
 
 def make_category(name: str, *, budget: str | None = None) -> Category:
@@ -294,6 +305,7 @@ def make_subscription(
         name=name,
         merchant=merchant,
         amount=Decimal(amount),
+        type="expense",
         billing_cycle=cycle,
         recurrence_interval=1,
         recurrence_unit={"weekly": "week", "yearly": "year"}.get(cycle, "month"),
@@ -365,6 +377,30 @@ def test_build_subscriptions_summary_filters_active_and_calculates_monthly_total
     assert result["count"] == 2
     assert result["monthly_total"] == "220.00"
     assert result["monthly_total_formatted"] == "220,00 ₺"
+    assert result["monthly_income_total"] == "0.00"
+    assert result["monthly_expense_total"] == "220.00"
+
+
+def test_build_subscriptions_summary_splits_recurring_income_and_expense() -> None:
+    user = make_user()
+    salary = make_subscription(user_id=user.id, amount="30000.00", name="Maaş")
+    salary.type = "income"
+    db = FakeSession(
+        subscriptions=[
+            salary,
+            make_subscription(user_id=user.id, amount="120.00"),
+        ],
+    )
+
+    result = build_subscriptions_summary(db, user)
+
+    assert result["monthly_total"] == "30120.00"
+    assert result["monthly_income_total"] == "30000.00"
+    assert result["monthly_expense_total"] == "120.00"
+    assert result["monthly_net_total"] == "29880.00"
+    rows = result["subscriptions"]
+    assert isinstance(rows, list)
+    assert {row["type"] for row in rows if isinstance(row, dict)} == {"income", "expense"}
 
 
 def test_build_spending_chart_returns_string_amounts_not_float() -> None:
@@ -574,6 +610,61 @@ def test_build_memory_upsert_blocks_sensitive_values() -> None:
     assert db.memories == []
 
 
+def test_build_memory_upsert_blocks_card_number_with_context() -> None:
+    """Mask 16-digit sequences only when the surrounding text names a card."""
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(
+        db,
+        user,
+        text="Kart numaram 4111 1111 1111 1111",
+    )
+
+    assert result["saved"] is False
+    assert result["blocked"] is True
+    assert db.memories == []
+
+
+def test_build_memory_upsert_allows_long_number_without_card_context() -> None:
+    """A long amount or order id without card/kart context must not false-positive."""
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(
+        db,
+        user,
+        text="Bu ay aile bütçemiz 12345678901234 TL olsun",
+    )
+
+    assert result["saved"] is True
+    assert len(db.memories) == 1
+
+
+def test_build_memory_upsert_blocks_tckn_with_context() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(db, user, text="TCKN 12345678901 olarak kaydet")
+
+    assert result["saved"] is False
+    assert result["blocked"] is True
+
+
+def test_build_memory_upsert_allows_11_digit_number_without_identity_context() -> None:
+    user = make_user()
+    db = FakeSession()
+
+    result = build_memory_upsert(
+        db,
+        user,
+        text="Hedefim 12345678901 lira biriktirmek",
+    )
+
+    assert result["saved"] is True
+    assert len(db.memories) == 1
+
+
 def test_build_concept_illustration_rejects_investment_visuals() -> None:
     user = make_user()
     db = FakeSession()
@@ -606,6 +697,78 @@ def test_build_custom_lesson_returns_transient_structured_plan() -> None:
     assert result["visual"] is True
     assert result["illustration_prompt"] == "Harçlık planlama"
     assert "kalıcı" not in result
+
+
+def test_build_custom_lesson_uses_rich_emergency_fund_profile() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(
+        user,
+        topic="acil durum fonu",
+        level="beginner",
+        duration_minutes=5,
+        include_examples=True,
+        include_quiz=True,
+    )
+
+    sections = result["sections"]
+    examples = result["examples"]
+    quiz = result["mini_quiz"]
+
+    assert isinstance(sections, list)
+    assert isinstance(examples, list)
+    assert isinstance(quiz, list)
+    assert "3 ila 6 ay" in str(result)
+    assert "36.000–72.000 ₺" in str(result)
+    assert "getiri aramak değil" in str(result)
+    assert len(sections) >= 4
+    assert len(examples) >= 2
+    assert len(quiz) >= 2
+
+
+def test_build_custom_lesson_duration_covers_all_sections() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(
+        user,
+        topic="acil durum fonu",
+        level="beginner",
+        duration_minutes=3,
+    )
+
+    sections = result["sections"]
+    assert isinstance(sections, list)
+    assert result["duration_minutes"] == sum(
+        int(section["minutes"]) for section in sections if isinstance(section, dict)
+    )
+
+
+def test_build_custom_lesson_matches_turkish_diversification_topic() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(user, topic="Çeşitlendirme nedir?", level="advanced")
+
+    assert "tüm yumurtaları aynı sepete koyma" in str(result)
+    assert "belirli ürün" in str(result)
+
+
+def test_build_custom_lesson_uses_rich_money_market_fund_profile() -> None:
+    user = make_user()
+
+    result = build_custom_lesson(
+        user,
+        topic="para piyasası fonu",
+        level="beginner",
+        duration_minutes=10,
+    )
+
+    sections = result["sections"]
+    assert isinstance(sections, list)
+    assert len(sections) >= 4
+    assert "çok kısa vadeli" in str(result)
+    assert "getirisi garanti değildir" in str(result)
+    assert "Belirli bir fon adı seçmeden önce" in str(result)
+    assert "ürün önerisi değil" in str(result)
 
 
 def test_build_custom_lesson_rejects_product_advice_topics() -> None:
@@ -681,7 +844,7 @@ def test_envelope_budget_summary_excludes_savings_goal_from_risky_category() -> 
     assert savings_envelope.status == "safe"
 
 
-def test_agent_envelope_tools_list_update_and_disable_user_shadow_budget() -> None:
+def test_agent_envelope_tools_list_update_and_delete_user_shadow_budget() -> None:
     user = make_user()
     system_market = make_category("Market", budget="600.00")
     db = FakeSession(categories=[system_market])
@@ -698,6 +861,7 @@ def test_agent_envelope_tools_list_update_and_disable_user_shadow_budget() -> No
         budget_monthly=Decimal("900.00"),
         now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
     )
+    user_shadow = next(category for category in db.categories if category.user_id == user.id)
     delete_result = build_envelope_budget_delete(
         db,
         user,
@@ -708,12 +872,10 @@ def test_agent_envelope_tools_list_update_and_disable_user_shadow_budget() -> No
     assert overview["count"] == 6
     assert update_result["updated"] is True
     assert update_result["budget_monthly_formatted"] == "900,00 ₺"
-    user_shadow = next(category for category in db.categories if category.user_id == user.id)
     assert user_shadow.name == "Market"
-    assert user_shadow.budget_monthly == Decimal("0.00")
     assert system_market.budget_monthly == Decimal("600.00")
     assert delete_result["deleted"] is True
-    assert delete_result["disabled"] is True
+    assert user_shadow not in db.categories
 
 
 def test_envelope_budget_summary_includes_custom_user_categories() -> None:
@@ -746,9 +908,8 @@ def test_agent_custom_envelope_delete_uses_custom_slug() -> None:
     )
 
     assert result["deleted"] is True
-    assert result["disabled"] is True
     assert result["slug"] == f"custom-{custom.id}"
-    assert custom.budget_monthly == Decimal("0.00")
+    assert custom not in db.categories
 
 
 def test_agent_can_create_custom_envelope_by_name() -> None:
@@ -822,6 +983,92 @@ def test_build_saving_goal_creation_uses_decimal_category_spending() -> None:
     assert result["target_saving_amount_formatted"] == "90,00 ₺"
     assert len(db.saving_goals) == 1
     assert db.saving_goals[0].created_by == "agent"
+
+
+def test_build_saving_goal_creation_prefers_user_category_when_name_duplicates() -> None:
+    user = make_user()
+    system_market = make_category("Market")
+    user_market = make_user_category(user.id, "Market")
+    db = FakeSession(
+        categories=[system_market, user_market],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=user_market.id,
+                amount="600.00",
+                occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_creation(
+        db,
+        user,
+        category="Market",
+        target_reduction_percent=15,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert db.saving_goals[0].category_id == user_market.id
+
+
+def test_build_saving_goal_creation_uses_spent_duplicate_category() -> None:
+    user = make_user()
+    system_market = make_category("Market")
+    user_market = make_user_category(user.id, "Market")
+    db = FakeSession(
+        categories=[user_market, system_market],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=system_market.id,
+                amount="600.00",
+                occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_creation(
+        db,
+        user,
+        category="market",
+        target_reduction_percent=10,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert result["baseline_amount"] == "600.00"
+    assert db.saving_goals[0].category_id == system_market.id
+
+
+def test_build_saving_goal_creation_uses_visible_family_spending() -> None:
+    parent, child = make_parent_with_child()
+    market = make_category("Market")
+    shadow_market = make_user_category(parent.id, "Market")
+    db = FakeSession(
+        categories=[shadow_market, market],
+        transactions=[
+            make_transaction(
+                user_id=child.id,
+                category_id=market.id,
+                amount="600.00",
+                occurred_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    result = build_saving_goal_creation(
+        db,
+        parent,
+        category="Market",
+        target_reduction_percent=10,
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["created"] is True
+    assert result["baseline_amount"] == "600.00"
+    assert db.saving_goals[0].category_id == market.id
 
 
 def test_build_saving_goal_creation_accepts_localized_reduction_percent() -> None:
@@ -1043,3 +1290,36 @@ def test_build_smart_saving_plan_creates_top_category_goals() -> None:
     assert result["expected_monthly_saving_formatted"] == "195,00 ₺"
     assert result["subscription_monthly_total_formatted"] == "120,00 ₺"
     assert len(db.saving_goals) == 2
+
+
+def test_build_smart_saving_plan_excludes_recurring_income_from_subscription_burden() -> None:
+    user = make_user()
+    market = make_category("Market")
+    salary = make_subscription(user_id=user.id, amount="30000.00", name="Maaş")
+    salary.type = "income"
+    db = FakeSession(
+        categories=[market],
+        transactions=[
+            make_transaction(
+                user_id=user.id,
+                category_id=market.id,
+                amount="900.00",
+                occurred_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+            ),
+        ],
+        subscriptions=[
+            salary,
+            make_subscription(user_id=user.id, amount="120.00"),
+        ],
+    )
+
+    result = build_smart_saving_plan(
+        db,
+        user,
+        message="Market giderimi kısmam lazım.",
+        now=datetime(2026, 5, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["subscription_count"] == 1
+    assert result["subscription_monthly_total"] == "120.00"
+    assert result["subscription_monthly_total_formatted"] == "120,00 ₺"

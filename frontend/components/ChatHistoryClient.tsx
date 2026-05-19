@@ -3,6 +3,8 @@
 import {
   ArrowLeft,
   Bot,
+  Download,
+  FileText,
   Loader2,
   MessageSquareText,
   Play,
@@ -12,12 +14,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { ChatChart } from "@/components/ChatChart";
 import { FormattedMessageContent } from "@/components/ChatMessage";
 import { Button } from "@/components/ui/button";
 import { ACTIVE_PROFILE_EVENT } from "@/lib/active-profile";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, apiDownload } from "@/lib/api";
 import { chatAttachmentsFromHistory, type ChatAttachmentItem } from "@/lib/chat-attachments";
 import { readActiveConversationId, rememberActiveConversationId } from "@/lib/chat-session";
 import { formatDateTR } from "@/lib/format";
@@ -66,6 +69,9 @@ function renderHistoryAttachment(attachment: ChatAttachmentItem) {
   if (attachment.type === "chart") {
     return <ChatChart key={attachment.id} spec={attachment.spec} />;
   }
+  if (attachment.type === "report") {
+    return <HistoryReportAttachment key={attachment.id} attachment={attachment} />;
+  }
   return (
     <figure
       key={attachment.id}
@@ -81,6 +87,55 @@ function renderHistoryAttachment(attachment: ChatAttachmentItem) {
         {attachment.altText}
       </figcaption>
     </figure>
+  );
+}
+
+function HistoryReportAttachment({
+  attachment,
+}: {
+  attachment: Extract<ChatAttachmentItem, { type: "report" }>;
+}) {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  async function handleDownload() {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      await apiDownload(attachment.downloadUrl, attachment.filename);
+    } catch (err) {
+      toast.error(friendlyError(err, "Rapor indirilemedi."));
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  return (
+    <section className="cash-envelope mt-2 overflow-hidden px-4 py-4 shadow-sm">
+      <div className="relative z-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <span className="bg-primary/12 grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-primary">
+            <FileText className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="eyebrow">DOCX rapor</p>
+            <h4 className="mt-1 font-display text-lg font-black tracking-tight">
+              {attachment.title}
+            </h4>
+            <p className="mt-1 text-xs font-semibold text-muted-foreground">
+              {attachment.filename}
+            </p>
+          </div>
+        </div>
+        <Button type="button" size="sm" onClick={handleDownload} disabled={isDownloading}>
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          İndir
+        </Button>
+      </div>
+    </section>
   );
 }
 

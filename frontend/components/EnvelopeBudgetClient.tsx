@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, PencilLine, PiggyBank, Trash2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ function formatUsedPercent(value: string | null): string {
 }
 
 function envelopeHref(slug: string): string {
-  return `/dashboard/goals?zarf=${encodeURIComponent(slug)}`;
+  return `/goals?zarf=${encodeURIComponent(slug)}`;
 }
 
 function slugFromLocation(): string | null {
@@ -102,7 +103,7 @@ function progressPercent(envelope: TransactionBudgetEnvelope): number {
 
 function detailNote(envelope: TransactionBudgetEnvelope): string {
   if (amountToKurus(envelope.budget) <= 0) {
-    return "Bu zarf kapalı. Yeni bir aylık limit verdiğinde tekrar takip edilir.";
+    return "Bu zarf görünür listede değil. Yeni limit verirsen tekrar oluşturulur.";
   }
   if (envelope.is_savings_goal) {
     return "Bu zarf harcama uyarısı değil; ay içindeki birikim hedefini görünür tutar.";
@@ -229,6 +230,8 @@ function EnvelopeBudgetRow({
 }
 
 export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
   const [budgetDrafts, setBudgetDrafts] = useState<Record<string, string>>({});
@@ -265,6 +268,19 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
     void loadSummary();
   }, [loadSummary]);
 
+  // Compare by serialized query string content; useSearchParams() in App
+  // Router can hand back a stable reference across query-only navigations,
+  // so the effect must depend on `.toString()` to fire reliably when the
+  // user clicks a Link that only changes the `?zarf=...` slug.
+  const envelopeSearchKey = searchParams.toString();
+  useEffect(
+    () => {
+      setSelectedSlug(searchParams.get("zarf"));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [envelopeSearchKey],
+  );
+
   useEffect(() => {
     function handlePopState() {
       setSelectedSlug(slugFromLocation());
@@ -288,7 +304,13 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
     };
   }, [loadSummary]);
 
-  const envelopes = useMemo(() => orderedEnvelopes(summary?.envelopes ?? []), [summary]);
+  const envelopes = useMemo(
+    () =>
+      orderedEnvelopes(summary?.envelopes ?? []).filter(
+        (envelope) => amountToKurus(envelope.budget) > 0,
+      ),
+    [summary],
+  );
   const selectedEnvelope =
     (selectedSlug ? envelopes.find((envelope) => envelope.slug === selectedSlug) : null) ??
     envelopes[0] ??
@@ -298,11 +320,10 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
   const activeEnvelopeCount = envelopes.filter(
     (envelope) => amountToKurus(envelope.budget) > 0,
   ).length;
-  const closedEnvelopeCount = Math.max(0, envelopes.length - activeEnvelopeCount);
 
   function selectEnvelope(slug: string) {
     setSelectedSlug(slug);
-    window.history.pushState(null, "", envelopeHref(slug));
+    router.push(envelopeHref(slug));
   }
 
   async function handleCreateEnvelopeBudget() {
@@ -341,7 +362,7 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
           ...current,
           [existingEnvelope.slug]: amountInput(existingEnvelope.budget),
         }));
-        window.history.pushState(null, "", envelopeHref(existingEnvelope.slug));
+        router.push(envelopeHref(existingEnvelope.slug));
       }
     } catch (err) {
       setError(friendlyError(err, "Zarf eklenemedi, tekrar dener misin?"));
@@ -370,7 +391,7 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
       setSummary(nextSummary);
       setBudgetDrafts((current) => ({ ...current, [envelope.slug]: amountInput(normalized) }));
       setSelectedSlug(envelope.slug);
-      window.history.pushState(null, "", envelopeHref(envelope.slug));
+      router.push(envelopeHref(envelope.slug));
     } catch (err) {
       setError(friendlyError(err, "Zarf limiti güncellenemedi, tekrar dener misin?"));
     } finally {
@@ -380,7 +401,7 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
 
   async function handleDeleteEnvelopeBudget(envelope: TransactionBudgetEnvelope) {
     const confirmed = window.confirm(
-      `${envelope.label} silinsin mi? Bu işlem zarf limitini 0,00 ₺ yapar; sonra yeniden limit verebilirsin.`,
+      `${envelope.label} silinsin mi? Zarf listeden kaldırılır; mevcut gelir/gider kayıtların silinmez.`,
     );
     if (!confirmed) return;
 
@@ -391,9 +412,18 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
       const nextSummary = await api<TransactionSummary>("/api/transactions/summary", {
         silent: true,
       });
+      const nextEnvelopes = orderedEnvelopes(nextSummary.envelopes).filter(
+        (item) => amountToKurus(item.budget) > 0,
+      );
+      const nextSelectedSlug = nextEnvelopes[0]?.slug ?? null;
       setSummary(nextSummary);
-      setBudgetDrafts((current) => ({ ...current, [envelope.slug]: "0,00" }));
-      setSelectedSlug(envelope.slug);
+      setBudgetDrafts((current) => {
+        const next = { ...current };
+        delete next[envelope.slug];
+        return next;
+      });
+      setSelectedSlug(nextSelectedSlug);
+      router.push(nextSelectedSlug ? envelopeHref(nextSelectedSlug) : "/goals?sekme=zarflar");
     } catch (err) {
       setError(friendlyError(err, "Zarf silinemedi, tekrar dener misin?"));
     } finally {
@@ -423,7 +453,8 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
               </h2>
               <p className="mt-3 max-w-[68ch] text-sm leading-6 text-muted-foreground sm:text-base">
                 Zarf adını ve aylık limitini yaz. Hazır zarflardan birinin adını kullanırsan o
-                zarfın limiti açılır; farklı ad yazarsan özel zarf oluşturulur.
+                zarfın limiti açılır; farklı ad yazarsan özel zarf oluşturulur. Aynı kategoride
+                gider eklediğinde zarfın harcanan tutarı otomatik güncellenir.
               </p>
             </div>
 
@@ -441,9 +472,9 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
                 </p>
               </div>
               <div className="rounded-[1.2rem] bg-background/70 p-3">
-                <p className="text-xs font-bold text-muted-foreground">Açık / kapalı</p>
+                <p className="text-xs font-bold text-muted-foreground">Açık zarf</p>
                 <p className="mt-1 font-display text-2xl font-black tabular-nums">
-                  {activeEnvelopeCount}/{closedEnvelopeCount}
+                  {activeEnvelopeCount}
                 </p>
               </div>
             </div>
@@ -585,8 +616,8 @@ export function EnvelopeBudgetClient({ embedded = false }: { embedded?: boolean 
               </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              Silmek gerçek kategoriyi kaldırmaz; seçili profil için limiti 0,00 ₺ yapar. Yeniden
-              limit verince zarf tekrar açılır.
+              Silmek zarfı listeden kaldırır; mevcut gelir/gider kayıtların silinmez. Aynı adla
+              yeniden limit verirsen zarf tekrar oluşturulur.
             </p>
           </form>
         </div>

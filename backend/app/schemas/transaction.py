@@ -70,6 +70,7 @@ class TransactionRead(BaseModel):
     amount: Decimal
     type: TransactionType
     category_id: UUID | None
+    subscription_id: UUID | None
     description: str | None
     merchant: str | None
     occurred_at: datetime
