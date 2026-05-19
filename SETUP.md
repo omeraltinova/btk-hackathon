@@ -1,29 +1,28 @@
-# SETUP.md — Cüzdan Koçu first-time setup
+# SETUP.md — Cüzdan Koçu İlk Kurulum Rehberi
 
-This guide gets you from "freshly cloned repo" to "everything running locally" in ~10 minutes. If anything is unclear, check [`docs/master_plan.md`](docs/master_plan.md) first; if the answer isn't there, ask the team.
+Bu rehber, repoyu ilk kez klonlayan birinin yerel ortamda tüm sistemi çalıştırması için yazıldı. En hızlı ve en az sürprizli yol Docker Compose kullanmaktır. Proje kuralları ve kapsam için [`docs/master_plan.md`](docs/master_plan.md), ekip çalışma akışı için [`TEAM_PROTOCOL.md`](TEAM_PROTOCOL.md) okunmalıdır.
 
-## 1. Prerequisites
+## 1. Gereksinimler
 
-You need:
-
-| Tool | Version | Verify with |
-|------|---------|-------------|
-| **Docker Desktop** | 4.30+ (or Docker Engine 27+) | `docker --version` |
-| **Docker Compose** | v2 (bundled with modern Docker) | `docker compose version` |
+| Araç | Gerekli sürüm | Kontrol komutu |
+|---|---:|---|
+| **Docker Desktop** veya **Docker Engine** | Desktop 4.30+ / Engine 27+ | `docker --version` |
+| **Docker Compose** | v2 | `docker compose version` |
 | **Node.js** | 22.13+ | `node --version` |
 | **pnpm** | 11+ | `pnpm --version` |
-| **Python** | 3.12.x exactly (not 3.13) | `python --version` |
+| **Python** | 3.12.x, 3.13 değil | `python --version` |
 | **uv** | 0.5+ | `uv --version` |
-| **Git** | any modern version | `git --version` |
-| **make** | optional but recommended | `make --version` |
+| **Git** | modern sürüm | `git --version` |
+| **make** | opsiyonel | `make --version` |
 
-If you don't have a tool yet:
+Eksik araçlar için kısa notlar:
 
-- **pnpm:** `npm i -g pnpm` or `corepack enable pnpm`. pnpm 11 requires Node 22.13+.
-- **uv:** `pip install uv` or follow the [official installer](https://docs.astral.sh/uv/getting-started/installation/).
-- **make on Windows:** Comes with Git Bash. If missing, install via `choco install make` (chocolatey) or use the equivalent commands from the Makefile.
+- **pnpm:** `corepack enable` ve sonra `corepack prepare pnpm@11.0.9 --activate` önerilir. Alternatif: `npm i -g pnpm`.
+- **uv:** `pip install uv` veya resmi kurulum rehberi: <https://docs.astral.sh/uv/getting-started/installation/>.
+- **ffmpeg:** Docker image içinde vardır. Backend'i doğrudan host üzerinde çalıştırıp `LLM_PROVIDER=gemini` ile mikrofon/STT deneyecekseniz host makinede de kurulu olmalıdır.
+- **Windows'ta make:** Bazı Git Bash/WSL kurulumlarında hazır gelir, her Windows kurulumunda garanti değildir. Yoksa `choco install make` kullanın veya Makefile hedeflerinin altındaki doğrudan komutları çalıştırın.
 
-## 2. Clone & env
+## 2. Repoyu Klonlama ve `.env`
 
 ```bash
 git clone <repo-url> btk-hackathon
@@ -31,139 +30,79 @@ cd btk-hackathon
 cp .env.example .env
 ```
 
-Open `.env` and:
+`.env` içinde en az şunları kontrol edin:
 
-- Set `JWT_SECRET` to a strong value: `openssl rand -hex 32`. (The placeholder works for first boot but you must change it before pushing anything to a real environment.)
-- Set `NEXTAUTH_SECRET` to a strong value too; it can use the same generation command as `JWT_SECRET` but should be a separate value outside local demos.
-- `LLM_PROVIDER` — keep `gemini` for direct Google AI Studio, or set `openrouter` to route chat models through OpenRouter.
-- `GEMINI_API_KEY` — create one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Required for the live LangGraph LLM path when `LLM_PROVIDER=gemini`.
-- `GEMINI_IMAGE_MODEL`, `GEMINI_LIVE_MODEL`, `GEMINI_LIVE_VOICE`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE`, and `MINIO_BUCKET_ILLUSTRATIONS` — defaults work locally; concept illustration, direct Gemini audio understanding for microphone transcription, Gemini Live voice chat, and provider-backed message read-aloud in chat use the same Gemini key.
-- `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required for the live LangGraph LLM path when `LLM_PROVIDER=openrouter`; default chat model is `google/gemini-3.1-flash-lite`, default image model is `google/gemini-3.1-flash-image-preview`, default STT model is `google/chirp-3`, and default TTS model is `google/gemini-3.1-flash-tts-preview`.
-- If the selected LLM key is missing, `/api/chat/stream` still works through the deterministic scoped fallback and streams a Turkish setup notice. Live LLM wording, child-coach natural language, and image OCR require a configured Gemini/OpenRouter key.
-- Real image OCR on the `/transactions` receipt scanner and chat receipt attachments uses the same provider choice. Without a configured provider key, real image OCR returns a Turkish "service not ready" error.
-- Direct Gemini microphone transcription can normalize unsupported browser recordings with `ffmpeg`. Docker images include it; if you run the backend directly on the host and use `LLM_PROVIDER=gemini`, install `ffmpeg` locally as well.
-- Leave the `POSTGRES_*`, `MINIO_*`, `ILLUSTRATION_DAILY_LIMIT`, and `NEXT_PUBLIC_*` defaults as-is for local dev.
+- `JWT_SECRET`: Yerel ilk çalıştırmada örnek değer çalışır; gerçek ortam için `openssl rand -hex 32` ile değiştirin.
+- `NEXTAUTH_SECRET`: Yerel ilk çalıştırmada örnek değer çalışır; gerçek ortamda `JWT_SECRET`'tan farklı güçlü bir değer kullanın.
+- `LLM_PROVIDER`: Doğrudan Google AI Studio için `gemini`, OpenRouter için `openrouter`.
+- `GEMINI_API_KEY`: `LLM_PROVIDER=gemini` ise canlı LLM, OCR, STT/TTS ve Gemini Live özellikleri için gerekir. Anahtar: <https://aistudio.google.com/apikey>.
+- `OPENROUTER_API_KEY`: `LLM_PROVIDER=openrouter` ise canlı LLM, OCR, STT/TTS özellikleri için gerekir. Anahtar: <https://openrouter.ai/keys>.
+- `POSTGRES_*`, `MINIO_*`, `NEXT_PUBLIC_*` değerleri yerel Docker akışı için varsayılan halleriyle çalışır.
 
-## 3. The "everything in Docker" path (recommended for first run)
+AI anahtarı yoksa uygulamanın temel ekranları açılır. Ancak gerçek model yanıtları, gerçek fiş OCR, sağlayıcı destekli STT/TTS ve canlı ses özellikleri sınırlı kalır veya Türkçe hazırlık hatası döner.
+
+## 3. Docker ile İlk Çalıştırma
+
+İlk deneme için önerilen yol budur. Backend, frontend, Postgres ve MinIO birlikte çalışır.
+
+1. Stack'i başlatın:
 
 ```bash
 docker compose up --build
 ```
 
-Keep this terminal open. Run migration, seed, and smoke-test commands from a second terminal.
+Bu terminal açık kalsın. Migration, seed ve kontrol komutlarını ikinci terminalden çalıştırın.
 
-What you should see:
+Başlangıçta şunları görmelisiniz:
 
-1. `cuzdan-postgres` becomes healthy.
-2. `cuzdan-minio` starts (web console at <http://localhost:9001>).
-3. `cuzdan-backend` builds, starts uvicorn on port 8000.
-4. `cuzdan-frontend` builds and serves on port 3000.
+1. `cuzdan-postgres` healthy olur.
+2. `cuzdan-minio` başlar; web konsolu <http://localhost:9001>.
+3. `cuzdan-backend` build olur ve 8000 portunda uvicorn başlatır.
+4. `cuzdan-frontend` build olur ve 3000 portunda servis verir.
 
-**Verify backend:**
+2. Backend health kontrolü yapın:
 
 ```bash
 curl http://localhost:8000/health
-# → {"status":"ok","version":"0.1.0"}
 ```
 
-**Verify frontend:** open <http://localhost:3000> — unauthenticated users are redirected to `/login`. Register or log in, then `/dashboard`, `/transactions`, `/income-expense`, `/goals`, `/learn`, `/chat`, `/family`, and `/account` render inside the authenticated app shell. `/transactions` contains the receipt OCR flow; the old `/receipts` URL redirects there. `/family` can create child profiles and switch dashboard/chat calls into that child context.
+Beklenen yanıt:
 
-**Verify dark mode:** click the sun/moon icon top-right in the dashboard.
+```json
+{"status":"ok","version":"0.1.0"}
+```
 
-**Run the database migration** from a second terminal:
+3. Veritabanı migration'larını çalıştırın:
 
 ```bash
 docker compose exec backend uv run alembic upgrade head
 ```
 
-Expected output applies all pending Alembic revisions through the current `head`. Re-running is a no-op.
+Migration çalışmadan login/register, demo hesap listesi ve veri okuyan endpointler ilk kurulumda çalışmaz; backend tabloları otomatik oluşturmuyor.
 
-To verify the schema exists:
+4. Şemayı doğrulamak isterseniz:
 
 ```bash
 docker compose exec postgres psql -U cuzdan -d cuzdan -c "\dt"
 ```
 
-You should see the application tables, including users, categories, transactions, subscriptions, conversations, messages, agent_memory, proactive_insights, saving_goals, generated_reports, plus `alembic_version`.
+`users`, `categories`, `transactions`, `subscriptions`, `conversations`, `messages`, `agent_memory`, `proactive_insights`, `saving_goals`, `generated_reports` ve `alembic_version` tablolarını görmelisiniz.
 
-To **stop** everything: `docker compose down`. Add `-v` to also wipe the volumes (Postgres data + MinIO data).
-
-## 4. The "fast dev loop" path (run host-side, no Docker for backend/frontend)
-
-For day-to-day development, running backend and frontend directly on the host is significantly faster (hot reload, no rebuilds). Postgres and MinIO still run in Docker.
-
-### 4a. Start only the data services
-
-```bash
-docker compose up -d postgres minio
-```
-
-### 4b. Backend on the host
-
-```bash
-cd backend
-uv sync                               # one-time: install deps into ./.venv
-DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
-MINIO_ENDPOINT=localhost:9000 \
-uv run alembic upgrade head           # apply migration
-DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
-MINIO_ENDPOINT=localhost:9000 \
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-> **Note:** When running backend on the host, `DATABASE_URL` must point at `localhost`, not Docker's `postgres` service name. `MINIO_ENDPOINT` must also be `localhost:9000`, not Docker's `minio:9000` service name. You can either use the inline overrides above or edit your local `.env` for host-side development.
-
-### 4c. Frontend on the host
-
-In another terminal:
-
-```bash
-cd frontend
-pnpm install                          # one-time
-pnpm dev
-```
-
-Frontend dev server reloads on save and uses `NEXT_PUBLIC_API_URL` for browser calls. NextAuth credential login runs server-side; on the host it falls back to `http://localhost:8000`, while Docker Compose passes `NEXT_PRIVATE_API_URL=http://backend:8000`.
-
-## 5. Convenience commands (Makefile)
-
-```bash
-make help            # list all targets
-make install         # backend uv sync + frontend pnpm install
-make dev             # docker compose up (full stack)
-make backend         # uvicorn on host
-make frontend        # next dev on host
-make migrate         # alembic upgrade head against the configured DATABASE_URL
-make lint            # ruff + eslint + prettier --check
-make format          # auto-fix formatting on both sides
-make type-check      # mypy --strict + tsc --noEmit
-make test            # pytest
-make build           # docker compose build
-make down            # stop docker compose
-```
-
-`make backend` and `make migrate` run on the host. If your `.env` still uses Docker service names such as `postgres` and `minio`, either use the explicit host commands in section 4b or prefer the Docker-safe migration command: `docker compose exec backend uv run alembic upgrade head`.
-
-## 6. Demo family and proactive worker
-
-After migrations, you can seed the local Yılmaz demo family:
-
-Docker path:
+5. Demo verisini yükleyin:
 
 ```bash
 docker compose exec backend uv run python -m app.workers.demo_seed
 ```
 
-Host path:
+6. Uygulamayı açın:
 
-```bash
-cd backend
-DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
-MINIO_ENDPOINT=localhost:9000 \
-uv run python ../seeds/demo_family.py
-```
+- Frontend: <http://localhost:3000>
+- Backend Swagger: <http://localhost:8000/docs>
+- MinIO console: <http://localhost:9001>
 
-The script creates/updates `is_demo=true` Ayşe and Mehmet parent demo accounts; Elif, Deniz, and Zeynep as child demo profiles; Kerem as an individual demo user; sample scoped transactions, goals, categories, envelopes, recurring records, and proactive demo data.
+MinIO yerel varsayılan girişi: `minioadmin / minioadmin`.
+
+7. Demo hesapla giriş yapın:
 
 ```text
 ayse@demo.cuzdan-kocu.app / demo123
@@ -174,15 +113,125 @@ zeynep@demo.cuzdan-kocu.app / demo123
 kerem@demo.cuzdan-kocu.app / demo123
 ```
 
-To refresh proactive insights manually for all non-child users:
+8. Temel ekranları gezin:
 
-Docker path:
+- `/dashboard`
+- `/transactions`
+- `/income-expense`
+- `/goals`
+- `/learn`
+- `/chat`
+- `/family`
+- `/account`
+
+`/transactions` ekranında fiş OCR akışı vardır. Eski `/receipts` URL'i `/transactions` ekranına yönlenir. `/family` ekranında child profil oluşturma ve aktif child bağlamına geçme akışı bulunur.
+
+9. Durdurmak için:
+
+```bash
+docker compose down
+```
+
+Veritabanı ve MinIO verisini de silmek istiyorsanız:
+
+```bash
+docker compose down -v
+```
+
+`-v` yerel Postgres ve MinIO volume'larını siler; sadece disposable yerel veri için kullanın.
+
+## 4. Host Üzerinde Hızlı Geliştirme
+
+Günlük geliştirmede backend ve frontend'i host üzerinde çalıştırmak daha hızlıdır. Bu modda Postgres ve MinIO Docker'da kalabilir.
+
+### 4a. Sadece Veri Servislerini Başlatın
+
+```bash
+docker compose up -d postgres minio
+```
+
+### 4b. Backend'i Host Üzerinde Başlatın
+
+```bash
+cd backend
+uv sync
+DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
+MINIO_ENDPOINT=localhost:9000 \
+uv run alembic upgrade head
+DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
+MINIO_ENDPOINT=localhost:9000 \
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Host üzerinde backend çalıştırırken `DATABASE_URL` içinde Docker servis adı `postgres` değil `localhost` kullanılmalıdır. `MINIO_ENDPOINT` de `minio:9000` değil `localhost:9000` olmalıdır. Yukarıdaki inline override'ları kullanabilir veya kendi yerel `.env` dosyanızı host moduna göre değiştirebilirsiniz.
+
+### 4c. Frontend'i Host Üzerinde Başlatın
+
+Başka terminalde:
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+Frontend dev server save sonrası otomatik yenilenir. Browser çağrıları `NEXT_PUBLIC_API_URL` kullanır. NextAuth credential login server-side çalışır; host modunda `http://localhost:8000` kullanır, Docker Compose içinde `NEXT_PRIVATE_API_URL=http://backend:8000` verilir.
+
+## 5. Make Komutları
+
+Repo kökünden:
+
+```bash
+make help            # hedefleri listeler
+make install         # backend uv sync + frontend pnpm install
+make dev             # docker compose up --build
+make backend         # host üzerinde uvicorn
+make frontend        # host üzerinde next dev
+make migrate         # mevcut DATABASE_URL ile alembic upgrade head
+make lint            # ruff + eslint + prettier --check
+make format          # backend/frontend format düzeltme
+make type-check      # mypy --strict + tsc --noEmit
+make test            # backend pytest
+make build           # docker compose build
+make down            # docker compose down
+```
+
+`make backend` ve `make migrate` host üzerinde çalışır. `.env` hâlâ Docker servis adları olan `postgres` ve `minio` değerlerini kullanıyorsa host komutları hata verebilir. Bu durumda 4b'deki inline override'ları kullanın veya migration için Docker güvenli komutu tercih edin:
+
+```bash
+docker compose exec backend uv run alembic upgrade head
+```
+
+## 6. Demo Verisi ve Proaktif Worker
+
+Migration tamamlandıktan sonra Yılmaz demo ailesini yükleyebilirsiniz.
+
+Docker yolu:
+
+```bash
+docker compose exec backend uv run python -m app.workers.demo_seed
+```
+
+Host yolu:
+
+```bash
+cd backend
+DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
+MINIO_ENDPOINT=localhost:9000 \
+uv run python ../seeds/demo_family.py
+```
+
+Seeder `is_demo=true` olarak Ayşe ve Mehmet parent hesaplarını, Elif/Deniz/Zeynep child demo profillerini, Kerem bireysel demo hesabını, örnek işlemleri, hedefleri, kategorileri, zarfları, tekrarlayan kayıtları ve proaktif demo verisini oluşturur veya günceller.
+
+Proaktif insight'ları manuel yenilemek için:
+
+Docker yolu:
 
 ```bash
 docker compose exec backend uv run python -m app.workers.proactive
 ```
 
-Host path:
+Host yolu:
 
 ```bash
 cd backend
@@ -191,53 +240,54 @@ MINIO_ENDPOINT=localhost:9000 \
 uv run python -m app.workers.proactive
 ```
 
-For production, wire the same command to cron/platform scheduler after deploy, or call `POST /api/insights/refresh` from an authenticated session when a single user's dashboard needs an immediate refresh.
+Production'da aynı worker komutu cron/platform scheduler üzerinden çalıştırılabilir. Tek bir kullanıcı için anlık yenileme gerektiğinde authenticated session ile `POST /api/insights/refresh` kullanılabilir.
 
-## 7. Daily development quality bar
+## 7. Günlük Kalite Kontrolleri
 
-Before pushing a commit:
+Commit veya push öncesi:
 
 ```bash
 make lint && make type-check && make test
 ```
 
-All three must pass. If `make lint` finds drift, run `make format` first.
+`make lint` format drift bulursa önce `make format` çalıştırın.
 
-## 8. How to verify everything works (full smoke test)
+## 8. Tam Smoke Test
 
-1. `docker compose up --build` (or the host path)
-2. `docker compose exec backend uv run alembic upgrade head`
-3. `docker compose exec backend uv run python -m app.workers.demo_seed`
-4. `curl http://localhost:8000/health` → 200 OK with JSON
-5. Open <http://localhost:8000/docs> → FastAPI Swagger UI shows the implemented auth, transactions, subscriptions, receipts, chat, family, insights, reports, STT/TTS, voice, export, memory, and goal routers.
-6. Open <http://localhost:3000> → unauthenticated users land on `/login`; after login the app opens the authenticated shell.
-7. Click through `/dashboard`, `/transactions`, `/income-expense`, `/goals`, `/learn`, `/chat`, `/family`, `/account`.
-8. On `/transactions`, open `Fiş tara`, upload a JPG/PNG/WEBP receipt under 5 MB, review the OCR preview, and confirm a transaction.
-9. Create a child profile on `/family`, switch into it, then open `/dashboard` and `/chat`. The active child banner should be visible and API calls should use the child context.
-10. With `GEMINI_API_KEY` or `OPENROUTER_API_KEY` configured, ask chat a finance question, confirm the stream uses the live LangGraph route, press the microphone button, stop after speaking, and confirm the transcript is sent as a chat message. Then click the speaker icon on the reply and confirm provider-backed Turkish audio plays. Also press the headphones button beside the microphone: in Gemini mode confirm Live API voice chat opens; in OpenRouter mode confirm the persistent cascade loop runs STT → chat/LLM → TTS. Without a working voice provider, confirm browser speech fallback keeps the flow usable.
-11. Attach a receipt image in `/chat`, then verify an `analyze_receipt` tool trace appears. Confirmed transaction saving still happens through `/transactions` edit-before-save flow.
-12. Ask chat for a monthly coach report and confirm the DOCX download card appears; download should go through `/api/reports/{report_id}/download`.
-13. Open `/dashboard`; the insight banner should load from `/api/insights`. Click refresh to trigger `POST /api/insights/refresh`.
-14. Open <http://localhost:9001> → MinIO console (login: `minioadmin` / `minioadmin` unless you changed `.env`)
-15. Toggle dark mode — body color flips
-16. `make test` from repo root → backend pytest suite passes
+1. `docker compose up --build` çalıştırın.
+2. `docker compose exec backend uv run alembic upgrade head` çalıştırın.
+3. `docker compose exec backend uv run python -m app.workers.demo_seed` çalıştırın.
+4. `curl http://localhost:8000/health` → `200 OK` ve JSON yanıtı görün.
+5. <http://localhost:8000/docs> açın; auth, transactions, subscriptions, receipts, chat, family, insights, reports, STT/TTS, voice, export, memory ve goal router'ları görünmelidir.
+6. <http://localhost:3000> açın; giriş yapmamış kullanıcı `/login` ekranına gider.
+7. Demo hesapla giriş yapın ve authenticated shell'in açıldığını doğrulayın.
+8. `/dashboard`, `/transactions`, `/income-expense`, `/goals`, `/learn`, `/chat`, `/family`, `/account` ekranlarını gezin.
+9. `/transactions` üzerinde `Fiş tara` akışında 5 MB altı JPG/PNG/WEBP fiş yükleyin, OCR önizlemesini kontrol edin ve işlemi onaylayın.
+10. `/family` üzerinde child profil oluşturun, child bağlamına geçin, sonra `/dashboard` ve `/chat` ekranlarında aktif child banner'ını ve child kapsamlı API çağrılarını kontrol edin.
+11. `GEMINI_API_KEY` veya `OPENROUTER_API_KEY` tanımlıysa chat'e finans sorusu sorun, canlı stream'i doğrulayın, mikrofon/STT ve hoparlör/TTS akışlarını deneyin.
+12. `/chat` içinde fiş görseli ekleyin ve `analyze_receipt` tool trace'inin geldiğini doğrulayın. Kalıcı işlem kaydı yine `/transactions` üzerindeki düzenle-onayla akışından yapılır.
+13. Chat'te aylık koç raporu isteyin; DOCX indirme kartı oluşmalı ve indirme `/api/reports/{report_id}/download` üzerinden çalışmalıdır.
+14. `/dashboard` üzerinde insight banner'ının `/api/insights` ile yüklendiğini, refresh butonunun `POST /api/insights/refresh` çağırdığını kontrol edin.
+15. <http://localhost:9001> MinIO console'u açın.
+16. Tema butonuyla açık/koyu mod geçişini kontrol edin.
+17. Repo kökünden `make test` çalıştırın.
 
-## 9. Troubleshooting
+## 9. Sorun Giderme
 
-### `docker compose up` complains about port 5432 / 3000 / 8000 being in use
+### `docker compose up` port 5432 / 3000 / 8000 kullanımda diyor
 
-Another process is bound to that port. Either stop it, or remap the host port in `docker-compose.yml` (e.g. `5433:5432`).
+Başka bir süreç aynı portu kullanıyordur. İlgili süreci durdurun veya `docker-compose.yml` içindeki host port mapping'ini değiştirin.
 
-### Backend can't connect to Postgres ("could not translate host name 'postgres' to address")
+### Backend `postgres` host'unu çözemiyor
 
-You're running uvicorn on the host but `DATABASE_URL` still points to the Docker service name. Either:
+Backend'i host üzerinde çalıştırıyorsunuz ama `DATABASE_URL` hâlâ Docker servis adı olan `postgres` kullanıyor. Çözümler:
 
-- run backend in Docker (`docker compose up backend`), or
-- change `DATABASE_URL` to `postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan`.
+- Backend'i Docker içinde çalıştırın: `docker compose up backend`.
+- Host modunda `DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan` kullanın.
 
-### Alembic migration fails with `function gen_random_uuid() does not exist`
+### Alembic `function gen_random_uuid() does not exist` hatası veriyor
 
-The `pgcrypto` extension should be installed by the first migration. If this happened after a partially-applied manual migration on a disposable local database, reset the local volumes and migrate again:
+`pgcrypto` extension'ı ilk migration içinde kurulmalıdır. Disposable yerel DB'de yarım kalmış manuel migration sonrası olduysa volume'ları sıfırlayıp tekrar migration çalıştırabilirsiniz:
 
 ```bash
 docker compose down -v
@@ -245,50 +295,59 @@ docker compose up -d --build
 docker compose exec backend uv run alembic upgrade head
 ```
 
-Only use `down -v` when you are okay with deleting local Postgres and MinIO data.
+`down -v` yerel Postgres ve MinIO verisini siler; emin değilseniz kullanmayın.
 
-### `pnpm install` complains about ignored builds (sharp / unrs-resolver)
+### `pnpm install` ignored builds uyarısı veriyor
 
-pnpm 11 sandboxes build scripts by default. Approve them once:
+pnpm 11 bazı native build script'lerini sandbox'lar. Gerekirse bir kez onaylayın:
 
 ```bash
 cd frontend
 pnpm approve-builds --all
 ```
 
-(The repo also commits `frontend/pnpm-workspace.yaml` with `allowBuilds`, so this should not happen on a fresh clone.)
+Repo `frontend/pnpm-workspace.yaml` içinde izin verilen build paketlerini de taşır; fresh clone üzerinde çoğu durumda bu adıma gerek kalmaz.
 
-### `make` is missing on Windows
+### Windows'ta `make` yok
 
-Install Git Bash (which bundles `make`), or use the underlying commands directly:
+Git Bash/WSL deneyin veya Makefile içindeki komutları doğrudan çalıştırın.
 
-- Lint: `cd backend && uv run ruff check . && uv run ruff format --check . && cd ../frontend && pnpm lint`
-- Type-check: `cd backend && uv run python -m mypy app && cd ../frontend && pnpm type-check`
+Lint için:
 
-### Frontend build error: "Cannot find package '@eslint/eslintrc'"
+```bash
+cd backend && uv run ruff check . && uv run ruff format --check . && cd ../frontend && pnpm lint
+```
 
-`pnpm install` in `frontend/` was incomplete. Re-run:
+Type-check için:
+
+```bash
+cd backend && uv run python -m mypy app && cd ../frontend && pnpm type-check
+```
+
+### Frontend build `Cannot find package '@eslint/eslintrc'` hatası veriyor
+
+`frontend/` altında dependency kurulumu eksik kalmıştır:
 
 ```bash
 cd frontend
 pnpm install
 ```
 
-### CRLF / LF mismatches on Windows
+### CRLF / LF farkları oluşuyor
 
-`.gitattributes` in the repo enforces LF for text files. If your editor keeps changing line endings, set it to LF and then check what changed:
+Repo `.gitattributes` ile text dosyalarında LF bekler. Editörünüz satır sonlarını değiştiriyorsa LF ayarlayın ve önce sadece ne değiştiğine bakın:
 
 ```bash
 git status --short
 git diff --check
 ```
 
-Do not discard changes until you confirm they are only line-ending noise.
+Değişikliklerin sadece line-ending gürültüsü olduğundan emin olmadan dosya silmeyin veya geri almayın.
 
-### "Hydration mismatch" warning in the browser
+### Browser'da hydration mismatch uyarısı görünüyor
 
-`next-themes` adds the `class="dark"` attribute on `<html>` after mount; the root layout uses `suppressHydrationWarning` for this exact reason. If you see other hydration warnings, check that you're not reading `localStorage` / `Date.now()` outside a `useEffect`.
+`next-themes`, mount sonrası `<html>` üzerinde tema class'ı yönetir; root layout bu nedenle `suppressHydrationWarning` kullanır. Başka hydration uyarıları varsa `localStorage`, `Date.now()` veya browser-only API'lerin `useEffect` dışında okunmadığını kontrol edin.
 
-## 10. Project workflow notes
+## 10. Proje Akışı Notları
 
-See [`TEAM_PROTOCOL.md`](TEAM_PROTOCOL.md) for the numbered task list and owners, and [`WORKDIVISION.md`](WORKDIVISION.md) for the collaboration rules around dependencies, review, and handoff. As features land, this SETUP.md should stay accurate — if a step here breaks, fix it in the same PR that introduced the regression.
+Numaralı görevler ve sahipler için [`TEAM_PROTOCOL.md`](TEAM_PROTOCOL.md), bağımlılık/review/handoff kuralları için [`WORKDIVISION.md`](WORKDIVISION.md) dosyasına bakın. Kurulum adımı bozulursa, bozan değişiklikle aynı PR içinde bu dosya da güncellenmelidir.

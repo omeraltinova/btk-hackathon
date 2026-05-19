@@ -75,8 +75,12 @@ Demo seed komutu:
 
 ```bash
 cd backend
+DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
+MINIO_ENDPOINT=localhost:9000 \
 uv run python ../seeds/demo_family.py
 ```
+
+Host üzerinde çalışırken `.env.example` içindeki Docker servis adı `postgres` çözülemez; bu yüzden yukarıdaki `DATABASE_URL` ve `MINIO_ENDPOINT` override'ları gerekir.
 
 Docker içinde çalışırken alternatif:
 
