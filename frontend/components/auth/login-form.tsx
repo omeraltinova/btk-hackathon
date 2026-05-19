@@ -142,11 +142,18 @@ export function LoginForm() {
   }
 
   return (
-    <div className="space-y-6">
+    <div
+      className={cn(
+        "grid gap-5",
+        buckets.length > 0
+          ? "xl:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.85fr)] xl:items-start"
+          : "",
+      )}
+    >
       {buckets.length > 0 ? (
         <section
           aria-labelledby="demo-accounts-heading"
-          className="space-y-4 rounded-[1.75rem] border border-border/70 bg-background/65 p-4 sm:p-5"
+          className="min-w-0 space-y-4 rounded-[1.5rem] border border-border/70 bg-background/55 p-4"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -163,17 +170,20 @@ export function LoginForm() {
             <span className="stamp-label bg-background/70 text-primary">Demo</span>
           </div>
 
-          <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             {buckets.map((bucket) => {
               const Icon = bucket.icon;
               return (
-                <div key={bucket.key} className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
+                <div key={bucket.key} className="min-w-0 space-y-2">
+                  <div className="flex min-w-0 items-center gap-2 text-xs font-bold text-muted-foreground">
                     <Icon className="h-3.5 w-3.5 text-primary" />
-                    <span>{bucket.title}</span>
-                    <span className="font-medium text-muted-foreground/70">· {bucket.helper}</span>
+                    <span className="min-w-0 truncate">{bucket.title}</span>
+                    <span className="font-medium text-muted-foreground/70">·</span>
+                    <span className="min-w-0 truncate font-medium text-muted-foreground/70">
+                      {bucket.helper}
+                    </span>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-1">
                     {bucket.accounts.map((account) => (
                       <button
                         key={account.email}
@@ -181,7 +191,7 @@ export function LoginForm() {
                         disabled={isSubmitting}
                         onClick={() => void handleDemoClick(account)}
                         className={cn(
-                          "group flex flex-col gap-1 rounded-2xl border px-3 py-3 text-left transition-all duration-200 ease-quint hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60",
+                          "group min-w-0 rounded-2xl border px-3 py-3 text-left transition-all duration-200 ease-quint hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60",
                           roleAccent[account.role],
                         )}
                       >
@@ -195,7 +205,7 @@ export function LoginForm() {
                             </span>
                           ) : null}
                         </div>
-                        <p className="text-xs leading-5 text-muted-foreground">{account.tagline}</p>
+                        <p className="truncate text-xs text-muted-foreground">{account.tagline}</p>
                         <p className="truncate text-[0.65rem] font-medium text-muted-foreground/80">
                           {account.email}
                         </p>
@@ -213,7 +223,7 @@ export function LoginForm() {
         </p>
       ) : null}
 
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      <form className="min-w-0 space-y-4" onSubmit={handleSubmit}>
         <div className="space-y-2">
           <label htmlFor="email" className="text-sm font-medium">
             E-posta
