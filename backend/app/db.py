@@ -23,9 +23,9 @@ def _build_engine() -> Engine:
         settings.database_url,
         pool_pre_ping=True,
         future=True,
-        # WHY: echo only when APP_DEBUG=true *and* we're not in tests; otherwise
-        # logs flood with SQL. Tests should explicitly enable echo if needed.
-        echo=settings.app_debug and settings.app_env != "test",
+        # SQL echo includes bound parameters such as password hashes and receipt
+        # metadata. Keep it off even when APP_DEBUG=true.
+        echo=False,
     )
 
 

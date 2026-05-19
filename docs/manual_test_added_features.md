@@ -270,7 +270,7 @@ cd backend
 uv run pytest -q
 uv run ruff check app tests
 uv run ruff format --check app tests
-uv run mypy app
+uv run python -m mypy app
 ```
 
 Frontend:

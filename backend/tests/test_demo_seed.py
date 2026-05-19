@@ -113,7 +113,13 @@ class FakeSession:
     def _matches_statement(statement: object, row: object) -> bool:
         for criterion in getattr(statement, "_where_criteria", ()):  # pragma: no branch
             column_name = getattr(getattr(criterion, "left", None), "name", None)
+            operator_name = getattr(getattr(criterion, "operator", None), "__name__", "")
             value = getattr(getattr(criterion, "right", None), "value", None)
+            row_value = getattr(row, column_name, None) if column_name is not None else None
+            if operator_name == "in_op" and row_value not in value:
+                return False
+            if operator_name == "in_op":
+                continue
             if column_name == "email" and getattr(row, "email", None) != value:
                 return False
             if column_name == "name" and getattr(row, "name", None) != value:

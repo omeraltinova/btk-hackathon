@@ -20,8 +20,7 @@ dependencies = [
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
     # ---- Auth ----
-    # WHY: passlib[bcrypt] is the de-facto FastAPI password hashing combo; PyJWT for tokens.
-    "passlib[bcrypt]>=1.7.4",
+    # WHY: use bcrypt directly to avoid passlib's noisy bcrypt-version probe on bcrypt 4.x.
     "pyjwt>=2.9.0",
     # ---- Misc utility ----
     "python-multipart>=0.0.20",   # FastAPI form/file uploads (Day 4 receipts)
@@ -42,8 +41,6 @@ dev = [
     "mypy>=1.13.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
-    # types
-    "types-passlib>=1.7.7",
 ]
 
 # ===== Build backend (uv builds wheels via setuptools/hatchling; we don't ship a wheel,
@@ -82,11 +79,6 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 exclude = ["alembic/versions/.*"]
-
-[[tool.mypy.overrides]]
-# WHY: passlib has no inline type hints; types-passlib helps but bcrypt subpath is loose.
-module = ["passlib.*"]
-ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["docx.*", "matplotlib.*"]
