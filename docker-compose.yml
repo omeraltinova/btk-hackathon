@@ -66,7 +66,7 @@ services:
       APP_DEBUG: ${APP_DEBUG:-true}
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
-      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://localhost:3000}
+      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://0.0.0.0:3000}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required. Copy .env.example to .env}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
@@ -101,7 +101,13 @@ services:
       DEMO_PARENT_EMAIL: ${DEMO_PARENT_EMAIL:-ayse@demo.cuzdan-kocu.app}
       DEMO_PARENT_PASSWORD: ${DEMO_PARENT_PASSWORD:-demo123}
       DEMO_MEHMET_EMAIL: ${DEMO_MEHMET_EMAIL:-mehmet@demo.cuzdan-kocu.app}
+      DEMO_MEHMET_PASSWORD: ${DEMO_MEHMET_PASSWORD:-demo123}
       DEMO_ELIF_EMAIL: ${DEMO_ELIF_EMAIL:-elif@demo.cuzdan-kocu.app}
+      DEMO_DENIZ_EMAIL: ${DEMO_DENIZ_EMAIL:-deniz@demo.cuzdan-kocu.app}
+      DEMO_ZEYNEP_EMAIL: ${DEMO_ZEYNEP_EMAIL:-zeynep@demo.cuzdan-kocu.app}
+      DEMO_CHILD_PASSWORD: ${DEMO_CHILD_PASSWORD:-demo123}
+      DEMO_KEREM_EMAIL: ${DEMO_KEREM_EMAIL:-kerem@demo.cuzdan-kocu.app}
+      DEMO_INDIVIDUAL_PASSWORD: ${DEMO_INDIVIDUAL_PASSWORD:-demo123}
     ports:
       - "8000:8000"
     healthcheck:

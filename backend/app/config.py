@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     app_debug: bool = True
     app_host: str = "0.0.0.0"
     app_port: int = 8000
-    app_cors_origins: str = "http://localhost:3000"
+    app_cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://0.0.0.0:3000"
 
     # ---- Database ----
     database_url: str = "postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan"

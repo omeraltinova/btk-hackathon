@@ -17,6 +17,7 @@ from app.models.user import User
 from app.routers.receipts import upload_receipt
 from app.services.minio import StoredReceipt
 from app.services.ocr import (
+    LlmReceiptPayload,
     ReceiptOcrService,
     ReceiptOcrUnavailableError,
     _invoke_vision_model,
@@ -143,6 +144,29 @@ class FailingVisionModel:
         raise UnicodeEncodeError("ascii", "ü", 0, 1, "ordinal not in range")
 
 
+class FakeVisionResponse:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class TurkishDecimalVisionModel:
+    def invoke(self, _messages: object) -> FakeVisionResponse:
+        return FakeVisionResponse(
+            """
+            {
+              "merchant": "MIGROS TICARET A.S.",
+              "total": "1.247,50 TL",
+              "date": "12.05.2026 14.32",
+              "items": [
+                {"name": "Süt", "quantity": "1,5", "amount": "247,50 ₺"},
+                {"name": "Peynir", "amount": "1.000"}
+              ],
+              "confidence": "85%"
+            }
+            """,
+        )
+
+
 def test_vision_provider_errors_become_ocr_unavailable() -> None:
     with pytest.raises(ReceiptOcrUnavailableError):
         _invoke_vision_model(
@@ -151,6 +175,73 @@ def test_vision_provider_errors_become_ocr_unavailable() -> None:
             content_type="image/png",
             filename="fis.png",
         )
+
+
+def test_llm_receipt_payload_accepts_turkish_decimal_text() -> None:
+    payload = LlmReceiptPayload.model_validate(
+        {
+            "merchant": "Migros",
+            "total_amount": "1.247,50 TL",
+            "items": [
+                {"name": "Süt", "quantity": "1,5", "amount": "247,50 ₺"},
+                {"name": "Peynir", "amount": "1.000"},
+            ],
+            "confidence": "0,85",
+        },
+    )
+
+    assert payload.total_amount == Decimal("1247.50")
+    assert payload.confidence == Decimal("0.85")
+    assert payload.items[0].quantity == Decimal("1.5")
+    assert payload.items[0].amount == Decimal("247.50")
+    assert payload.items[1].amount == Decimal("1000")
+
+
+def test_llm_receipt_payload_accepts_common_model_aliases() -> None:
+    payload = LlmReceiptPayload.model_validate(
+        {
+            "merchant": "Migros",
+            "total": "1.247,50 TL",
+            "date": "12.05.2026 14.32",
+            "confidence": "85%",
+        },
+    )
+
+    assert payload.total_amount == Decimal("1247.50")
+    assert payload.occurred_at == datetime.fromisoformat("2026-05-12T14:32:00+03:00")
+    assert payload.confidence == Decimal("0.85")
+
+
+def test_llm_receipt_payload_accepts_discount_item_amounts() -> None:
+    payload = LlmReceiptPayload.model_validate(
+        {
+            "merchant": "Migros",
+            "total_amount": "247,50",
+            "items": [
+                {"name": "Poşet", "amount": "0,00"},
+                {"name": "Kampanya indirimi", "amount": "-10,00"},
+            ],
+        },
+    )
+
+    assert payload.total_amount == Decimal("247.50")
+    assert payload.items[0].amount == Decimal("0.00")
+    assert payload.items[1].amount == Decimal("-10.00")
+
+
+def test_vision_response_accepts_turkish_decimal_text() -> None:
+    payload = _invoke_vision_model(
+        TurkishDecimalVisionModel(),  # type: ignore[arg-type]
+        content=b"fake-image",
+        content_type="image/png",
+        filename="fis.png",
+    )
+
+    assert payload.total_amount == Decimal("1247.50")
+    assert payload.occurred_at == datetime.fromisoformat("2026-05-12T14:32:00+03:00")
+    assert payload.confidence == Decimal("0.85")
+    assert payload.items[0].amount == Decimal("247.50")
+    assert payload.items[1].amount == Decimal("1000")
 
 
 @pytest.mark.asyncio

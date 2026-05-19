@@ -40,7 +40,7 @@ Open `.env` and:
 - `GEMINI_IMAGE_MODEL`, `GEMINI_LIVE_MODEL`, `GEMINI_LIVE_VOICE`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE`, and `MINIO_BUCKET_ILLUSTRATIONS` — defaults work locally; concept illustration, direct Gemini audio understanding for microphone transcription, Gemini Live voice chat, and provider-backed message read-aloud in chat use the same Gemini key.
 - `OPENROUTER_API_KEY` — create one at [openrouter.ai/keys](https://openrouter.ai/keys). Required for the live LangGraph LLM path when `LLM_PROVIDER=openrouter`; default chat model is `google/gemini-3.1-flash-lite`, default image model is `google/gemini-3.1-flash-image-preview`, default STT model is `google/chirp-3`, and default TTS model is `google/gemini-3.1-flash-tts-preview`.
 - If the selected LLM key is missing, `/api/chat/stream` still works through the deterministic scoped fallback and streams a Turkish setup notice. Live LLM wording, child-coach natural language, and image OCR require a configured Gemini/OpenRouter key.
-- Real image OCR on `/receipts` and chat receipt attachments uses the same provider choice. Text receipt fixtures still parse locally; real image OCR returns a Turkish "service not ready" error without a configured provider key.
+- Real image OCR on the `/transactions` receipt scanner and chat receipt attachments uses the same provider choice. Without a configured provider key, real image OCR returns a Turkish "service not ready" error.
 - Direct Gemini microphone transcription can normalize unsupported browser recordings with `ffmpeg`. Docker images include it; if you run the backend directly on the host and use `LLM_PROVIDER=gemini`, install `ffmpeg` locally as well.
 - Leave the `POSTGRES_*`, `MINIO_*`, `ILLUSTRATION_DAILY_LIMIT`, and `NEXT_PUBLIC_*` defaults as-is for local dev.
 
@@ -49,6 +49,8 @@ Open `.env` and:
 ```bash
 docker compose up --build
 ```
+
+Keep this terminal open. Run migration, seed, and smoke-test commands from a second terminal.
 
 What you should see:
 
@@ -64,17 +66,17 @@ curl http://localhost:8000/health
 # → {"status":"ok","version":"0.1.0"}
 ```
 
-**Verify frontend:** open <http://localhost:3000> — unauthenticated users are redirected to `/login`. Register or log in, then `/dashboard`, `/chat`, `/receipts`, and `/family` render inside the authenticated app shell. `/family` can create child profiles and switch dashboard/chat calls into that child context.
+**Verify frontend:** open <http://localhost:3000> — unauthenticated users are redirected to `/login`. Register or log in, then `/dashboard`, `/transactions`, `/income-expense`, `/goals`, `/learn`, `/chat`, `/family`, and `/account` render inside the authenticated app shell. `/transactions` contains the receipt OCR flow; the old `/receipts` URL redirects there. `/family` can create child profiles and switch dashboard/chat calls into that child context.
 
 **Verify dark mode:** click the sun/moon icon top-right in the dashboard.
 
-**Run the database migration** (Day 1 ships an initial migration but doesn't auto-apply it — explicit step is safer for hackathon dev):
+**Run the database migration** from a second terminal:
 
 ```bash
 docker compose exec backend uv run alembic upgrade head
 ```
 
-Expected output ends with `Running upgrade -> 0001_initial_schema`. Re-running is a no-op.
+Expected output applies all pending Alembic revisions through the current `head`. Re-running is a no-op.
 
 To verify the schema exists:
 
@@ -82,7 +84,7 @@ To verify the schema exists:
 docker compose exec postgres psql -U cuzdan -d cuzdan -c "\dt"
 ```
 
-You should see all 8 tables (users, categories, transactions, subscriptions, conversations, messages, agent_memory, proactive_insights) plus `alembic_version`.
+You should see the application tables, including users, categories, transactions, subscriptions, conversations, messages, agent_memory, proactive_insights, saving_goals, generated_reports, plus `alembic_version`.
 
 To **stop** everything: `docker compose down`. Add `-v` to also wipe the volumes (Postgres data + MinIO data).
 
@@ -101,11 +103,15 @@ docker compose up -d postgres minio
 ```bash
 cd backend
 uv sync                               # one-time: install deps into ./.venv
+DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
+MINIO_ENDPOINT=localhost:9000 \
 uv run alembic upgrade head           # apply migration
+DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
+MINIO_ENDPOINT=localhost:9000 \
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-> **Note:** When running backend on the host, make sure `DATABASE_URL` in `.env` points at `localhost`, not `postgres`. Either edit `.env` or run with `DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan uv run ...`.
+> **Note:** When running backend on the host, `DATABASE_URL` must point at `localhost`, not Docker's `postgres` service name. `MINIO_ENDPOINT` must also be `localhost:9000`, not Docker's `minio:9000` service name. You can either use the inline overrides above or edit your local `.env` for host-side development.
 
 ### 4c. Frontend on the host
 
@@ -127,7 +133,7 @@ make install         # backend uv sync + frontend pnpm install
 make dev             # docker compose up (full stack)
 make backend         # uvicorn on host
 make frontend        # next dev on host
-make migrate         # alembic upgrade head
+make migrate         # alembic upgrade head against the configured DATABASE_URL
 make lint            # ruff + eslint + prettier --check
 make format          # auto-fix formatting on both sides
 make type-check      # mypy --strict + tsc --noEmit
@@ -136,25 +142,52 @@ make build           # docker compose build
 make down            # stop docker compose
 ```
 
+`make backend` and `make migrate` run on the host. If your `.env` still uses Docker service names such as `postgres` and `minio`, either use the explicit host commands in section 4b or prefer the Docker-safe migration command: `docker compose exec backend uv run alembic upgrade head`.
+
 ## 6. Demo family and proactive worker
 
 After migrations, you can seed the local Yılmaz demo family:
 
+Docker path:
+
+```bash
+docker compose exec backend uv run python -m app.workers.demo_seed
+```
+
+Host path:
+
 ```bash
 cd backend
+DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
+MINIO_ENDPOINT=localhost:9000 \
 uv run python ../seeds/demo_family.py
 ```
 
-The script creates/updates `is_demo=true` Ayşe and Mehmet parent demo accounts plus Elif as Ayşe's child profile, sample scoped transactions, and upcoming recurring payments.
+The script creates/updates `is_demo=true` Ayşe and Mehmet parent demo accounts; Elif, Deniz, and Zeynep as child demo profiles; Kerem as an individual demo user; sample scoped transactions, goals, categories, envelopes, recurring records, and proactive demo data.
 
 ```text
 ayse@demo.cuzdan-kocu.app / demo123
+mehmet@demo.cuzdan-kocu.app / demo123
+elif@demo.cuzdan-kocu.app / demo123
+deniz@demo.cuzdan-kocu.app / demo123
+zeynep@demo.cuzdan-kocu.app / demo123
+kerem@demo.cuzdan-kocu.app / demo123
 ```
 
 To refresh proactive insights manually for all non-child users:
 
+Docker path:
+
+```bash
+docker compose exec backend uv run python -m app.workers.proactive
+```
+
+Host path:
+
 ```bash
 cd backend
+DATABASE_URL=postgresql+psycopg://cuzdan:cuzdan@localhost:5432/cuzdan \
+MINIO_ENDPOINT=localhost:9000 \
 uv run python -m app.workers.proactive
 ```
 
@@ -173,18 +206,21 @@ All three must pass. If `make lint` finds drift, run `make format` first.
 ## 8. How to verify everything works (full smoke test)
 
 1. `docker compose up --build` (or the host path)
-2. `make migrate`
-3. `curl http://localhost:8000/health` → 200 OK with JSON
-4. Open <http://localhost:8000/docs> → FastAPI Swagger UI shows the (currently empty) routers
-5. Open <http://localhost:3000> → redirects to `/dashboard`
-6. Click through `/chat`, `/receipts`, `/family`; `/receipts` shows the drag-drop uploader, OCR preview flow, and receipt history.
-7. Create a child profile on `/family`, switch into it, then open `/dashboard` and `/chat`. The active child banner should be visible and API calls should use the child context.
-8. With `GEMINI_API_KEY` or `OPENROUTER_API_KEY` configured, ask chat a finance question, confirm the stream uses the live LangGraph route, press the microphone button, stop after speaking, and confirm the transcript is sent as a chat message. Then click the speaker icon on the reply and confirm provider-backed Turkish audio plays. Also press the headphones button beside the microphone: in Gemini mode confirm Live API voice chat opens; in OpenRouter mode confirm one voice turn runs STT → chat/LLM → TTS. Without a working voice provider, confirm browser speech fallback keeps the flow usable.
-9. Attach a receipt image in `/chat`, then verify an `analyze_receipt` tool trace appears. Confirmed transaction saving still happens through `/receipts` edit-before-save flow.
-10. Open `/dashboard`; the insight banner should load from `/api/insights`. Click refresh to trigger `POST /api/insights/refresh`.
-11. Open <http://localhost:9001> → MinIO console (login: `minioadmin` / `minioadmin` unless you changed `.env`)
-12. Toggle dark mode — body color flips
-13. `make test` from repo root → backend pytest suite passes
+2. `docker compose exec backend uv run alembic upgrade head`
+3. `docker compose exec backend uv run python -m app.workers.demo_seed`
+4. `curl http://localhost:8000/health` → 200 OK with JSON
+5. Open <http://localhost:8000/docs> → FastAPI Swagger UI shows the implemented auth, transactions, subscriptions, receipts, chat, family, insights, reports, STT/TTS, voice, export, memory, and goal routers.
+6. Open <http://localhost:3000> → unauthenticated users land on `/login`; after login the app opens the authenticated shell.
+7. Click through `/dashboard`, `/transactions`, `/income-expense`, `/goals`, `/learn`, `/chat`, `/family`, `/account`.
+8. On `/transactions`, open `Fiş tara`, upload a JPG/PNG/WEBP receipt under 5 MB, review the OCR preview, and confirm a transaction.
+9. Create a child profile on `/family`, switch into it, then open `/dashboard` and `/chat`. The active child banner should be visible and API calls should use the child context.
+10. With `GEMINI_API_KEY` or `OPENROUTER_API_KEY` configured, ask chat a finance question, confirm the stream uses the live LangGraph route, press the microphone button, stop after speaking, and confirm the transcript is sent as a chat message. Then click the speaker icon on the reply and confirm provider-backed Turkish audio plays. Also press the headphones button beside the microphone: in Gemini mode confirm Live API voice chat opens; in OpenRouter mode confirm the persistent cascade loop runs STT → chat/LLM → TTS. Without a working voice provider, confirm browser speech fallback keeps the flow usable.
+11. Attach a receipt image in `/chat`, then verify an `analyze_receipt` tool trace appears. Confirmed transaction saving still happens through `/transactions` edit-before-save flow.
+12. Ask chat for a monthly coach report and confirm the DOCX download card appears; download should go through `/api/reports/{report_id}/download`.
+13. Open `/dashboard`; the insight banner should load from `/api/insights`. Click refresh to trigger `POST /api/insights/refresh`.
+14. Open <http://localhost:9001> → MinIO console (login: `minioadmin` / `minioadmin` unless you changed `.env`)
+15. Toggle dark mode — body color flips
+16. `make test` from repo root → backend pytest suite passes
 
 ## 9. Troubleshooting
 
@@ -201,13 +237,15 @@ You're running uvicorn on the host but `DATABASE_URL` still points to the Docker
 
 ### Alembic migration fails with `function gen_random_uuid() does not exist`
 
-The `pgcrypto` extension wasn't installed. Our `0001_initial_schema.py` runs `CREATE EXTENSION IF NOT EXISTS pgcrypto` first; if you previously partially-applied the migration manually, drop the DB and re-create it:
+The `pgcrypto` extension should be installed by the first migration. If this happened after a partially-applied manual migration on a disposable local database, reset the local volumes and migrate again:
 
 ```bash
-docker compose exec postgres psql -U cuzdan -c "DROP DATABASE cuzdan;"
-docker compose exec postgres psql -U cuzdan -c "CREATE DATABASE cuzdan;"
-make migrate
+docker compose down -v
+docker compose up -d --build
+docker compose exec backend uv run alembic upgrade head
 ```
+
+Only use `down -v` when you are okay with deleting local Postgres and MinIO data.
 
 ### `pnpm install` complains about ignored builds (sharp / unrs-resolver)
 
@@ -238,17 +276,19 @@ pnpm install
 
 ### CRLF / LF mismatches on Windows
 
-`.gitattributes` in the repo enforces LF for text files. If you committed with CRLF before this was set, run:
+`.gitattributes` in the repo enforces LF for text files. If your editor keeps changing line endings, set it to LF and then check what changed:
 
 ```bash
-git rm --cached -r .
-git reset --hard HEAD
+git status --short
+git diff --check
 ```
+
+Do not discard changes until you confirm they are only line-ending noise.
 
 ### "Hydration mismatch" warning in the browser
 
 `next-themes` adds the `class="dark"` attribute on `<html>` after mount; the root layout uses `suppressHydrationWarning` for this exact reason. If you see other hydration warnings, check that you're not reading `localStorage` / `Date.now()` outside a `useEffect`.
 
-## 10. What changes day-by-day
+## 10. Project workflow notes
 
 See [`TEAM_PROTOCOL.md`](TEAM_PROTOCOL.md) for the numbered task list and owners, and [`WORKDIVISION.md`](WORKDIVISION.md) for the collaboration rules around dependencies, review, and handoff. As features land, this SETUP.md should stay accurate — if a step here breaks, fix it in the same PR that introduced the regression.
