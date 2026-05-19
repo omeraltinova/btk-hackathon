@@ -16,7 +16,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from app.config import Settings, get_settings
 from app.models.category import Category
@@ -53,7 +53,12 @@ class ReceiptOcrUnavailableError(RuntimeError):
 class LlmReceiptItem(BaseModel):
     name: str = Field(min_length=1)
     quantity: Decimal | None = None
-    amount: Decimal | None = Field(default=None, gt=0)
+    amount: Decimal | None = None
+
+    @field_validator("quantity", "amount", mode="before")
+    @classmethod
+    def normalize_decimal_text(cls, value: Any) -> Any:
+        return _normalize_llm_decimal(value)
 
 
 class LlmReceiptPayload(BaseModel):
@@ -71,6 +76,114 @@ class LlmReceiptPayload(BaseModel):
             return None
         normalized = " ".join(value.split())
         return normalized or None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_aliases(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        _copy_first_alias(
+            normalized,
+            "total_amount",
+            ("total", "amount", "totalAmount", "total_price", "grand_total", "genel_toplam"),
+        )
+        _copy_first_alias(
+            normalized,
+            "occurred_at",
+            ("date", "datetime", "receipt_date", "transaction_date", "tarih"),
+        )
+        return normalized
+
+    @field_validator("total_amount", mode="before")
+    @classmethod
+    def normalize_decimal_text(cls, value: Any) -> Any:
+        return _normalize_llm_decimal(value)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def normalize_confidence_text(cls, value: Any) -> Any:
+        return _normalize_llm_confidence(value)
+
+    @field_validator("occurred_at", mode="before")
+    @classmethod
+    def normalize_datetime_text(cls, value: Any) -> Any:
+        return _normalize_llm_datetime(value)
+
+
+def _copy_first_alias(payload: dict[str, Any], target: str, aliases: tuple[str, ...]) -> None:
+    if payload.get(target) not in (None, ""):
+        return
+    for alias in aliases:
+        value = payload.get(alias)
+        if value not in (None, ""):
+            payload[target] = value
+            return
+
+
+def _normalize_llm_decimal(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    normalized = value.strip().replace("\u00a0", " ")
+    normalized = re.sub(r"(?i)\b(try|tl)\b", "", normalized).replace("₺", "")
+    normalized = "".join(normalized.split()).removeprefix("+")
+    if not normalized or not re.fullmatch(r"-?\d[\d.,]*", normalized):
+        return value
+
+    if "," in normalized and "." in normalized:
+        if normalized.rfind(",") > normalized.rfind("."):
+            normalized = normalized.replace(".", "").replace(",", ".")
+        else:
+            normalized = normalized.replace(",", "")
+    elif "," in normalized:
+        whole, fraction = normalized.rsplit(",", 1)
+        if 1 <= len(fraction) <= 2:
+            normalized = f"{whole.replace(',', '')}.{fraction}"
+        else:
+            normalized = normalized.replace(",", "")
+    elif re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", normalized):
+        normalized = normalized.replace(".", "")
+
+    return normalized
+
+
+def _normalize_llm_confidence(value: Any) -> Any:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.endswith("%"):
+            normalized = _normalize_llm_decimal(stripped[:-1])
+            try:
+                return Decimal(str(normalized)) / Decimal("100")
+            except InvalidOperation:
+                return value
+        return _normalize_llm_decimal(value)
+    if isinstance(value, int) and value > 1:
+        return Decimal(value) / Decimal("100")
+    return value
+
+
+def _normalize_llm_datetime(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    normalized = " ".join(value.strip().split())
+    match = re.search(
+        r"(?P<day>\d{1,2})[./-](?P<month>\d{1,2})[./-](?P<year>\d{4})"
+        r"(?:\s+(?P<hour>\d{1,2})[:.](?P<minute>\d{2}))?",
+        normalized,
+    )
+    if match is None:
+        return value
+
+    return datetime(
+        int(match.group("year")),
+        int(match.group("month")),
+        int(match.group("day")),
+        int(match.group("hour") or 12),
+        int(match.group("minute") or 0),
+        tzinfo=ISTANBUL,
+    )
 
 
 class ReceiptOcrService:
