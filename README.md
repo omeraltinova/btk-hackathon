@@ -88,35 +88,51 @@ docker compose exec backend uv run python -m app.workers.demo_seed
 
 ### Login
 
-![Login](docs/screenshots/01-login.png)
+Demo hesap seçici ve e-posta/şifre giriş ekranı.
 
-### Dashboard
+![Login](docs/screenshots/login.png)
 
-![Dashboard](docs/screenshots/02-dashboard.png)
+### Panel
 
-### İşlemler ve Fiş OCR
+Aylık özet, proaktif koç notu, zarf bütçeleri ve hedef rayı.
 
-![İşlemler ve Fiş OCR](docs/screenshots/03-transactions-ocr.png)
+![Panel](docs/screenshots/dashboard.png)
 
-### AI Koç Sohbeti
+### İşlemler
 
-![AI Koç Sohbeti](docs/screenshots/04-chat-ai-coach.png)
+Tek seferlik işlem formu, tekrarlayan kayıt özeti ve son işlemler listesi.
 
-### Sesli Koç
+![İşlemler](docs/screenshots/işlemler.png)
 
-![Sesli Koç](docs/screenshots/05-voice-coach.png)
+### Fiş Tarama
 
-### Hedefler ve Zarflar
+Fiş görselinden çıkan OCR adayını kullanıcı onayına sunan düzenleme penceresi.
 
-![Hedefler ve Zarflar](docs/screenshots/06-goals-envelopes.png)
+![Fiş Tarama](docs/screenshots/fiş_tarama.png)
 
-### Aile Profilleri
+### Sohbet
 
-![Aile Profilleri](docs/screenshots/07-family.png)
+Kullanıcının market harcaması sorusuna verilen koç yanıtı ve grafik kartı.
 
-### Finans Okulu
+![Sohbet](docs/screenshots/agent_chat.png)
 
-![Finans Okulu](docs/screenshots/08-learn.png)
+### Hedefler
+
+Birikim hedefleri, harcama azaltma hedefleri, hedef oluşturma formu ve AI taktikleri.
+
+![Hedefler](docs/screenshots/hedefler.png)
+
+### Aile Modu
+
+Ebeveyn görünümünde aile finans özeti, çocuk profilleri ve aktif profil yönetimi.
+
+![Aile Modu](docs/screenshots/aile_modu.png)
+
+### Dersler
+
+Haftalık quiz, özel ders oluşturma formu ve seviyeye göre finans dersleri.
+
+![Dersler](docs/screenshots/dersler.png)
 
 ## Özellikler
 

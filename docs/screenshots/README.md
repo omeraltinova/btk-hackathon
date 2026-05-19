@@ -1,19 +1,19 @@
 # Ekran Görüntüsü Dosyaları
 
-Bu klasör README, demo videosu, başvuru formu ve sunum materyallerinde kullanılacak ürün görselleri içindir. Ana README aşağıdaki ilk 8 görseli doğrudan referanslar; dosyalar aynı adlarla eklendiğinde README otomatik olarak görselleri gösterecektir.
+Bu klasör README, demo videosu, başvuru formu ve sunum materyallerinde kullanılacak ürün görselleri içindir. Ana README aşağıdaki görselleri doğrudan referanslar.
 
 ## README Görselleri
 
 | Dosya adı | Ekran | İçerik |
 |---|---|---|
-| `01-login.png` | Login | Demo hesap seçici ve defter temalı giriş ekranı |
-| `02-dashboard.png` | Dashboard | Aylık özet, grafikler, proaktif koç notu, ay sonu projeksiyonu |
-| `03-transactions-ocr.png` | İşlemler ve Fiş OCR | Fiş yükleme, OCR sonucu ve onay penceresi |
-| `04-chat-ai-coach.png` | AI Koç Sohbeti | Canlı akan yanıt, araç çıktısı, işlem onayı veya grafik |
-| `05-voice-coach.png` | Sesli Koç | Mikrofon, kulaklık modu ve sesli oturum şeridi |
-| `06-goals-envelopes.png` | Hedefler ve Zarflar | Birikim hedefleri, hedef ilerlemesi ve kategori zarf bütçeleri |
-| `07-family.png` | Aile Profilleri | Çocuk profili, aile özeti ve profil değiştirme akışı |
-| `08-learn.png` | Finans Okulu | Yaşa/seviyeye göre dersler ve özel ders oluşturma |
+| `login.png` | Login | Demo hesap seçici ve defter temalı giriş ekranı |
+| `dashboard.png` | Panel | Aylık özet, zarf özeti, proaktif koç notu ve hedef rayı |
+| `işlemler.png` | İşlemler | Manuel kayıt formu, tekrarlayan kayıt özeti ve son işlemler |
+| `fiş_tarama.png` | Fiş Tarama | OCR adayını kullanıcı onayına sunan düzenleme penceresi |
+| `agent_chat.png` | Sohbet | Market harcaması sorusuna verilen koç yanıtı ve grafik kartı |
+| `hedefler.png` | Hedefler | Birikim hedefleri, harcama azaltma hedefleri, hedef formu ve AI taktikleri |
+| `aile_modu.png` | Aile Modu | Ebeveyn görünümünde aile finans özeti, çocuk profilleri ve aktif profil |
+| `dersler.png` | Dersler | Haftalık quiz, özel ders oluşturma formu ve seviyeye göre finans dersleri |
 
 ## Ek Demo Görselleri
 
@@ -21,10 +21,9 @@ README dışında kullanılacak ek görseller bu klasöre eklenebilir. Önerilen
 
 | Dosya adı | Kullanım |
 |---|---|
-| `09-income-expense.png` | Gelir/gider analiz ekranı |
-| `10-chat-report-card.png` | Chat içinden aylık rapor oluşturma ve indirme kartı |
-| `11-account-export.png` | Veri dışa aktarma ve hesap ayarları |
-| `12-mobile-dashboard.png` | Mobil dashboard görünümü |
+| `gelir_gider.png` | Gelir/gider analiz ekranı |
+| `rapor_karti.png` | Chat içinden aylık rapor oluşturma ve indirme kartı |
+| `hesap_export.png` | Veri dışa aktarma ve hesap ayarları |
 
 ## Güvenlik Kontrolü
 
